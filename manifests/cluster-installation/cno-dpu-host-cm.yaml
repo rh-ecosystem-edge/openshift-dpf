@@ -4,5 +4,5 @@ metadata:
     name: hardware-offload-config
     namespace: openshift-network-operator
 data:
-    dpu-host-mode-label: "feature.node.kubernetes.io/dpu-enabled"
+    dpu-host-mode-label: "feature.node.kubernetes.io/dpu-enabled="
     mgmt-port-resource-name: "openshift.io/bf3-p0-vfs-mgmt"
