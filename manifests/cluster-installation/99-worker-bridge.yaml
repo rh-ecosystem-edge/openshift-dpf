@@ -20,6 +20,11 @@ spec:
           mode: 0755
           overwrite: true
           path: /usr/local/bin/configure-p0-routing.sh
+        - contents:
+            source: data:text/plain;charset=utf-8;base64,W2tleWZpbGVdCnVubWFuYWdlZC1kZXZpY2VzPWludGVyZmFjZS1uYW1lOm92bi1rOHMtKg==
+          mode: 0644
+          overwrite: true
+          path: "/etc/NetworkManager/conf.d/unmanage-ovnk-interface.conf"
     systemd:
       units:
         - contents: |
