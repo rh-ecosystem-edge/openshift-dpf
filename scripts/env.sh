@@ -190,3 +190,8 @@ fi
 # MetalLB Configuration (for multi-node clusters)
 # HYPERSHIFT_API_IP: IP address for Hypershift API server LoadBalancer (required for multi-node with Hypershift)
 HYPERSHIFT_API_IP=${HYPERSHIFT_API_IP:-""}
+
+# Default values For DPF sanity tests script
+SANITY_TESTS_PODS_WORKLOAD_FILE=${SANITY_TESTS_PODS_WORKLOAD_FILE:-"manifests/post-installation-manual/workload.yaml"}
+SANITY_TESTS_WORKLOAD_NAMESPACE=${SANITY_TESTS_WORKLOAD_NAMESPACE:-"workload"}
+SANITY_TESTS_PING_COUNT=${SANITY_TESTS_PING_COUNT:-"20"}

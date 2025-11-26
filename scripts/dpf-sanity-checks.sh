@@ -14,14 +14,42 @@ else
   echo "MAKELEVEL is set to: '${MAKELEVEL}', running this script from a Makefile target"
 fi
 
-echo "Checking if the .env file has been previously sourced"
-
+echo "Checking if the .env file has been previously sourced, and all required variables are set"
 if [ -z "${KUBECONFIG}" ]; then
   echo "KUBECONFIG env var is not set, after sourcing env.sh file, exiting ...."
     exit 1
 fi
 
-echo -e "\nVariables from sourced .env file:"
+if [ -z "${HOSTED_CLUSTER_NAME}" ]; then
+  echo "HOSTED_CLUSTER_NAME env var is not set, after sourcing env.sh file, exiting ...."
+    exit 1
+fi
+
+if [ -z "${CLUSTER_NAME}" ]; then
+  echo "CLUSTER_NAME env var is not set, after sourcing env.sh file, exiting ...."
+    exit 1
+fi
+
+## 11-25-25
+## Need to add default values for the 3 required variables from .env file in case they are not defined
+
+if [ -z "${SANITY_TESTS_PODS_WORKLOAD_FILE}" ]; then
+  SANITY_TESTS_PODS_WORKLOAD_FILE="manifests/post-installation-manual/workload.yaml"
+  echo "SANITY_TESTS_PODS_WORKLOAD_FILE env var is not set, after sourcing env.sh file, using default value '${SANITY_TESTS_PODS_WORKLOAD_FILE}' ..."
+fi
+
+if [ -z "${SANITY_TESTS_WORKLOAD_NAMESPACE}" ]; then
+  SANITY_TESTS_WORKLOAD_NAMESPACE="workload"
+  echo "SANITY_TESTS_WORKLOAD_NAMESPACE env var is not set, after sourcing env.sh file, using default value '${SANITY_TESTS_WORKLOAD_NAMESPACE}' ..."
+fi
+
+if [ -z "${SANITY_TESTS_PING_COUNT}" ]; then
+  SANITY_TESTS_PING_COUNT="20"
+  echo "SANITY_TESTS_PING_COUNT env var is not set, after sourcing env.sh file, using default value '${SANITY_TESTS_PING_COUNT}' ...."
+fi
+
+
+echo -e "\nVariables from sourced .env file or default values used in the script:"
 echo -e "- KUBECONFIG: '${KUBECONFIG}'"
 echo -e "- HOSTED_CLUSTER_NAME: '${HOSTED_CLUSTER_NAME}'"
 echo -e "- CLUSTER_NAME: '${CLUSTER_NAME}'"
@@ -113,8 +141,8 @@ test_results_summary="Test Results Summary:
 
 # Function to run on error
 error_handler() {
-    echo "Script crashed!"
-    echo "❌ Error on line ${LINENO}, command:  '${BASH_COMMAND}' exited with status $?"
+    echo "Script exited with error!"
+    echo "❌ Error on command:  '${BASH_COMMAND}' exited with status $?"
     echo -e "Test results so far: \n${test_results_summary}"
     echo -e "\nTotal of testcases executed: ${total_testcases_executed}"
     echo -e "Number of failed tests: ${failed_testcase_count}" 
@@ -123,6 +151,28 @@ error_handler() {
 # Trap ERR signal
 trap error_handler ERR
 
+check_deployments_ready() {
+  local namespace="$1"
+  local kubeconfig="$2"
+
+  oc get deployment -n "$namespace" --kubeconfig="$kubeconfig" \
+    -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.status.readyReplicas}{" "}{.spec.replicas}{"\n"}{end}' \
+  | awk '
+  {
+      ready = ($2 == "") ? 0 : $2
+      desired = $3
+
+      if (ready != desired) {
+          print "Deployment " $1 " NOT READY (" ready "/" desired ")"
+          failed = 1
+      } else {
+          print "Deployment " $1 " ready (" ready "/" desired ")"
+      }
+  }
+  END {
+      exit failed
+  }'
+}
 
 # Function to parse output of ping cmd and report packet loss
 check_ping_packet_loss() {
@@ -255,29 +305,29 @@ ping_mtu_test() {
 echo -e "\nOutput of oc get co cmd on mgmt cluster:"
 oc get co --kubeconfig=${mgmt_kubecfg}
 
-
 testcase_title="Checking if any cluster operators are degraded or progressing on management cluster" 
 echo -e "\n${testcase_title}"
+
+# increment to the total testcases executed
+((total_testcases_executed++))
 
 check_cluster_operators "${mgmt_kubecfg}"
 result_check_cluster_operators=$?
 test_results_summary+="\n${testcase_title}: $(format_result "${result_check_cluster_operators}")"
 
-# increment to the total testcases executed
-((total_testcases_executed++))
-
 # output of `oc get co` on hosted cluster:
 echo -e "\nOutput of oc get co cmd on hosted cluster:"
 oc get co --kubeconfig=${hosted_kubecfg} 
 
-
 testcase_title="Checking if any cluster operators are degraded or progressing on hosted cluster" 
 echo -e "\n${testcase_title}"
+
+# increment to the total testcases executed
+((total_testcases_executed++))
 
 check_cluster_operators "${hosted_kubecfg}"
 result_check_cluster_operators=$?
 test_results_summary+="\n${testcase_title}: $(format_result "${result_check_cluster_operators}")"
-((total_testcases_executed++))
 
 echo -e "\nChecking if workload namespace exists on admin cluster, otherwise create it"
 if oc get namespace "${SANITY_TESTS_WORKLOAD_NAMESPACE}" --kubeconfig="${mgmt_kubecfg}" >/dev/null 2>&1; then
@@ -300,15 +350,15 @@ else
     echo "❌ Failed to create namespace '${SANITY_TESTS_WORKLOAD_NAMESPACE}' and applying '${SANITY_TESTS_PODS_WORKLOAD_FILE}' file."
     exit 1
   fi
-
 fi
 
+# Check that all the pods are running in the '${SANITY_TESTS_WORKLOAD_NAMESPACE}' namespace, otherwise exit:
+testcase_title="Check that all the pods are running in the '${SANITY_TESTS_WORKLOAD_NAMESPACE}' namespace"
+echo -e "\n${testcase_title}, otherwise exit script..."
 
-echo -e "\nCheck that all the pods are running in the '${SANITY_TESTS_WORKLOAD_NAMESPACE}' namespace, otherwise exit:"
-
-oc get deployment -n ${SANITY_TESTS_WORKLOAD_NAMESPACE} --kubeconfig="${mgmt_kubecfg}" -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.status.readyReplicas}{" "}{.spec.replicas}{"\n"}{end}' \
-| awk '{if($2!=$3){print "Deployment "$1" not ready ("$2"/"$3")"; exit 1} else {print "Deployment "$1" ready ("$2"/"$3")"}}'
-
+check_deployments_ready "${SANITY_TESTS_WORKLOAD_NAMESPACE}" "${mgmt_kubecfg}"
+result_check_deployments_ready=$?
+test_results_summary+="\n${testcase_title}: $(format_result "${result_check_deployments_ready}")"
 
 echo -e "\noc get nodes --kubeconfig=${mgmt_kubecfg} output:"
 oc get nodes --kubeconfig=${mgmt_kubecfg}
@@ -330,7 +380,13 @@ for i in "${!dpu_workers[@]}"; do
   echo -e "\nFinding doca hbn pod name for DPU worker '${dpu_workers[$i]}'"
   doca_hbn_worker_pods[$i]=$(oc get pods -n "${dpf_operator_namespace}" --kubeconfig="${hosted_kubecfg}" -o wide | grep "${dpu_workers[$i]}" | grep hbn | awk '{print $1}')
   ## echo -e "doca-hbn pod for worker '${dpu_workers[$i]}' found was: '${doca_hbn_worker_pods[$i]}'"
-  echo "doca-hbn pod name for DPU worker '${dpu_workers[$i]}' is '${doca_hbn_worker_pods[$i]}'"
+  # check that doca-hbn pod was found, otherwise exit
+  if [ -z "${doca_hbn_worker_pods[$i]}" ]; then
+    echo -e "❌ Failed to find doca-hbn pod for DPU worker '${dpu_workers[$i]}'"
+    exit 1
+  else
+    echo -e "✅ Found doca-hbn pod for DPU worker '${dpu_workers[$i]}' is: '${doca_hbn_worker_pods[$i]}'"
+  fi  
 done
 
 echo -e "\nGetting the doca-hbn container ip address for all the DPU worker nodes"
@@ -357,7 +413,20 @@ output_workload_namespace=$(oc get pods -n  ${SANITY_TESTS_WORKLOAD_NAMESPACE} -
 echo -e "\nOutput of oc get pods -n ${SANITY_TESTS_WORKLOAD_NAMESPACE}: \n$output_workload_namespace\n"
 
 sriov_test_pod_master=$(oc get pods -n ${SANITY_TESTS_WORKLOAD_NAMESPACE} --kubeconfig="${mgmt_kubecfg}" | grep master | awk '{print $1}')
-echo -e "\nsriov master test pod is: ${sriov_test_pod_master}"
+# check that sriov master test pod was found, and running 
+if [ -z "${sriov_test_pod_master}" ]; then
+  echo -e "❌ Failed to find sriov master test pod"
+  exit 1
+else
+  echo -e "✅ Found sriov master test pod is: '${sriov_test_pod_master}'"
+
+  if [ "$(oc get pods -n "${SANITY_TESTS_WORKLOAD_NAMESPACE}" --kubeconfig="${mgmt_kubecfg}" | grep "${sriov_test_pod_master}" | awk '{print $3}')" != "Running" ]; then
+      echo -e "❌ Sriov master test pod '${sriov_test_pod_master}' is not running, failing test ..."
+      exit 1
+  else
+    echo -e "✅ Sriov master test pod '${sriov_test_pod_master}' is running"
+  fi
+fi
 
 # get the test worker pod names on DPU worker node
 echo -e "\nGetting the sriov test worker pods on all the DPU worker nodes"
@@ -378,12 +447,41 @@ for i in "${!dpu_workers[@]}"; do
 
   echo -e "\nFinding sriov test worker pod name for dpu_workers array index $i '${dpu_workers[$i]}' to ping doca-hbn pod name '${doca_hbn_worker_pods[$i]}'"
   sriov_test_worker_pods[$i]=$(oc get pods -n "${SANITY_TESTS_WORKLOAD_NAMESPACE}" --kubeconfig="${mgmt_kubecfg}" -o wide | grep "${dpu_workers[$i]}" | awk '{print $1}' | grep -v hostnetwork)
-  echo -e "sriov test worker pod found for worker '${dpu_workers[$i]}': '${sriov_test_worker_pods[$i]}'"
+  if [ -z "${sriov_test_worker_pods[$i]}" ]; then
+    echo -e "❌ Failed to find sriov test worker pod for DPU worker '${dpu_workers[$i]}'. Exiting script..."
+    exit 1
+  else
+    echo -e "✅ Found sriov test worker pod for DPU worker '${dpu_workers[$i]}': '${sriov_test_worker_pods[$i]}'"
+
+    check_pod_running=$(oc get pods -n "${SANITY_TESTS_WORKLOAD_NAMESPACE}" --kubeconfig="${mgmt_kubecfg}" -o wide | grep "${dpu_workers[$i]}" | awk '{print $3}')
+    ## echo "check_pod_running is: ${check_pod_running}"
+
+    # check if the sriov test worker pod is running, if not Running, fail test ...
+    if [ "$(oc get pod "${sriov_test_worker_pods[$i]}" -n "${SANITY_TESTS_WORKLOAD_NAMESPACE}" --kubeconfig="${mgmt_kubecfg}" -o jsonpath='{.status.phase}')" != "Running" ]; then
+    ## if [ "${check_pod_running}" != "Running" ]; then
+      echo -e "❌ Test pod '${sriov_test_worker_pods[$i]}' is not running, Exiting script..."
+      exit 1
+    else 
+      echo -e "✅ Test pod '${sriov_test_worker_pods[$i]}' is running"
+    fi
+  fi
 
   echo -e "\nFinding sriov_test_workers_pods_hostnetwork name for dpu_workers array index $i '${dpu_workers[$i]}' to ping doca-hbn pod name '${doca_hbn_worker_pods[$i]}'"
   sriov_test_worker_pods_hostnetwork[$i]=$(oc get pods -n "${SANITY_TESTS_WORKLOAD_NAMESPACE}" --kubeconfig="${mgmt_kubecfg}" -o wide | grep "${dpu_workers[$i]}" | awk '{print $1}' | grep hostnetwork)
-  echo -e "sriov test worker hostnetwork pod found for worker '${dpu_workers[$i]}': '${sriov_test_worker_pods_hostnetwork[$i]}'"
-  
+  if [ -z "${sriov_test_worker_pods_hostnetwork[$i]}" ]; then
+    echo -e "❌ Failed to find sriov test worker hostnetwork pod for DPU worker '${dpu_workers[$i]}'. Exiting script..."
+    exit 1
+  else
+    echo -e "✅ Found sriov test worker hostnetwork pod for DPU worker '${dpu_workers[$i]}': '${sriov_test_worker_pods_hostnetwork[$i]}'"
+    # check if the sriov test worker hostnetwork pod is running, if not Running, fail test ...
+    if [ "$(oc get pod "${sriov_test_worker_pods_hostnetwork[$i]}" -n "${SANITY_TESTS_WORKLOAD_NAMESPACE}" --kubeconfig="${mgmt_kubecfg}" -o jsonpath='{.status.phase}')" != "Running" ]; then
+      echo -e "❌ Test pod '${sriov_test_worker_pods_hostnetwork[$i]}' is not running, Exiting script..."
+      exit 1
+    else 
+      echo -e "✅ Test pod '${sriov_test_worker_pods_hostnetwork[$i]}' is running"
+    fi
+  fi
+
   echo -e "\nList of interfaces that are up on doca-hbn pod '${doca_hbn_worker_pods[$i]}' for DPU worker '${dpu_workers[$i]}':"
   oc exec "${doca_hbn_worker_pods[$i]}" -n "${dpf_operator_namespace}"  --kubeconfig="${hosted_kubecfg}" -c doca-hbn -- ip -4 -o a
 
