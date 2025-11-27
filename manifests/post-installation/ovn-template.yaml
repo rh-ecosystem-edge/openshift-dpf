@@ -17,9 +17,7 @@ spec:
         image:
           repository: <OVN_KUBERNETES_IMAGE_REPO>
           tag: <OVN_KUBERNETES_IMAGE_TAG>
-        imagedpf:
-          repository: <OVN_KUBERNETES_UTILS_IMAGE_REPO>
-          tag: <OVN_KUBERNETES_UTILS_IMAGE_TAG>
+        <OVN_KUBERNETES_UTILS_IMAGES>
         enabled: true
         cniBinDir: /var/lib/cni/bin/
         cniConfDir: /run/multus/cni/net.d

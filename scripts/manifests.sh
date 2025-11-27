@@ -90,14 +90,14 @@ function prepare_nfs() {
         log "INFO" "Selected master IP: ${selected_master_ip}"
 
         # Build node affinity YAML block (properly indented with 6 spaces)
-        node_affinity="affinity:\\
-        nodeAffinity:\\
-          requiredDuringSchedulingIgnoredDuringExecution:\\
-            nodeSelectorTerms:\\
-            - matchExpressions:\\
-              - key: kubernetes.io/hostname\\
-                operator: In\\
-                values:\\
+        node_affinity="affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: In
+                values:
                 - ${selected_master_node}"
 
         # Set HOST_CLUSTER_API to the selected master IP

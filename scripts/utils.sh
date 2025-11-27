@@ -324,6 +324,7 @@ function process_template() {
 # -----------------------------------------------------------------------------
 
 # Function to update a file with multiple replacements
+# Uses pure bash string replacement - handles both single-line and multi-line values
 update_file_multi_replace() {
     local source_file=$1
     local target_file=$2
@@ -332,15 +333,26 @@ update_file_multi_replace() {
 
     log [INFO] "Updating ${source_file} with multiple replacements..."
         
-    cp "${source_file}" "${target_file}"
+    # Read the entire source file content
+    local content
+    content=$(<"${source_file}")
+    
     local i=0
     while [ $i -lt ${#pairs[@]} ]; do
         local placeholder="${pairs[$i]}"
         local value="${pairs[$((i+1))]}"
-        sed -i "s|${placeholder}|${value}|g" "${target_file}"
-        log [INFO] "Replaced ${placeholder} with ${value} in ${target_file}"
+        log [INFO] "Replacing ${placeholder} with ${value} in ${target_file}"
+
+        # Use bash parameter expansion for replacement (handles multi-line naturally)
+        content="${content//${placeholder}/${value}}"
+        
+        log [INFO] "Replaced ${placeholder} in ${target_file}"
         i=$((i+2))
     done
+    
+    # Write the modified content to target file
+    printf '%s\n' "${content}" > "${target_file}"
+    
     log [INFO] "Updated ${source_file} with all replacements successfully"
 }
 

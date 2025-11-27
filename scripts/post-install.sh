@@ -49,13 +49,12 @@ function update_bfb_manifest() {
     log [INFO] "Updating BFB manifest..."
     # Extract filename from URL
     local bfb_filename=$(basename "${BFB_URL}")
-    # Copy the file
-    cp "${POST_INSTALL_DIR}/bfb.yaml" "${GENERATED_POST_INSTALL_DIR}/bfb.yaml"
-    # Update the manifest with custom values (escape special characters)
-    local escaped_filename=$(escape_sed_replacement "${bfb_filename}")
-    local escaped_url=$(escape_sed_replacement "${BFB_URL}")
-    sed -i "s|<BFB_FILENAME>|${escaped_filename}|g" "${GENERATED_POST_INSTALL_DIR}/bfb.yaml"
-    sed -i "s|<BFB_URL>|\"${escaped_url}\"|g" "${GENERATED_POST_INSTALL_DIR}/bfb.yaml"
+    # Update the manifest with custom values using update_file_multi_replace
+    update_file_multi_replace \
+        "${POST_INSTALL_DIR}/bfb.yaml" \
+        "${GENERATED_POST_INSTALL_DIR}/bfb.yaml" \
+        "<BFB_FILENAME>" "${bfb_filename}" \
+        "<BFB_URL>" "\"${BFB_URL}\""
     log [INFO] "BFB manifest updated successfully"
 }
 
@@ -80,6 +79,19 @@ function update_hbn_ovn_manifests() {
     
     # Update ovn-template.yaml for DPUDeployment
     if [ -f "${POST_INSTALL_DIR}/ovn-template.yaml" ]; then
+        # Determine the replacement value for <OVN_KUBERNETES_UTILS_IMAGES>
+        local utils_images_replacement=""
+        if [ -n "${OVN_KUBERNETES_UTILS_IMAGE_REPO}" ] && [ -n "${OVN_KUBERNETES_UTILS_IMAGE_TAG}" ]; then
+            # Build the imagedpf block with proper indentation (8 spaces for imagedpf:, 10 spaces for repository/tag)
+            utils_images_replacement="imagedpf:
+          repository: ${OVN_KUBERNETES_UTILS_IMAGE_REPO}
+          tag: ${OVN_KUBERNETES_UTILS_IMAGE_TAG}"
+            log [INFO] "OVN_KUBERNETES_UTILS_IMAGE_REPO and OVN_KUBERNETES_UTILS_IMAGE_TAG set, including imagedpf section in ovn-template.yaml" 
+        else
+            log [INFO] "OVN_KUBERNETES_UTILS_IMAGE_REPO or OVN_KUBERNETES_UTILS_IMAGE_TAG not set, omitting imagedpf section from ovn-template.yaml"
+        fi
+        
+        # Use update_file_multi_replace for all replacements
         update_file_multi_replace \
             "${POST_INSTALL_DIR}/ovn-template.yaml" \
             "${GENERATED_POST_INSTALL_DIR}/ovn-template.yaml" \
@@ -88,8 +100,7 @@ function update_hbn_ovn_manifests() {
             "<OVN_TEMPLATE_CHART_URL>" "${OVN_TEMPLATE_CHART_URL}" \
             "<OVN_KUBERNETES_IMAGE_REPO>" "${OVN_KUBERNETES_IMAGE_REPO}" \
             "<OVN_KUBERNETES_IMAGE_TAG>" "${OVN_KUBERNETES_IMAGE_TAG}" \
-            "<OVN_KUBERNETES_UTILS_IMAGE_REPO>" "${OVN_KUBERNETES_UTILS_IMAGE_REPO}" \
-            "<OVN_KUBERNETES_UTILS_IMAGE_TAG>" "${OVN_KUBERNETES_UTILS_IMAGE_TAG}" \
+            "<OVN_KUBERNETES_UTILS_IMAGES>" "${utils_images_replacement}" \
             "<OVN_CHART_URL>" "${OVN_CHART_URL}"
     fi
 
@@ -235,7 +246,6 @@ function prepare_post_installation() {
         log [ERROR] "Post-installation directory not found: ${POST_INSTALL_DIR}"
         exit 1
     fi
-    get_kubeconfig
     # Update manifests with custom values
     update_bfb_manifest
     update_hbn_ovn_manifests
