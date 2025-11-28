@@ -133,9 +133,11 @@ function prepare_cluster_manifests() {
         "nfd-subscription.yaml"
         "sriov-subscription.yaml"
         "99-worker-bridge.yaml"
-        "4.19-cataloguesource.yaml"
     )
 
+    if [ "${USE_V419_WORKAROUND}" != "true" ]; then
+        excluded_files+=("4.19-cataloguesource.yaml")
+    fi
     
     # Copy all manifests except excluded files using utility function
     copy_manifests_with_exclusions "$MANIFESTS_DIR/cluster-installation" "$GENERATED_DIR" "${excluded_files[@]}"
@@ -147,7 +149,7 @@ function prepare_cluster_manifests() {
             "$GENERATED_DIR/nfd-subscription.yaml" \
             "<CATALOG_SOURCE_NAME>" "$CATALOG_SOURCE_NAME"
     fi
-    
+
     if [ -f "$MANIFESTS_DIR/cluster-installation/sriov-subscription.yaml" ]; then
         update_file_multi_replace \
             "$MANIFESTS_DIR/cluster-installation/sriov-subscription.yaml" \
