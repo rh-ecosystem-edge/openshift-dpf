@@ -195,3 +195,21 @@ HYPERSHIFT_API_IP=${HYPERSHIFT_API_IP:-""}
 SANITY_TESTS_PODS_WORKLOAD_FILE=${SANITY_TESTS_PODS_WORKLOAD_FILE:-"manifests/post-installation-manual/workload.yaml"}
 SANITY_TESTS_WORKLOAD_NAMESPACE=${SANITY_TESTS_WORKLOAD_NAMESPACE:-"workload"}
 SANITY_TESTS_PING_COUNT=${SANITY_TESTS_PING_COUNT:-"20"}
+
+# Bare Metal Host Configuration
+# BMH_COUNT: Number of bare metal hosts to configure
+# BMH_NAME_PREFIX: Prefix for bare metal host names (e.g., "worker" results in "worker-1", "worker-2", etc.)
+# BMH_MAC_ADDRESS_<N>: MAC address for host N (e.g., BMH_MAC_ADDRESS_1="54:80:28:50:10:02")
+# BMH_BMC_IP_<N>: BMC IP address for host N (e.g., BMH_BMC_IP_1="10.143.109.53")
+# BMH_BMC_USERNAME_<N>: BMC username for host N (e.g., BMH_BMC_USERNAME_1="admin")
+# BMH_BMC_PASSWORD_<N>: BMC password for host N (e.g., BMH_BMC_PASSWORD_1="password")
+# BMH_USERDATA_SECRET_<N>: UserData secret name for host N (optional, falls back to BMH_USERDATA_SECRET_DEFAULT)
+# BMH_BMC_PROTOCOL: BMC protocol (default: redfish-virtualmedia+https)
+# BMH_ROOT_DEVICE: Root device hint (default: /dev/nvme0n1)
+# BMH_USERDATA_SECRET_DEFAULT: Default userData secret name if per-host secret not specified (default: worker-user-data-managed)
+BMH_COUNT=${BMH_COUNT:-"0"}
+BMH_NAME_PREFIX=${BMH_NAME_PREFIX:-"openshift-worker"}
+BMH_BMC_PROTOCOL=${BMH_BMC_PROTOCOL:-"redfish-virtualmedia+https"}
+BMH_ROOT_DEVICE=${BMH_ROOT_DEVICE:-"/dev/nvme0n1"}
+BMH_USERDATA_SECRET_DEFAULT=${BMH_USERDATA_SECRET_DEFAULT:-"worker-user-data-managed"}
+BMH_NAMESPACE=${BMH_NAMESPACE:-"openshift-machine-api"}

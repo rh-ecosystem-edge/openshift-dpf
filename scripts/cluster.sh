@@ -237,6 +237,14 @@ function start_cluster_installation() {
         deploy_lso
         deploy_odf
     fi
+    
+    # Deploy Bare Metal Hosts if configured
+    if [ "${BMH_COUNT:-0}" -gt 0 ]; then
+        log "INFO" "BMH_COUNT is set to ${BMH_COUNT}. Deploying Bare Metal Operator and Hosts..."
+        deploy_bare_metal_hosts
+    else
+        log "INFO" "BMH_COUNT is 0 or not set. Skipping bare metal hosts deployment."
+    fi
 }
 
 function get_kubeconfig() {
@@ -388,6 +396,181 @@ function deploy_odf() {
     log "INFO" "ODF deployment completed successfully!"
 }
 
+function generate_bmh_manifests() {
+    log "INFO" "Generating BareMetalHost manifests..."
+    
+    # Check if BMH_COUNT is set and greater than 0
+    if [ "${BMH_COUNT:-0}" -eq 0 ]; then
+        log "INFO" "BMH_COUNT is 0 or not set. Skipping BareMetalHost manifest generation."
+        return 0
+    fi
+    
+    # Ensure generated directory exists
+    mkdir -p "${GENERATED_DIR}"
+    
+    local output_file="${GENERATED_DIR}/bare-metal-hosts.yaml"
+    
+    # Clear the output file
+    > "${output_file}"
+    
+    # Generate manifests for each host
+    for i in $(seq 1 "${BMH_COUNT}"); do
+        # Get dynamic variable names
+        local mac_var="BMH_MAC_ADDRESS_${i}"
+        local bmc_ip_var="BMH_BMC_IP_${i}"
+        local username_var="BMH_BMC_USERNAME_${i}"
+        local password_var="BMH_BMC_PASSWORD_${i}"
+        local userdata_secret_var="BMH_USERDATA_SECRET_${i}"
+        
+        # Get values from environment
+        local mac_address="${!mac_var}"
+        local bmc_ip="${!bmc_ip_var}"
+        local username="${!username_var}"
+        local password="${!password_var}"
+        local userdata_secret="${!userdata_secret_var}"
+        
+        # Use default userData secret if not specified per host
+        if [ -z "${userdata_secret}" ]; then
+            userdata_secret="${BMH_USERDATA_SECRET_DEFAULT}"
+        fi
+        
+        # Validate required fields
+        if [ -z "${mac_address}" ]; then
+            log "ERROR" "${mac_var} is not set. Please set MAC address for host ${i}."
+            return 1
+        fi
+        
+        if [ -z "${bmc_ip}" ]; then
+            log "ERROR" "${bmc_ip_var} is not set. Please set BMC IP address for host ${i}."
+            return 1
+        fi
+        
+        if [ -z "${username}" ]; then
+            log "ERROR" "${username_var} is not set. Please set BMC username for host ${i}."
+            return 1
+        fi
+        
+        if [ -z "${password}" ]; then
+            log "ERROR" "${password_var} is not set. Please set BMC password for host ${i}."
+            return 1
+        fi
+        
+        # Encode credentials to base64
+        local username_b64=$(echo -n "${username}" | base64)
+        local password_b64=$(echo -n "${password}" | base64)
+        
+        # Generate host name
+        local host_name="${BMH_NAME_PREFIX}-${i}"
+        local secret_name="${host_name}-bmc-secret"
+        
+        log "INFO" "Generating manifest for ${host_name} (MAC: ${mac_address}, BMC: ${bmc_ip}, UserData: ${userdata_secret})"
+        
+        # Generate Secret and BareMetalHost manifests
+        cat >> "${output_file}" << EOF
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ${secret_name}
+  namespace: ${BMH_NAMESPACE}
+type: Opaque
+data:
+  username: ${username_b64}
+  password: ${password_b64}
+---
+apiVersion: metal3.io/v1alpha1
+kind: BareMetalHost
+metadata:
+  annotations:
+    inspect.metal3.io: disabled
+  name: ${host_name}
+  namespace: ${BMH_NAMESPACE}
+spec:
+  online: true
+  bootMACAddress: ${mac_address}
+  bmc:
+    address: ${BMH_BMC_PROTOCOL}://${bmc_ip}
+    credentialsName: ${secret_name}
+    disableCertificateVerification: true
+  customDeploy:
+    method: install_coreos
+  userData:
+    name: ${userdata_secret}
+    namespace: ${BMH_NAMESPACE}
+  rootDeviceHints:
+    deviceName: ${BMH_ROOT_DEVICE}
+EOF
+    done
+    
+    log "INFO" "BareMetalHost manifests generated successfully at ${output_file}"
+    log "INFO" "Generated ${BMH_COUNT} host(s)"
+}
+
+function deploy_bmo() {
+    log "INFO" "Deploying Bare Metal Operator..."
+    
+    get_kubeconfig
+    
+    # Check if Provisioning object exists, if not apply it
+    if ! oc get provisioning provisioning-configuration &>/dev/null; then
+        log "INFO" "Provisioning configuration not found. Applying Bare Metal Operator manifest..."
+        apply_manifest "${MANIFESTS_DIR}/cluster-installation/bare-metal-operator.yaml"
+        
+        # Verify provisioning object is created
+        log "INFO" "Verifying Bare Metal Operator provisioning configuration..."
+        if ! retry 30 10 bash -c 'oc get provisioning provisioning-configuration &>/dev/null'; then
+            log "ERROR" "Timeout: Bare Metal Operator provisioning configuration failed"
+            return 1
+        fi
+        log "INFO" "Bare Metal Operator provisioning configuration verified successfully"
+    else
+        log "INFO" "Bare Metal Operator provisioning configuration already exists. Skipping deployment."
+    fi
+    
+    log "INFO" "Bare Metal Operator deployment completed successfully!"
+}
+
+function deploy_bare_metal_hosts() {
+    log "INFO" "Deploying Bare Metal Operator and Hosts..."
+    
+    # Step 1: Deploy the Bare Metal Operator
+    log "INFO" "Step 1: Deploying Bare Metal Operator..."
+    deploy_bmo || return 1
+    
+    # Step 2: Generate BareMetalHost manifests if BMH_COUNT is set
+    if [ "${BMH_COUNT:-0}" -gt 0 ]; then
+        log "INFO" "Step 2: BMH_COUNT is set to ${BMH_COUNT}. Generating BareMetalHost manifests..."
+        generate_bmh_manifests || return 1
+    else
+        log "INFO" "Step 2: BMH_COUNT is 0 or not set. Skipping manifest generation."
+    fi
+    
+    # Step 3: Deploy BareMetalHost if manifest exists and is not empty
+    if [ -f "${GENERATED_DIR}/bare-metal-hosts.yaml" ]; then
+        # Check if file is not empty (has more than just whitespace)
+        if [ -s "${GENERATED_DIR}/bare-metal-hosts.yaml" ] && \
+           grep -q '[^[:space:]]' "${GENERATED_DIR}/bare-metal-hosts.yaml" 2>/dev/null; then
+            log "INFO" "Step 3: BareMetalHost manifest found. Deploying BareMetalHosts with retry logic..."
+            
+            # Retry applying the manifest until it succeeds
+            local max_retries=30
+            local sleep_time=10
+            if retry ${max_retries} ${sleep_time} apply_manifest "${GENERATED_DIR}/bare-metal-hosts.yaml"; then
+                log "INFO" "BareMetalHost deployment completed successfully"
+            else
+                log "ERROR" "Failed to deploy BareMetalHosts after ${max_retries} attempts"
+                return 1
+            fi
+        else
+            log "INFO" "Step 3: BareMetalHost manifest file is empty. Skipping BareMetalHost deployment."
+        fi
+    else
+        log "INFO" "Step 3: No BareMetalHost manifest found. Skipping BareMetalHost deployment."
+    fi
+    
+    log "INFO" "Bare Metal Operator and Hosts deployment completed successfully!"
+}
+
 # -----------------------------------------------------------------------------
 # ISO management functions
 # -----------------------------------------------------------------------------
@@ -515,10 +698,16 @@ function main() {
         deploy-odf)
             deploy_odf
             ;;
+        deploy-bare-metal-hosts)
+            deploy_bare_metal_hosts
+            ;;
+        generate-bmh-manifests)
+            generate_bmh_manifests
+            ;;
         *)
             log "Unknown command: $command"
             log "Available commands: check-create-cluster, delete-cluster, cluster-install,"
-            log "  wait-for-status, get-kubeconfig, clean-all, download-iso, create-day2-cluster, get-day2-iso, deploy-lso, deploy-odf"
+            log "  wait-for-status, get-kubeconfig, clean-all, download-iso, create-day2-cluster, get-day2-iso, deploy-lso, deploy-odf, deploy-bare-metal-hosts, generate-bmh-manifests"
             exit 1
             ;;
     esac
