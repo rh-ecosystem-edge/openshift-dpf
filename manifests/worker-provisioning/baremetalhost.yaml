@@ -10,7 +10,7 @@ spec:
   online: true
   bootMACAddress: <BOOT_MAC>
   bmc:
-    address: redfish-virtualmedia+https://<BMC_IP><REDFISH_SYSTEM_PATH>
+    address: redfish-virtualmedia+https://<BMC_IP>
     credentialsName: <WORKER_NAME>-bmc-secret
     disableCertificateVerification: true
   customDeploy:
