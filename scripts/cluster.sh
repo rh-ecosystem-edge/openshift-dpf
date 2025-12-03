@@ -392,47 +392,9 @@ function deploy_odf() {
 # ISO management functions
 # -----------------------------------------------------------------------------
 
-function create_day2_cluster() {
-    # Move cluster to day2 mode for adding worker nodes to existing cluster
-    log "INFO" "Checking cluster ${CLUSTER_NAME} for day2 transition..."
-
-    # Get cluster ID and status in a single call
-    local cluster_id cluster_status
-    read -r cluster_id cluster_status <<< "$(aicli -o json info cluster "${CLUSTER_NAME}" | jq -r '[.id, .status] | @tsv')"
-
-    if [ -z "${cluster_id}" ] || [ -z "${cluster_status}" ]; then
-        log "ERROR" "Cluster ${CLUSTER_NAME} not found or failed to retrieve cluster information"
-        return 1
-    fi
-
-    log "INFO" "Found cluster ${CLUSTER_NAME} (ID: ${cluster_id}, Status: ${cluster_status})"
-
-    # Check if cluster is already in adding-hosts status (day2 mode)
-    if [ "${cluster_status}" = "adding-hosts" ]; then
-        log "INFO" "Cluster ${CLUSTER_NAME} was already moved to day2 mode"
-        return 0
-    fi
-
-    # Check if cluster is installed
-    if [ "${cluster_status}" != "installed" ]; then
-        log "ERROR" "Cannot move cluster ${CLUSTER_NAME} to day2 mode. Cluster must be installed first (current status: ${cluster_status})"
-        return 1
-    fi
-
-    # Move cluster to day2 mode
-    log "INFO" "Moving cluster ${CLUSTER_NAME} (ID: ${cluster_id}) to day2 mode..."
-    if ! aicli update cluster "${cluster_id}" -P day2=true -P infraenv=false; then
-        log "ERROR" "Failed to update cluster ${CLUSTER_NAME} to day2 mode"
-        return 1
-    fi
-
-    log "INFO" "Cluster ${CLUSTER_NAME} successfully moved to day2 mode"
-    return 0
-}
-
 function get_iso() {
     local cluster_name="${1:-${CLUSTER_NAME}}"
-    local cluster_type="${2:-day2}"
+    local cluster_type="${2:-day1}"
     local action="${3:-download}"
     local download_path="${ISO_FOLDER}"
     local iso_type="${ISO_TYPE}"
@@ -502,13 +464,6 @@ function main() {
             # Download ISO for master nodes
             get_iso "${CLUSTER_NAME}" "day1" "download"
             ;;
-        get-day2-iso)
-            # Get worker ISO URL
-            get_iso "${CLUSTER_NAME}" "day2" "url"
-            ;;
-        create-day2-cluster)
-            create_day2_cluster
-            ;;
         deploy-lso)
             deploy_lso
             ;;
@@ -518,7 +473,7 @@ function main() {
         *)
             log "Unknown command: $command"
             log "Available commands: check-create-cluster, delete-cluster, cluster-install,"
-            log "  wait-for-status, get-kubeconfig, clean-all, download-iso, create-day2-cluster, get-day2-iso, deploy-lso, deploy-odf"
+            log "  wait-for-status, get-kubeconfig, clean-all, download-iso, deploy-lso, deploy-odf"
             exit 1
             ;;
     esac
