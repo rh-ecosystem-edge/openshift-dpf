@@ -6,9 +6,21 @@ Add physical servers as OpenShift worker nodes using automated bare metal provis
 
 ### 1. Prerequisites
 
-**Hardware**: Physical servers with BMC/iDRAC access and NVIDIA BlueField-3 DPUs
-**Network**: BMC connectivity and PXE/network boot capability
-**Supported**: Dell iDRAC, HPE iLO, Supermicro (auto-detected)
+**Before starting**: Ensure you have a running OpenShift DPF cluster
+
+**Hardware Requirements**:
+- Physical servers with BMC/iDRAC access
+- NVIDIA BlueField-3 DPUs installed
+- Network connectivity from automation host to BMC interfaces
+
+**Verify connectivity**:
+```bash
+# Test BMC access
+ping 192.168.1.101
+curl -k https://192.168.1.101/redfish/v1/
+```
+
+**Supported BMCs**: Dell iDRAC, HPE iLO, Supermicro (auto-detected)
 
 ### 2. Configure Workers
 
@@ -18,23 +30,28 @@ Add to your `.env` file:
 # Number of workers to provision
 WORKER_COUNT=2
 
-# Worker 1
-WORKER_1_NAME=worker-01
-WORKER_1_BMC_IP=192.168.1.101
-WORKER_1_BMC_USER=root
-WORKER_1_BMC_PASSWORD=calvin
-WORKER_1_BOOT_MAC=aa:bb:cc:dd:ee:01
+# Worker 1 (replace with your actual values)
+WORKER_1_NAME=worker-01                    # Choose unique hostname
+WORKER_1_BMC_IP=192.168.1.101             # Your BMC IP address
+WORKER_1_BMC_USER=admin                    # Your BMC username (NOT root/calvin!)
+WORKER_1_BMC_PASSWORD=your_secure_password # Your BMC password
+WORKER_1_BOOT_MAC=aa:bb:cc:dd:ee:01        # MAC of PXE network interface
 
-# Worker 2
+# Worker 2 (follow same pattern for additional workers)
 WORKER_2_NAME=worker-02
 WORKER_2_BMC_IP=192.168.1.102
-WORKER_2_BMC_USER=root
-WORKER_2_BMC_PASSWORD=calvin
+WORKER_2_BMC_USER=admin
+WORKER_2_BMC_PASSWORD=your_secure_password
 WORKER_2_BOOT_MAC=aa:bb:cc:dd:ee:02
 
-# Security (recommended)
-AUTO_APPROVE_WORKER_CSR=false  # Manual approval for production
+# Security (recommended for production)
+AUTO_APPROVE_WORKER_CSR=false
 ```
+
+**Finding your boot MAC address:**
+- Check BMC web interface → Network → LAN settings
+- Or use: `ip link show` on existing node with similar hardware
+- Usually the first network interface (not BMC interface)
 
 ### 3. Deploy Workers
 
@@ -78,11 +95,11 @@ No vendor-specific configuration needed - it just works.
 
 | Variable | Description | Example |
 |----------|-------------|---------|
-| `WORKER_n_NAME` | Unique hostname | `worker-01` |
-| `WORKER_n_BMC_IP` | BMC management IP | `192.168.1.101` |
-| `WORKER_n_BMC_USER` | BMC username | `root` |
-| `WORKER_n_BMC_PASSWORD` | BMC password | `calvin` |
-| `WORKER_n_BOOT_MAC` | PXE network interface MAC | `aa:bb:cc:dd:ee:01` |
+| `WORKER_n_NAME` | Unique hostname (n = worker number) | `worker-01` |
+| `WORKER_n_BMC_IP` | BMC management IP address | `192.168.1.101` |
+| `WORKER_n_BMC_USER` | BMC username (use secure credentials) | `admin` |
+| `WORKER_n_BMC_PASSWORD` | BMC password | `your_password` |
+| `WORKER_n_BOOT_MAC` | PXE network interface MAC address | `aa:bb:cc:dd:ee:01` |
 
 ### Optional Variables
 
@@ -135,8 +152,8 @@ oc get csr
 ping 192.168.1.101
 curl -k https://192.168.1.101/redfish/v1/
 
-# Check credentials
-curl -k -u root:calvin https://192.168.1.101/redfish/v1/
+# Check credentials (use your actual BMC credentials)
+curl -k -u admin:your_password https://192.168.1.101/redfish/v1/
 ```
 
 ### Worker Stuck in "Registering"
