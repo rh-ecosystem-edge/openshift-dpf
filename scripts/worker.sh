@@ -45,7 +45,6 @@ provision_all_workers() {
         local bmc_pass_var="WORKER_${i}_BMC_PASSWORD"; local bmc_pass="${!bmc_pass_var}"
         local boot_mac_var="WORKER_${i}_BOOT_MAC"; local boot_mac="${!boot_mac_var}"
         local root_dev_var="WORKER_${i}_ROOT_DEVICE"; local root_dev="${!root_dev_var:-/dev/sda}"
-        local redfish_path_var="WORKER_${i}_REDFISH_SYSTEM_PATH"; local redfish_path="${!redfish_path_var:-/redfish/v1/Systems/System.Embedded.1}"
 
         # Validate required vars
         [[ -z "$bmc_ip" ]] && { log "ERROR" "WORKER_${i}_BMC_IP not set"; return 1; }
@@ -71,7 +70,6 @@ provision_all_workers() {
             "<BOOT_MAC>" "$boot_mac" \
             "<BMC_IP>" "$bmc_ip" \
             "<ROOT_DEVICE>" "$root_dev" \
-            "<REDFISH_SYSTEM_PATH>" "$redfish_path"
 
         # Apply manifests
         apply_manifest "${WORKER_GENERATED_DIR}/${name}-bmc-secret.yaml" false
