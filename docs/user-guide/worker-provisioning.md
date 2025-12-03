@@ -1,529 +1,211 @@
-# Worker Provisioning with BMO
+# Worker Provisioning
 
-This guide explains how to add worker nodes with NVIDIA DPUs to your OpenShift DPF cluster using automated Bare Metal Operator (BMO) provisioning.
+Add physical servers as OpenShift worker nodes using automated bare metal provisioning with NVIDIA DPUs.
 
-## Overview
+## Quick Start
 
-Worker provisioning automates the deployment of physical servers as OpenShift worker nodes through:
+### 1. Prerequisites
 
-- **Bare Metal Operator (BMO)** for hardware lifecycle management
-- **Redfish protocol** for BMC communication and control
-- **Automated CSR approval** for seamless node joining
-- **DPU integration** for accelerated networking
+**Hardware**: Physical servers with BMC/iDRAC access and NVIDIA BlueField-3 DPUs
+**Network**: BMC connectivity and PXE/network boot capability
+**Supported**: Dell iDRAC, HPE iLO, Supermicro (auto-detected)
 
-## Prerequisites
+### 2. Configure Workers
 
-### Hardware Requirements
-
-- **Physical servers** with BMC/iDRAC access
-- **NVIDIA BlueField-3 DPUs** installed and configured
-- **Network connectivity** from automation host to BMC interfaces
-- **PXE boot capability** or virtual media support
-
-### Network Requirements
+Add to your `.env` file:
 
 ```bash
-# BMC network access (test before provisioning)
-ping 192.168.1.101           # BMC must be reachable
-curl -k https://192.168.1.101/redfish/v1/   # Redfish API accessible
+# Number of workers to provision
+WORKER_COUNT=2
 
-# Boot network configuration
-# Workers need network access to cluster for image download
-# Ensure DHCP or static network configuration available
-```
+# Worker 1
+WORKER_1_NAME=worker-01
+WORKER_1_BMC_IP=192.168.1.101
+WORKER_1_BMC_USER=root
+WORKER_1_BMC_PASSWORD=calvin
+WORKER_1_BOOT_MAC=aa:bb:cc:dd:ee:01
 
-### Supported Hardware
-
-| Vendor | BMC Type | Status | Auto-Discovery |
-|--------|----------|--------|----------------|
-| **Dell** | iDRAC 9+ | ✅ Tested | ✅ Automatic |
-| **HPE** | iLO 5+ | ✅ Compatible | ✅ Automatic |
-| **Supermicro** | BMC | ✅ Compatible | ✅ Automatic |
-
-**Auto-Discovery Support**: All hardware uses automatic Redfish endpoint discovery. No manual system path configuration required - ironic automatically detects the correct vendor-specific endpoints.
-
-## Configuration
-
-### Basic Worker Configuration
-
-Add worker configuration to your `.env` file:
-
-```bash
-# Worker Provisioning Settings
-WORKER_COUNT=2                      # Number of workers to provision
-AUTO_APPROVE_WORKER_CSR=false       # Manual CSR approval (recommended)
-CSR_APPROVAL_TIMEOUT=600            # CSR approval timeout (seconds)
-```
-
-### Per-Worker Configuration
-
-Configure each worker with specific hardware details:
-
-```bash
-# Worker 1 Configuration
-WORKER_1_NAME=openshift-worker-1           # Unique worker name
-WORKER_1_BMC_IP=192.168.1.101             # BMC IP address
-WORKER_1_BMC_USER=root                     # BMC username
-WORKER_1_BMC_PASSWORD=calvin               # BMC password
-WORKER_1_BOOT_MAC=aa:bb:cc:dd:ee:01        # PXE boot NIC MAC
-WORKER_1_ROOT_DEVICE=/dev/sda              # Installation disk
-
-# Worker 2 Configuration
-WORKER_2_NAME=openshift-worker-2
+# Worker 2
+WORKER_2_NAME=worker-02
 WORKER_2_BMC_IP=192.168.1.102
 WORKER_2_BMC_USER=root
 WORKER_2_BMC_PASSWORD=calvin
 WORKER_2_BOOT_MAC=aa:bb:cc:dd:ee:02
-WORKER_2_ROOT_DEVICE=/dev/sda
 
-# Additional workers follow same pattern...
-# WORKER_3_NAME=openshift-worker-3
-# ...continue for each worker up to WORKER_COUNT
+# Security (recommended)
+AUTO_APPROVE_WORKER_CSR=false  # Manual approval for production
 ```
 
-### Security Configuration
+### 3. Deploy Workers
 
 ```bash
-# Production Security Settings
-AUTO_APPROVE_WORKER_CSR=false       # Manual approval required
-CSR_APPROVAL_TIMEOUT=600            # 10 minutes for manual approval
-
-# Development/Lab Settings (less secure)
-AUTO_APPROVE_WORKER_CSR=true        # Automatic CSR approval
-CSR_APPROVAL_TIMEOUT=300            # 5 minutes timeout
-```
-
-### DPU Configuration
-
-Configure DPU settings for accelerated networking:
-
-```bash
-# DPU Interface Configuration
-DPU_INTERFACE=ens7f0np0             # Physical DPU interface name
-DPU_OVN_VF=ens7f0v1                # OVN virtual function interface
-NUM_VFS=46                          # Number of SR-IOV virtual functions
-
-# DPU Network Configuration
-DPU_HOST_CIDR=10.6.130.0/24         # DPU host network range
-HBN_OVN_NETWORK=10.6.150.0/27       # HBN OVN IPAM range
-
-# SR-IOV Configuration
-INJECTOR_RESOURCE_NAME=openshift.io/bf3-p0-vfs    # SR-IOV resource name
-```
-
-## Redfish Auto-Discovery
-
-The worker provisioning system uses **automatic Redfish endpoint discovery** for maximum compatibility across hardware vendors.
-
-### How Auto-Discovery Works
-
-1. **BMC Connection**: Ironic connects to the BMC at `https://<BMC_IP>`
-2. **Service Discovery**: Queries the Redfish service root (`/redfish/v1/`)
-3. **Endpoint Detection**: Follows standard Redfish links to discover the Systems endpoint
-4. **Vendor Agnostic**: Works with any Redfish-compliant BMC without vendor-specific configuration
-
-### Vendor-Specific Paths (Auto-Discovered)
-
-| Vendor | Auto-Discovered Path |
-|--------|---------------------|
-| **Dell iDRAC** | `/redfish/v1/Systems/System.Embedded.1` |
-| **HPE iLO** | `/redfish/v1/Systems/1` |
-| **Supermicro** | `/redfish/v1/Systems/1` |
-
-**Note**: These paths are automatically discovered - you don't need to specify them in configuration.
-
-### Benefits of Auto-Discovery
-
-- **Multi-Vendor Support**: Works with Dell, HPE, Supermicro without configuration changes
-- **Simplified Configuration**: No vendor-specific system paths needed in `.env` files
-- **Future-Proof**: Supports new BMC vendors that implement standard Redfish
-- **Reduced Maintenance**: No vendor-specific logic to maintain in automation
-
-## Deployment Process
-
-### Full Automated Deployment
-
-Deploy cluster and workers in one command:
-
-```bash
-# Complete deployment including workers
-make all
-
-# This executes:
-# 1. Cluster creation and installation
-# 2. DPF operator deployment
-# 3. DPU services configuration
-# 4. Worker node provisioning
-# 5. CSR approval (if AUTO_APPROVE_WORKER_CSR=true)
-```
-
-### Step-by-Step Deployment
-
-For more control, deploy in phases:
-
-```bash
-# 1. Deploy control plane first
-make create-cluster create-vms cluster-install
-
-# 2. Deploy DPF operator and services
-make deploy-dpf deploy-dpu-services
-
-# 3. Add worker nodes
+# Add workers to existing cluster
 make add-worker-nodes
 
-# 4. Monitor and approve CSRs (if manual approval)
+# Monitor progress
 make worker-status
-oc get csr | grep Pending
-oc adm certificate approve <csr-name>
 ```
 
-### Manual CSR Approval Process
-
-If `AUTO_APPROVE_WORKER_CSR=false`, you'll need to manually approve certificates:
+### 4. Approve Certificates (if manual approval)
 
 ```bash
-# 1. Start worker provisioning
-make add-worker-nodes
-
-# 2. Monitor provisioning progress
-watch 'oc get bmh -n openshift-machine-api'
-
-# 3. Wait for pending CSRs (appears when worker boots)
-watch 'oc get csr'
-
-# 4. Approve worker CSRs
+# Check for pending requests
 oc get csr | grep Pending
+
+# Approve each worker's certificate
 oc adm certificate approve <csr-name>
 
-# 5. Verify nodes join cluster
-watch 'oc get nodes'
+# Verify nodes joined
+oc get nodes
 ```
 
-## Monitoring and Status
+**That's it!** Your workers are now part of the OpenShift cluster with DPU acceleration.
 
-### Worker Provisioning Status
+## How It Works
+
+The automation uses **automatic hardware detection**:
+
+- **BMC Discovery**: Connects to your BMC IP and auto-detects vendor type (Dell/HPE/Supermicro)
+- **Redfish Protocol**: Uses standard API to control server power and boot
+- **Network Boot**: Servers PXE boot OpenShift worker image from cluster
+- **Auto-Join**: Workers automatically request to join cluster via certificates
+
+No vendor-specific configuration needed - it just works.
+
+## Configuration Reference
+
+### Required Variables (per worker)
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `WORKER_n_NAME` | Unique hostname | `worker-01` |
+| `WORKER_n_BMC_IP` | BMC management IP | `192.168.1.101` |
+| `WORKER_n_BMC_USER` | BMC username | `root` |
+| `WORKER_n_BMC_PASSWORD` | BMC password | `calvin` |
+| `WORKER_n_BOOT_MAC` | PXE network interface MAC | `aa:bb:cc:dd:ee:01` |
+
+### Optional Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `WORKER_n_ROOT_DEVICE` | Installation disk | `/dev/sda` |
+| `AUTO_APPROVE_WORKER_CSR` | Automatic certificate approval | `false` |
+| `CSR_APPROVAL_TIMEOUT` | Manual approval timeout | `600` (10min) |
+
+### Security Settings
 
 ```bash
-# Check BareMetalHost status
+# Production (recommended)
+AUTO_APPROVE_WORKER_CSR=false   # Manual approval required
+
+# Lab/Development (less secure)
+AUTO_APPROVE_WORKER_CSR=true    # Automatic approval
+```
+
+## Monitoring
+
+### Check Worker Status
+
+```bash
+# Overall status
+make worker-status
+
+# Detailed BMC status
 oc get bmh -n openshift-machine-api
 
-# Expected progression:
-# 1. registering -> 2. inspecting -> 3. available -> 4. provisioning -> 5. provisioned
-
-# Detailed status for specific worker
-oc describe bmh -n openshift-machine-api openshift-worker-1
-```
-
-### Node Status
-
-```bash
-# Monitor node joining process
+# Node status
 oc get nodes
 
-# Expected progression:
-# 1. Node appears in NotReady state
-# 2. CSR appears and gets approved
-# 3. Node transitions to Ready state
-
-# Check node details
-oc describe node openshift-worker-1
-```
-
-### CSR Status
-
-```bash
-# List all CSRs
+# Certificate requests
 oc get csr
-
-# Filter pending CSRs
-oc get csr | grep Pending
-
-# Get CSR details
-oc describe csr <csr-name>
 ```
 
-### Automated Status Commands
+### Expected Progression
+
+1. **BMC Registration**: `registering → available`
+2. **Provisioning**: `available → provisioning → provisioned`
+3. **Node Joining**: `NotReady → Ready` (after CSR approval)
+
+## Common Issues
+
+### BMC Not Reachable
 
 ```bash
-# Comprehensive worker status
-make worker-status
-
-# This shows:
-# - BareMetalHost status
-# - Node status
-# - Pending CSRs
-# - DPU interface status
-```
-
-## BMC Configuration
-
-### Dell iDRAC 9 Configuration
-
-```bash
-# Verify iDRAC access
-curl -k -u root:calvin https://192.168.1.101/redfish/v1/
-
-# Common iDRAC settings for automation
-# 1. Enable Redfish API
-# 2. Configure virtual media
-# 3. Set boot order (PXE first)
-# 4. Enable IPMI over LAN
-```
-
-### Redfish Auto-Discovery Testing
-
-```bash
-# Test Redfish service root (auto-discovery starting point)
-curl -k https://${BMC_IP}/redfish/v1/
-
-# Expected response: JSON with service information and Systems link
-
-# Test authentication (ironic will use this)
-curl -k -u ${BMC_USER}:${BMC_PASSWORD} \
-  https://${BMC_IP}/redfish/v1/
-
-# Expected: Authenticated access to service root
-
-# Auto-discovery will automatically find the correct Systems endpoint
-# No need to manually specify vendor-specific paths
-```
-
-### BMC Security Considerations
-
-```bash
-# Production BMC Setup Checklist
-# 1. Change default credentials (never use calvin/calvin)
-# 2. Configure dedicated management VLAN
-# 3. Restrict BMC network access
-# 4. Enable BMC audit logging
-# 5. Configure LDAP/AD authentication if available
-```
-
-## Troubleshooting
-
-### BMC Connectivity Issues
-
-**Problem: Cannot reach BMC**
-```bash
-# Check network connectivity
+# Test connectivity
 ping 192.168.1.101
-telnet 192.168.1.101 443
-
-# Verify Redfish API
 curl -k https://192.168.1.101/redfish/v1/
 
 # Check credentials
 curl -k -u root:calvin https://192.168.1.101/redfish/v1/
 ```
 
-**Problem: Authentication failures**
-```bash
-# Verify BMC credentials with service root (auto-discovery starting point)
-curl -k -u ${BMC_USER}:${BMC_PASSWORD} \
-  https://${BMC_IP}/redfish/v1/
+### Worker Stuck in "Registering"
 
-# Common credential issues:
-# - Default passwords changed
-# - Account locked due to failed attempts
-# - LDAP authentication required
-# - BMC in maintenance mode
-
-# Note: Auto-discovery will handle vendor-specific endpoints automatically
-```
-
-### Provisioning Issues
-
-**Problem: BareMetalHost stuck in 'registering' state**
 ```bash
 # Check BMO operator logs
 oc logs -n openshift-machine-api deployment/metal3
 
-# Check for common issues:
-# - BMC credential failures
-# - Network connectivity
-# - Redfish API incompatibility
+# Common causes: wrong credentials, network issues, BMC in maintenance mode
 ```
 
-**Problem: Worker not booting from PXE**
+### No Certificate Requests Appearing
+
 ```bash
-# Verify boot MAC address
-# - Must match actual PXE interface
-# - Check cable connections
-# - Verify switch port configuration
-
-# Check iDRAC virtual console for boot process
-# - Access via BMC web interface
-# - Monitor boot sequence
-# - Verify DHCP assignment
+# Check if worker booted successfully via BMC console
+# Verify network connectivity from worker subnet to cluster API
+ping <API_VIP>
 ```
 
-**Problem: CSR not appearing**
-```bash
-# Check worker console/iDRAC for boot errors
-# Common issues:
-# - Network configuration problems
-# - Image download failures
-# - Hardware initialization errors
+### Node Stuck in "NotReady"
 
-# Verify cluster accessibility from worker network
-# Test from worker subnet:
-ping ${API_VIP}
-curl -k https://${API_VIP}:6443/healthz
-```
-
-### Node Join Issues
-
-**Problem: Node stuck in NotReady state**
 ```bash
 # Check node conditions
-oc describe node openshift-worker-1
+oc describe node worker-01
 
-# Common issues:
-# - Container runtime not ready
-# - Network plugin not configured
-# - Resource constraints
+# Usually resolves after CSR approval and brief initialization
 ```
 
-**Problem: CSR approval fails**
-```bash
-# Check CSR details
-oc describe csr <csr-name>
+## Advanced Topics
 
-# Manual approval with debugging
-oc adm certificate approve <csr-name> -v=4
-
-# Verify cluster CA trust
-oc get cm -n kube-system cluster-ca
-```
-
-### DPU Configuration Issues
-
-**Problem: DPU interfaces not configured**
-```bash
-# Check SR-IOV operator
-oc get pods -n openshift-sriov-network-operator
-
-# Verify SR-IOV policy
-oc get sriovnetworkpolicy -n openshift-sriov-network-operator
-
-# Check DPU interface status on worker
-oc debug node/openshift-worker-1
-chroot /host
-ip link show | grep ${DPU_INTERFACE}
-```
-
-### Advanced Diagnostics
+### Adding More Workers
 
 ```bash
-# BMO webhook logs
-oc logs -n openshift-machine-api \
-  $(oc get pods -n openshift-machine-api -l app=metal3-admission-webhook -o name)
-
-# Ironic logs (bare metal provisioning)
-oc logs -n openshift-machine-api \
-  $(oc get pods -n openshift-machine-api -l app=metal3-ironic -o name)
-
-# Machine API operator logs
-oc logs -n openshift-machine-api \
-  $(oc get pods -n openshift-machine-api -l k8s-app=machine-api-operator -o name)
-```
-
-## Security Considerations
-
-### CSR Auto-Approval Security
-
-```bash
-# WARNING: Auto-approval bypasses certificate verification
-# Only use AUTO_APPROVE_WORKER_CSR=true in trusted environments
-
-# Production recommendation:
-AUTO_APPROVE_WORKER_CSR=false
-
-# Manual approval process:
-# 1. Verify CSR details before approval
-# 2. Check worker hardware identity
-# 3. Confirm expected deployment timing
-# 4. Approve only expected CSRs
-```
-
-### BMC Security Best Practices
-
-```bash
-# 1. Use dedicated management network
-# - Isolate BMC traffic from production
-# - Configure VLANs for BMC access
-# - Restrict routing between networks
-
-# 2. Strong authentication
-# - Change default credentials immediately
-# - Use complex passwords
-# - Enable account lockout policies
-# - Configure LDAP/AD if available
-
-# 3. Access control
-# - Limit BMC network access
-# - Use VPN for remote access
-# - Monitor BMC access logs
-# - Regular credential rotation
-```
-
-### Network Security
-
-```bash
-# 1. PXE boot security
-# - Use secure boot where possible
-# - Verify image signatures
-# - Monitor DHCP for unauthorized requests
-
-# 2. Cluster communication
-# - Ensure TLS for all cluster communication
-# - Verify certificate chains
-# - Monitor for certificate anomalies
-```
-
-## Advanced Configuration
-
-### Custom Boot Configuration
-
-```bash
-# Custom root device hints
-WORKER_1_ROOT_DEVICE=/dev/disk/by-path/pci-0000:00:1f.2-ata-1
-
-# Multiple disk configuration
-WORKER_1_ROOT_DEVICE_NAME=sda
-WORKER_1_ROOT_DEVICE_SIZE=480    # GB
-```
-
-### Custom Network Configuration
-
-```bash
-# Static network configuration for workers
-# Create custom NetworkManager configuration
-# Apply via user-data Secret modification
-```
-
-### Scaling Operations
-
-```bash
-# Add additional workers after initial deployment
-# 1. Update WORKER_COUNT in .env
-# 2. Add new WORKER_N_* variables
-# 3. Run: make add-worker-nodes
-
-# Example: Adding worker 3
+# Update worker count
 echo "WORKER_COUNT=3" >> .env
-echo "WORKER_3_NAME=openshift-worker-3" >> .env
-echo "WORKER_3_BMC_IP=192.168.1.103" >> .env
-# ... add remaining WORKER_3_* variables
 
+# Add new worker variables
+echo "WORKER_3_NAME=worker-03" >> .env
+echo "WORKER_3_BMC_IP=192.168.1.103" >> .env
+echo "WORKER_3_BMC_USER=root" >> .env
+echo "WORKER_3_BMC_PASSWORD=calvin" >> .env
+echo "WORKER_3_BOOT_MAC=aa:bb:cc:dd:ee:03" >> .env
+
+# Deploy new worker
 make add-worker-nodes
 ```
 
+### BMC Security Checklist
+
+- Change default credentials immediately
+- Use dedicated management network/VLAN
+- Enable audit logging where available
+- Restrict BMC network access
+
+### Automatic CSR Approval
+
+**⚠️ Security Warning**: Only enable in trusted lab environments.
+
+```bash
+AUTO_APPROVE_WORKER_CSR=true
+CSR_APPROVAL_TIMEOUT=300  # 5 minutes
+```
+
+With automatic approval, workers join the cluster without manual intervention.
+
 ## Next Steps
 
-- **Deployment**: Follow [Deployment Scenarios](deployment-scenarios.md) for complete deployment
-- **Configuration**: See [Configuration Guide](configuration.md) for detailed settings
-- **Troubleshooting**: Refer to [Troubleshooting Guide](troubleshooting.md) for issue resolution
-- **Getting Started**: New to the automation? Start with [Getting Started](getting-started.md)
+- **Complete Deployment**: See [Getting Started](getting-started.md) for full cluster setup
+- **DPU Services**: Configure accelerated networking with DPU features
+- **Troubleshooting**: See [Troubleshooting Guide](troubleshooting.md) for additional issues
 
-Worker provisioning completes your OpenShift DPF deployment with automated hardware lifecycle management and DPU acceleration capabilities.
+Your workers are now ready for DPU-accelerated workloads on OpenShift.
