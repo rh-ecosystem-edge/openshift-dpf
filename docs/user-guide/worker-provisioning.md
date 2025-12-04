@@ -48,10 +48,7 @@ WORKER_2_BOOT_MAC=aa:bb:cc:dd:ee:02
 AUTO_APPROVE_WORKER_CSR=false
 ```
 
-**Finding your boot MAC address:**
-- Check BMC web interface → Network → LAN settings
-- Or use: `ip link show` on existing node with similar hardware
-- Usually the first network interface (not BMC interface)
+**Finding your boot MAC address:** See [Finding the Boot MAC Address](#finding-the-boot-mac-address) below for detailed instructions.
 
 ### 3. Deploy Workers
 
@@ -181,6 +178,110 @@ oc describe node worker-01
 
 # Usually resolves after CSR approval and brief initialization
 ```
+
+## Finding the Boot MAC Address
+
+The `WORKER_n_BOOT_MAC` is the MAC address of the network interface used for PXE booting. You need the NIC that is connected to your cluster network.
+
+### Method 1: Redfish API (Recommended)
+
+Query your BMC directly to list all NICs and their status. Use the interface with `LinkUp` status.
+
+**Dell iDRAC Example:**
+
+```bash
+# Set your BMC details
+BMC_IP=192.168.1.101
+BMC_USER=admin
+BMC_PASSWORD=your_password
+
+# List all NICs with MAC address and link status
+curl -sk -u ${BMC_USER}:${BMC_PASSWORD} \
+  https://${BMC_IP}/redfish/v1/Systems/System.Embedded.1/EthernetInterfaces \
+  | jq -r '.Members[]."@odata.id"' \
+  | while read nic; do
+      curl -sk -u ${BMC_USER}:${BMC_PASSWORD} "https://${BMC_IP}${nic}" \
+        | jq -r '"\(.Id): \(.MACAddress) (\(.LinkStatus // "Unknown"))"'
+    done
+```
+
+**Example output:**
+
+```
+NIC.Integrated.1-1-1: 30:3E:A7:13:EB:70 (LinkUp)
+NIC.Embedded.1-1-1: C4:CB:E1:C4:7E:30 (LinkDown)
+NIC.Embedded.2-1-1: C4:CB:E1:C4:7E:31 (LinkDown)
+NIC.Slot.1-1: B8:CE:F6:04:9A:E0 (LinkDown)
+```
+
+In this example, use `30:3E:A7:13:EB:70` since it's the only NIC with `LinkUp`.
+
+**HPE iLO Example:**
+
+```bash
+# HPE uses a different system path
+curl -sk -u ${BMC_USER}:${BMC_PASSWORD} \
+  https://${BMC_IP}/redfish/v1/Systems/1/EthernetInterfaces \
+  | jq -r '.Members[]."@odata.id"' \
+  | while read nic; do
+      curl -sk -u ${BMC_USER}:${BMC_PASSWORD} "https://${BMC_IP}${nic}" \
+        | jq -r '"\(.Id): \(.MACAddress) (\(.LinkStatus // "Unknown"))"'
+    done
+```
+
+**Supermicro Example:**
+
+```bash
+# Supermicro typically uses System/1 path
+curl -sk -u ${BMC_USER}:${BMC_PASSWORD} \
+  https://${BMC_IP}/redfish/v1/Systems/1/EthernetInterfaces \
+  | jq -r '.Members[]."@odata.id"' \
+  | while read nic; do
+      curl -sk -u ${BMC_USER}:${BMC_PASSWORD} "https://${BMC_IP}${nic}" \
+        | jq -r '"\(.Id): \(.MACAddress) (\(.LinkStatus // "Unknown"))"'
+    done
+```
+
+> **Tip**: If you're unsure of the system path, first query the systems endpoint to discover it:
+> ```bash
+> curl -sk -u ${BMC_USER}:${BMC_PASSWORD} https://${BMC_IP}/redfish/v1/Systems/ | jq '.Members'
+> ```
+> This returns the correct system ID for your hardware (e.g., `System.Embedded.1` for Dell, `1` for HPE/Supermicro).
+
+> **Note**: The Redfish API also provides `PermanentMACAddress` which is the burned-in hardware MAC. This is typically the same as `MACAddress` unless the MAC has been overridden.
+
+### Method 2: BMC Web Interface
+
+1. Log into your BMC web interface (e.g., `https://192.168.1.101`)
+2. Navigate to:
+   - **Dell iDRAC**: System → Network → Network Interfaces
+   - **HPE iLO**: Information → Network → Physical Network Adapters
+   - **Supermicro**: System Information → Network
+3. Find the NIC connected to your cluster network
+4. Copy the MAC address
+
+### Method 3: From Existing OS
+
+If the server currently has an OS installed:
+
+```bash
+# SSH to the server
+ssh root@server-ip
+
+# List all interfaces with MAC addresses
+ip link show
+
+# Or get just MAC addresses
+cat /sys/class/net/*/address
+```
+
+### Which NIC to Choose?
+
+Select the NIC that:
+- Shows **LinkUp** status (connected to network)
+- Is connected to the **same network** as your OpenShift cluster nodes
+- Will be used for **PXE/network boot** (usually the first onboard NIC)
+- Is **NOT** the BMC/iDRAC dedicated management interface
 
 ## Advanced Topics
 
