@@ -3,7 +3,7 @@ kind: MachineConfig
 metadata:
   labels:
     machineconfiguration.openshift.io/role: worker
-  name: worker-nmstate-bridge
+  name: 99-worker-dpu-configuration
 spec:
   config:
     ignition:
