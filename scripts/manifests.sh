@@ -132,7 +132,7 @@ function prepare_cluster_manifests() {
         "ovn-values-with-injector.yaml"
         "nfd-subscription.yaml"
         "sriov-subscription.yaml"
-        "99-worker-bridge.yaml"
+        "99-worker-dpu-configuration.yaml"
     )
 
     if [ "${USE_V419_WORKAROUND}" != "true" ]; then
@@ -197,8 +197,8 @@ update_worker_manifest() {
         mtu="${NODES_MTU}"
     fi
     update_file_multi_replace \
-            "$MANIFESTS_DIR/cluster-installation/99-worker-bridge.yaml" \
-            "$GENERATED_DIR/99-worker-bridge.yaml" \
+            "$MANIFESTS_DIR/cluster-installation/99-worker-dpu-configuration.yaml" \
+            "$GENERATED_DIR/99-worker-dpu-configuration.yaml" \
             "<NODES_MTU>" "$mtu"
 }
 
