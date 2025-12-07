@@ -232,11 +232,6 @@ function start_cluster_installation() {
     wait_for_cluster_status "installed"
     log "INFO" "Cluster installation completed successfully"
     get_kubeconfig
-    if [ "${USE_V419_WORKAROUND}" == "true" ]; then
-        log "INFO" "Using v4.19 workaround. Deploying LSO and ODF..."
-        deploy_lso
-        deploy_odf
-    fi
 }
 
 function get_kubeconfig() {
@@ -290,103 +285,6 @@ function clean_all() {
     log "Full cleanup complete"
 }
 
-function deploy_lso() {
-    # Only deploy LSO for multi-node clusters
-    if [ "${VM_COUNT}" -le 1 ]; then
-        log "INFO" "Single-node cluster detected (VM_COUNT=${VM_COUNT}). Skipping LSO deployment."
-        return 0
-    fi
-    
-    log "INFO" "Multi-node cluster detected (VM_COUNT=${VM_COUNT}). Deploying Local Storage Operator..."
-    
-    get_kubeconfig
-    
-    # Check if LSO subscription already exists
-    if oc get subscription -n openshift-local-storage local-storage-operator &>/dev/null; then
-        log "INFO" "LSO subscription already exists. Skipping subscription deployment."
-    else
-        log "INFO" "Deploying LSO subscription..."
-        mkdir -p "$GENERATED_DIR"
-        
-        # Process subscription template
-        process_template \
-            "${MANIFESTS_DIR}/cluster-installation/lso/lso-subscription.yaml" \
-            "${GENERATED_DIR}/lso-subscription.yaml" \
-            "<CATALOG_SOURCE_NAME>" "${CATALOG_SOURCE_NAME}"
-        
-        apply_manifest "${GENERATED_DIR}/lso-subscription.yaml" true
-    fi
-    
-    # Wait for LSO operator pods to be ready
-    log "INFO" "Waiting for LSO operator to be ready..."
-    wait_for_pods "openshift-local-storage" "name=local-storage-operator" 60 5
-    
-
-    apply_manifest "${MANIFESTS_DIR}/cluster-installation/lso/lso-volumes.yaml" false
-    
-    log "INFO" "LSO deployment completed successfully!"
-    log "INFO" "Local storage will use block devices on nodes"
-}
-
-
-
-
-
-# Create ODF cluster as a workaround for OCS cluster creation issue
-# This is a temporary solution until the OCS cluster creation with LSO 4.19 will be fixed
-function deploy_odf() {
-    # Only deploy ODF for multi-node clusters
-    if [ "${VM_COUNT}" -le 1 ]; then
-        log "INFO" "Single-node cluster detected (VM_COUNT=${VM_COUNT}). Skipping ODF deployment."
-        return 0
-    fi
-    
-    log "INFO" "Multi-node cluster detected (VM_COUNT=${VM_COUNT}). Deploying OpenShift Data Foundation..."
-    
-    get_kubeconfig
-    
-    # Check if ODF subscription already exists
-    if oc get subscription -n openshift-storage odf-operator &>/dev/null; then
-        log "INFO" "ODF subscription already exists. Skipping subscription deployment."
-    else
-        log "INFO" "Deploying ODF subscription using catalog: ${CATALOG_SOURCE_NAME}"
-
-        # Generate ODF subscription from template
-        mkdir -p "$GENERATED_DIR"
-        process_template \
-            "${MANIFESTS_DIR}/odf/odf-subscription.yaml" \
-            "${GENERATED_DIR}/odf-subscription.yaml" \
-            "<CATALOG_SOURCE_NAME>" "${CATALOG_SOURCE_NAME}"
-
-        apply_manifest "${GENERATED_DIR}/odf-subscription.yaml" true
-    fi
-    
-    # Wait for ODF operator to create StorageCluster CRD
-    log "INFO" "Waiting for ODF StorageCluster CRD to be available..."
-    local max_retries=60
-    local sleep_time=10
-    
-    if retry 60 10 oc get storagecluster -A >/dev/null 2>&1; then
-        log "INFO" "ODF StorageCluster CRD is available"
-    else
-        log "ERROR" "Timeout waiting for ODF StorageCluster CRD"
-        return 1
-    fi
-    
-    apply_manifest "${MANIFESTS_DIR}/odf/odf-cluster.yaml" false
-    
-    # Wait for StorageCluster to be ready
-    log "INFO" "Waiting for ODF StorageCluster to be Ready..."
-    if retry 120 10 bash -c 'oc get storagecluster -n openshift-storage ocs-storagecluster -o jsonpath="{.status.phase}" 2>/dev/null | grep -q "^Ready$"'; then
-        log "INFO" "✅ ODF StorageCluster is Ready"
-    else
-        log "ERROR" "Timeout waiting for ODF StorageCluster to be Ready"
-        log "ERROR" "Check status manually: oc get storagecluster -n openshift-storage ocs-storagecluster"
-        return 1
-    fi
-    
-    log "INFO" "ODF deployment completed successfully!"
-}
 
 # -----------------------------------------------------------------------------
 # ISO management functions
@@ -509,16 +407,10 @@ function main() {
         create-day2-cluster)
             create_day2_cluster
             ;;
-        deploy-lso)
-            deploy_lso
-            ;;
-        deploy-odf)
-            deploy_odf
-            ;;
         *)
             log "Unknown command: $command"
             log "Available commands: check-create-cluster, delete-cluster, cluster-install,"
-            log "  wait-for-status, get-kubeconfig, clean-all, download-iso, create-day2-cluster, get-day2-iso, deploy-lso, deploy-odf"
+            log "  wait-for-status, get-kubeconfig, clean-all, download-iso, create-day2-cluster, get-day2-iso"
             exit 1
             ;;
     esac

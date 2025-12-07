@@ -454,25 +454,19 @@ function generate_ovn_manifests() {
 
 function enable_storage() {
     log [INFO] "Enabling storage operator"
-    
+
     # Check if cluster is already installed
     if check_cluster_installed; then
         log [INFO] "Skipping storage operator configuration as cluster is already installed"
         return 0
     fi
-    
-    # Update cluster with storage operator
-    if [ "$VM_COUNT" -eq 1 ]; then
-        log [INFO] "Enable LVM operator"
-        aicli update cluster "$CLUSTER_NAME" -P olm_operators='[{"name": "lvm"}]'
-    else
-        if [ "${USE_V419_WORKAROUND}" = "false" ]; then
-            log [INFO] "Enable ODF operator via assisted installer OLM"
-            aicli update cluster "$CLUSTER_NAME" -P olm_operators='[{"name": "lso"}, {"name": "odf"}]'
-        else
-            log [INFO] "Skipping assisted installer OLM (using v4.19 workaround)"
-        fi
-    fi
+
+    # LVMS for all cluster sizes (single-node and multi-node)
+    # LVMS provides optimal local storage for etcd with < 10ms latency
+    # Per Red Hat guidance, local storage is recommended for etcd workloads
+    # See: https://docs.openshift.com/container-platform/4.15/scalability_and_performance/recommended-performance-scale-practices/recommended-etcd-practices.html
+    log [INFO] "Enable LVM operator for etcd storage (all cluster sizes)"
+    aicli update cluster "$CLUSTER_NAME" -P olm_operators='[{"name": "lvm"}]'
 }
 
 # -----------------------------------------------------------------------------
@@ -495,15 +489,12 @@ function main() {
         prepare-dpf-manifests)
             prepare_manifests "dpf"
             ;;
-        apply-lso)
-            deploy_lso
-            ;;
         prepare-nfs)
             prepare_nfs
             ;;
         *)
             log [INFO] "Unknown command: $command"
-            log [INFO] "Available commands: prepare-manifests, prepare-dpf-manifests, apply-lso, deploy-core-operator-sources, generate-ovn-manifests, prepare-nfs"
+            log [INFO] "Available commands: prepare-manifests, prepare-dpf-manifests, deploy-core-operator-sources, generate-ovn-manifests, prepare-nfs"
             exit 1
             ;;
     esac

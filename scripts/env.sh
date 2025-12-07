@@ -142,13 +142,14 @@ HOST_CLUSTER_API=${HOST_CLUSTER_API:-"api.$CLUSTER_NAME.$BASE_DOMAIN"}
 NFS_SERVER_NODE_IP=${NFS_SERVER_NODE_IP:-""}
 NFS_PATH=${NFS_PATH:-"/"}
 
-if [ "${VM_COUNT}" -lt 2 ]; then
-  ETCD_STORAGE_CLASS=${ETCD_STORAGE_CLASS:-"lvms-vg1"}
-  BFB_STORAGE_CLASS=${BFB_STORAGE_CLASS:-"nfs-client"}
-else
-  ETCD_STORAGE_CLASS=${ETCD_STORAGE_CLASS:-"ocs-storagecluster-ceph-rbd"}
-  BFB_STORAGE_CLASS=${BFB_STORAGE_CLASS:-""}
-fi
+# LVMS for etcd storage on all cluster sizes (single-node and multi-node)
+# Red Hat recommends local storage for etcd due to latency requirements (<10ms)
+# See: https://docs.openshift.com/container-platform/4.15/scalability_and_performance/recommended-performance-scale-practices/recommended-etcd-practices.html
+ETCD_STORAGE_CLASS=${ETCD_STORAGE_CLASS:-"lvms-vg1"}
+
+# NFS for BFB storage (shared storage requirement)
+# For multi-node clusters, external NFS server is recommended (set NFS_SERVER_NODE_IP)
+BFB_STORAGE_CLASS=${BFB_STORAGE_CLASS:-"nfs-client"}
 NUM_VFS=${NUM_VFS:-"46"}
 
 # Feature Configuration

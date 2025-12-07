@@ -11,7 +11,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/cluster.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/tools.sh"
 
-ETCD_STORAGE_CLASS=${ETCD_STORAGE_CLASS:-"ocs-storagecluster-ceph-rbd"}
+# Note: ETCD_STORAGE_CLASS is set in env.sh (defaults to lvms-vg1 for all cluster sizes)
 
 # -----------------------------------------------------------------------------
 # DPF deployment functions
