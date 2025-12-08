@@ -183,6 +183,14 @@ function prepare_cluster_manifests() {
     else
         log [INFO] "Installing manifests to cluster via AICLI..."
         aicli create manifests --dir "$GENERATED_DIR" "$CLUSTER_NAME"
+
+        # Upload openshift folder manifests (e.g., FeatureGate) to the openshift folder
+        # This is needed to override built-in OpenShift manifests like 99_feature-gate.yaml
+        local openshift_manifests_dir="$MANIFESTS_DIR/cluster-installation/openshift"
+        if [ -d "$openshift_manifests_dir" ] && [ "$(ls -A "$openshift_manifests_dir" 2>/dev/null)" ]; then
+            log [INFO] "Installing openshift folder manifests (to override built-in manifests)..."
+            aicli create manifests --dir "$openshift_manifests_dir" --openshift "$CLUSTER_NAME"
+        fi
     fi
 
     log [INFO] "Cluster manifests preparation complete."
