@@ -82,30 +82,20 @@ provision_all_workers() {
 }
 
 approve_worker_csrs() {
-    local count="${WORKER_COUNT:-0}"
+    # Approve all pending CSRs - simple and effective for worker provisioning
+    # OpenShift's cluster-machine-approver handles normal CSR approval,
+    # but we need to approve CSRs for BMO-provisioned workers manually
+    local approved=0
+    local csr
 
-    # Get worker names to match
-    local -a workers=()
-    for i in $(seq 1 "$count"); do
-        local name_var="WORKER_${i}_NAME"
-        local name="${!name_var}"
-        [[ -n "$name" ]] && workers+=("$name")
+    for csr in $(oc get csr -o go-template='{{range .items}}{{if not .status}}{{.metadata.name}}{{"\n"}}{{end}}{{end}}' 2>/dev/null); do
+        if oc adm certificate approve "$csr" 2>/dev/null; then
+            log "INFO" "Approved CSR $csr"
+            ((approved++))
+        fi
     done
 
-    # Approve matching pending CSRs
-    local username pending
-    pending=$(oc get csr --no-headers 2>/dev/null | grep Pending || true)
-    [[ -z "$pending" ]] && return 0
-
-    while read -r csr _; do
-        username=$(oc get csr "$csr" -o jsonpath='{.spec.username}' 2>/dev/null)
-        for w in "${workers[@]}"; do
-            if [[ "$username" == "system:node:$w" ]]; then
-                oc adm certificate approve "$csr" && log "INFO" "Approved CSR $csr for $w"
-                break
-            fi
-        done
-    done <<< "$pending"
+    [[ $approved -gt 0 ]] && log "INFO" "Approved $approved CSR(s)"
 }
 
 wait_and_approve_csrs() {
