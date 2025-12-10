@@ -131,7 +131,6 @@ function prepare_cluster_manifests() {
         "ovn-values.yaml"
         "ovn-values-with-injector.yaml"
         "nfd-subscription.yaml"
-        "sriov-subscription.yaml"
         "99-worker-bridge.yaml"
     )
 
@@ -147,13 +146,6 @@ function prepare_cluster_manifests() {
         update_file_multi_replace \
             "$MANIFESTS_DIR/cluster-installation/nfd-subscription.yaml" \
             "$GENERATED_DIR/nfd-subscription.yaml" \
-            "<CATALOG_SOURCE_NAME>" "$CATALOG_SOURCE_NAME"
-    fi
-
-    if [ -f "$MANIFESTS_DIR/cluster-installation/sriov-subscription.yaml" ]; then
-        update_file_multi_replace \
-            "$MANIFESTS_DIR/cluster-installation/sriov-subscription.yaml" \
-            "$GENERATED_DIR/sriov-subscription.yaml" \
             "<CATALOG_SOURCE_NAME>" "$CATALOG_SOURCE_NAME"
     fi
 
@@ -217,14 +209,11 @@ function deploy_core_operator_sources() {
 
     mkdir -p "$GENERATED_DIR"
 
-    for f in "$MANIFESTS_DIR/cluster-installation/nfd-subscription.yaml" \
-             "$MANIFESTS_DIR/cluster-installation/sriov-subscription.yaml"; do
-        if [ -f "$f" ]; then
-            cp "$f" "$GENERATED_DIR/"
-            sed -i "s|<CATALOG_SOURCE_NAME>|$CATALOG_SOURCE_NAME|g" "$GENERATED_DIR/$(basename "$f")"
-            apply_manifest "$GENERATED_DIR/$(basename "$f")" true
-        fi
-    done
+    update_file_multi_replace \
+        "$MANIFESTS_DIR/cluster-installation/nfd-subscription.yaml" \
+        "$GENERATED_DIR/nfd-subscription.yaml" \
+        "<CATALOG_SOURCE_NAME>" "$CATALOG_SOURCE_NAME"
+    apply_manifest "$GENERATED_DIR/nfd-subscription.yaml" true
 
     if [[ "${USE_V419_WORKAROUND}" == "true" ]]; then
         log [INFO] "Deploying v4.19 catalog source (workaround enabled)"

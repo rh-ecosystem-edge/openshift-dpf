@@ -33,7 +33,6 @@ SPECIAL_FILES=(
     "dpuflavor-1500.yaml"
     "dpuflavor-9000.yaml"
     "dpuflavor.yaml"
-    "sriov-policy.yaml"
     "ovn-template.yaml"
     "ovn-configuration.yaml"
     "hbn-template.yaml"
@@ -154,14 +153,6 @@ function update_vf_configuration() {
         "${GENERATED_POST_INSTALL_DIR}/dpuflavor.yaml" \
         "<NUM_VFS>" "${NUM_VFS}"
     
-    # Update sriov-policy.yaml
-
-    update_file_multi_replace \
-        "${POST_INSTALL_DIR}/sriov-policy.yaml" \
-        "${GENERATED_POST_INSTALL_DIR}/sriov-policy.yaml" \
-        "<DPU_INTERFACE>" "$DPU_INTERFACE" \
-        "<NUM_VFS>" "${NUM_VFS}" \
-        "<NUM_VFS-1>" "${vf_range_upper}"
     
     log [INFO] "VF configuration updated successfully"
 }
