@@ -15,7 +15,7 @@ spec:
           contents: |
             [Unit]
             Description=Remove keepalived static pod manifest from worker nodes
-            Documentation=https://github.com/nvidia/openshift-dpf
+            Documentation=https://github.com/rh-ecosystem-edge/openshift-dpf
             Before=kubelet.service
             ConditionPathExists=/etc/kubernetes/manifests/keepalived.yaml
             
