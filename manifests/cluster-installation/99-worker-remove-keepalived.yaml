@@ -1,0 +1,29 @@
+apiVersion: machineconfiguration.openshift.io/v1
+kind: MachineConfig
+metadata:
+  labels:
+    machineconfiguration.openshift.io/role: worker
+  name: 99-worker-remove-keepalived
+spec:
+  config:
+    ignition:
+      version: 3.2.0
+    systemd:
+      units:
+        - name: remove-keepalived-manifest.service
+          enabled: true
+          contents: |
+            [Unit]
+            Description=Remove keepalived static pod manifest from worker nodes
+            Documentation=https://github.com/nvidia/openshift-dpf
+            Before=kubelet.service
+            ConditionPathExists=/etc/kubernetes/manifests/keepalived.yaml
+            
+            [Service]
+            Type=oneshot
+            ExecStart=/bin/bash -c 'rm -f /etc/kubernetes/manifests/keepalived.yaml && echo "Removed keepalived manifest from worker node"'
+            RemainAfterExit=yes
+            
+            [Install]
+            WantedBy=multi-user.target
+
