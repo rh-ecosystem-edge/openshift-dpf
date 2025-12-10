@@ -137,7 +137,7 @@ function prepare_cluster_manifests() {
     if [ "${USE_V419_WORKAROUND}" != "true" ]; then
         excluded_files+=("4.19-cataloguesource.yaml")
     fi
-    
+
     # Copy all manifests except excluded files using utility function
     copy_manifests_with_exclusions "$MANIFESTS_DIR/cluster-installation" "$GENERATED_DIR" "${excluded_files[@]}"
 
@@ -163,6 +163,7 @@ function prepare_cluster_manifests() {
         find "$GENERATED_DIR" -maxdepth 1 -type f -name "*-values.yaml" -delete
         log "INFO" "Removed Helm values files from generated directory"
     fi
+
 
     enable_storage
 
@@ -279,8 +280,6 @@ prepare_dpf_manifests() {
     log "INFO" "Copying Cert-Manager manifest (required for DPF operator)..."
     cp "$MANIFESTS_DIR/cluster-installation/openshift-cert-manager.yaml" "$GENERATED_DIR/"
 
-    log "INFO" "DPF manifest preparation completed successfully"
-
     # Update manifests with configuration
     # Check if bfb-pvc.yaml exists before modifying
     if [ ! -f "$GENERATED_DIR/bfb-pvc.yaml" ]; then
@@ -296,22 +295,31 @@ prepare_dpf_manifests() {
         fi
         mv "$GENERATED_DIR/bfb-pvc.yaml.tmp" "$GENERATED_DIR/bfb-pvc.yaml"
     else
-        sed -i "s|storageClassName: \"\"|storageClassName: \"$BFB_STORAGE_CLASS\"|g" "$GENERATED_DIR/bfb-pvc.yaml"
+        update_file_multi_replace \
+            "$GENERATED_DIR/bfb-pvc.yaml" \
+            "$GENERATED_DIR/bfb-pvc.yaml" \
+            "<BFB_STORAGE_CLASS>" "$BFB_STORAGE_CLASS"
     fi
+    
+    update_file_multi_replace \
+        "$GENERATED_DIR/static-dpucluster-template.yaml" \
+        "$GENERATED_DIR/static-dpucluster-template.yaml" \
+        "<KUBERNETES_VERSION>" "$OPENSHIFT_VERSION" \
+        "<HOSTED_CLUSTER_NAME>" "$HOSTED_CLUSTER_NAME"
 
-    # Update static DPU cluster template
-    sed -i "s|<KUBERNETES_VERSION>|$OPENSHIFT_VERSION|g" "$GENERATED_DIR/static-dpucluster-template.yaml"
-    sed -i "s|<HOSTED_CLUSTER_NAME>|$HOSTED_CLUSTER_NAME|g" "$GENERATED_DIR/static-dpucluster-template.yaml"
 
+    log [INFO] "GENERATED_DIR5555: $GENERATED_DIR"
     # Extract NGC API key and update secrets
     NGC_API_KEY=$(jq -r '.auths."nvcr.io".password // empty' "$DPF_PULL_SECRET" 2>/dev/null)
     if [ -z "$NGC_API_KEY" ] || [ "$NGC_API_KEY" = "null" ]; then
         log "ERROR" "Failed to extract NGC API key from pull secret"
         return 1
     fi
+
+    log [INFO] "GENERATED_DIR4444: $GENERATED_DIR"
     
     # Process ngc-secrets.yaml using process_template function
-    process_template \
+    update_file_multi_replace \
         "$MANIFESTS_DIR/dpf-installation/ngc-secrets.yaml" \
         "$GENERATED_DIR/ngc-secrets.yaml" \
         "<NGC_API_KEY>" "$NGC_API_KEY"
@@ -324,12 +332,15 @@ prepare_dpf_manifests() {
         return 1
     fi
     local escaped_secret=$(escape_sed_replacement "$PULL_SECRET")
-    sed -i "s|<PULL_SECRET_BASE64>|$escaped_secret|g" "$GENERATED_DIR/dpf-pull-secret.yaml"
+    update_file_multi_replace \
+        "$GENERATED_DIR/dpf-pull-secret.yaml" \
+        "$GENERATED_DIR/dpf-pull-secret.yaml" \
+        "<PULL_SECRET_BASE64>" "$escaped_secret"
 
     prepare_nfs
     
     # Process dpfoperatorconfig.yaml
-    process_template \
+    update_file_multi_replace \
         "$MANIFESTS_DIR/dpf-installation/dpfoperatorconfig.yaml" \
         "$GENERATED_DIR/dpfoperatorconfig.yaml" \
         "<CLUSTER_NAME>" "$CLUSTER_NAME" \
@@ -346,12 +357,15 @@ EOF
        log "INFO" "NODES_MTU is not set. Skipping networking configuration."
     fi
 
+
     # Final verification: ensure no Helm values files are in the generated directory
     if find "$GENERATED_DIR" -maxdepth 1 -type f -name "*-values.yaml" | grep -q .; then
         log "ERROR" "Helm values files found in generated directory. These should not be processed during cluster installation."
         find "$GENERATED_DIR" -maxdepth 1 -type f -name "*-values.yaml" -delete
         log "INFO" "Removed Helm values files from generated directory"
     fi
+
+    log "INFO" "DPF manifest preparation completed successfully"
 }
 
 function update_ovn_mtu_in_value_file() {
