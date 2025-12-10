@@ -1,0 +1,267 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: openshift-sriov-network-operator
+  labels:
+    openshift.io/cluster-monitoring: "true"
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sriov-device-plugin
+  namespace: openshift-sriov-network-operator
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: sriov-device-plugin-scc
+  namespace: openshift-sriov-network-operator
+rules:
+- apiGroups:
+  - security.openshift.io
+  resourceNames:
+  - privileged
+  resources:
+  - securitycontextconstraints
+  verbs:
+  - use
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: sriov-device-plugin-scc-binding
+  namespace: openshift-sriov-network-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: sriov-device-plugin-scc
+subjects:
+- kind: ServiceAccount
+  name: sriov-device-plugin
+  namespace: openshift-sriov-network-operator
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sriov-supervisor-script
+  namespace: openshift-sriov-network-operator
+data:
+  entrypoint.sh: |
+    #!/bin/bash
+    set -e
+
+    TARGET_VENDOR="15b3"
+    TARGET_DEVICE="a2dc"
+    NODE_NAME="${NODE_NAME:-$(hostname)}"
+    
+    CONFIG_DIR="/etc/pcidp"
+    CONFIG_FILE="${CONFIG_DIR}/${NODE_NAME}"
+    mkdir -p "$CONFIG_DIR"
+
+    SYS_PREFIX="/host/sys"
+    MGMT_VF_INDEX=1
+    DATA_VF_START=2
+
+    # Timeout settings
+    MAX_WAIT_SECONDS=600
+    POLL_INTERVAL=5
+
+    log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"; }
+
+    log "=== SR-IOV Supervisor Started: $NODE_NAME ==="
+    log "Status: Blocking Device Plugin start until VFs are physically present."
+
+    find_pf() {
+      for dev in ${SYS_PREFIX}/class/net/*; do
+        [ -f "$dev/device/sriov_numvfs" ] || continue
+        v=$(cat "$dev/device/vendor" 2>/dev/null | sed 's/0x//')
+        d=$(cat "$dev/device/device" 2>/dev/null | sed 's/0x//')
+        if [ "$v" = "$TARGET_VENDOR" ] && [ "$d" = "$TARGET_DEVICE" ]; then
+          basename "$dev" 
+          return 0
+        fi
+      done
+      return 1
+    }
+
+    PF=""
+    ELAPSED=0
+    while [ -z "$PF" ]; do
+      PF=$(find_pf)
+      if [ -z "$PF" ]; then
+        if [ "$ELAPSED" -ge "$MAX_WAIT_SECONDS" ]; then
+          log "ERROR: Timeout waiting for PF. Exiting to restart pod."
+          exit 1
+        fi
+        log "Waiting for PF..."
+        sleep $POLL_INTERVAL
+        ELAPSED=$((ELAPSED + POLL_INTERVAL))
+      fi
+    done
+    
+    PF_PATH="${SYS_PREFIX}/class/net/$PF"
+    log "Found PF: $PF"
+
+    get_vf_pci() {
+      local idx=$1
+      if [ -L "$PF_PATH/device/virtfn$idx" ]; then
+        basename "$(readlink "$PF_PATH/device/virtfn$idx")"
+        return 0
+      fi
+      return 1
+    }
+
+    # Loop indefinitely until hardware appears.
+    # While looping, the main binary is NOT running.
+    # Kubelet sees 0 resources.
+    log "Waiting for VFs..."
+    MGMT_PCI=""
+    DATA_PCI_LIST=""
+    VF_DEVICE_ID=""
+    VF_ELAPSED=0
+
+    while true; do
+      TOTAL_VFS=$(cat "$PF_PATH/device/sriov_numvfs" 2>/dev/null || echo 0)
+
+      if [ "$TOTAL_VFS" -le "$DATA_VF_START" ]; then
+        if [ "$VF_ELAPSED" -ge "$MAX_WAIT_SECONDS" ]; then
+          log "ERROR: Timeout waiting for VFs. Exiting."
+          exit 1
+        fi
+        sleep $POLL_INTERVAL
+        VF_ELAPSED=$((VF_ELAPSED + POLL_INTERVAL))
+        continue
+      fi
+
+      LAST_VF_INDEX=$((TOTAL_VFS - 1))
+      MISSING=0
+
+      # Check Mgmt VF
+      pci=$(get_vf_pci $MGMT_VF_INDEX)
+      if [ -z "$pci" ]; then MISSING=1; else
+        MGMT_PCI="\"$pci\""
+        [ -z "$VF_DEVICE_ID" ] && VF_DEVICE_ID=$(cat "${SYS_PREFIX}/bus/pci/devices/$pci/device" 2>/dev/null | sed 's/0x//')
+      fi
+
+      # Check Data VFs
+      TEMP_DATA_LIST=""
+      for (( i=$DATA_VF_START; i<=$LAST_VF_INDEX; i++ )); do
+        pci=$(get_vf_pci $i)
+        if [ -z "$pci" ]; then MISSING=1; break; fi
+        [ -n "$TEMP_DATA_LIST" ] && TEMP_DATA_LIST="$TEMP_DATA_LIST, "
+        TEMP_DATA_LIST="$TEMP_DATA_LIST\"$pci\""
+      done
+
+      if [ "$MISSING" -eq 0 ] && [ -n "$VF_DEVICE_ID" ]; then
+        DATA_PCI_LIST="$TEMP_DATA_LIST"
+        log "All VFs resolved."
+        break
+      fi
+      sleep $POLL_INTERVAL
+    done
+
+    log "Generating configuration..."
+    cat > "$CONFIG_FILE" <<EOF
+    {
+      "resourceList": [
+        {
+          "resourceName": "bf3-p0-vfs",
+          "selectors": {
+            "vendors": ["$TARGET_VENDOR"],
+            "devices": ["$VF_DEVICE_ID"],
+            "pciAddresses": [$DATA_PCI_LIST],
+            "linkTypes": ["ether"],
+            "IsRdma": true,
+            "NeedVhostNet": false
+          }
+        },
+        {
+          "resourceName": "bf3-p0-vfs-mgmt",
+          "selectors": {
+            "vendors": ["$TARGET_VENDOR"],
+            "devices": ["$VF_DEVICE_ID"],
+            "pciAddresses": [$MGMT_PCI],
+            "linkTypes": ["ether"],
+            "IsRdma": true,
+            "NeedVhostNet": false
+          }
+        }
+      ]
+    }
+    EOF
+    log "Configuration written."
+
+    # 4. LAUNCH PLUGIN
+    log "=== Starting SR-IOV Device Plugin ==="
+    exec /usr/bin/sriovdp -v 10 -logtostderr --resource-prefix=openshift.io --config-file="$CONFIG_FILE"
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: sriov-device-plugin
+  namespace: openshift-sriov-network-operator
+  labels:
+    app: sriov-device-plugin
+spec:
+  selector:
+    matchLabels:
+      app: sriov-device-plugin
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 33%
+      maxSurge: 0
+  template:
+    metadata:
+      labels:
+        app: sriov-device-plugin
+    spec:
+      serviceAccountName: sriov-device-plugin
+      priorityClassName: system-node-critical
+      hostNetwork: true
+      nodeSelector:
+        feature.node.kubernetes.io/network-sriov.capable: "true"
+      tolerations:
+      - operator: Exists
+      
+      containers:
+      - name: sriov-device-plugin
+        image: registry.redhat.io/openshift4/ose-sriov-network-device-plugin-rhel9@sha256:1e3d8511559b72315b71065927c8228900636af25026638c3ff0c1b84698f65a
+        command: ["/bin/bash", "/scripts/entrypoint.sh"]
+        env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        securityContext:
+          privileged: true
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "50Mi"
+        volumeMounts:
+        - name: supervisor-script
+          mountPath: /scripts
+        - name: devicesock
+          mountPath: /var/lib/kubelet/device-plugins
+        - name: config-volume
+          mountPath: /etc/pcidp
+        - name: host-sys
+          mountPath: /host/sys
+          readOnly: true
+      
+      volumes:
+      - name: supervisor-script
+        configMap:
+          name: sriov-supervisor-script
+          defaultMode: 0755
+      - name: devicesock
+        hostPath:
+          path: /var/lib/kubelet/device-plugins
+          type: Directory
+      - name: config-volume
+        emptyDir: {}
+      - name: host-sys
+        hostPath:
+          path: /sys
+          type: Directory

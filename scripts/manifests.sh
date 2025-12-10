@@ -307,16 +307,12 @@ prepare_dpf_manifests() {
         "<KUBERNETES_VERSION>" "$OPENSHIFT_VERSION" \
         "<HOSTED_CLUSTER_NAME>" "$HOSTED_CLUSTER_NAME"
 
-
-    log [INFO] "GENERATED_DIR5555: $GENERATED_DIR"
     # Extract NGC API key and update secrets
     NGC_API_KEY=$(jq -r '.auths."nvcr.io".password // empty' "$DPF_PULL_SECRET" 2>/dev/null)
     if [ -z "$NGC_API_KEY" ] || [ "$NGC_API_KEY" = "null" ]; then
         log "ERROR" "Failed to extract NGC API key from pull secret"
         return 1
     fi
-
-    log [INFO] "GENERATED_DIR4444: $GENERATED_DIR"
     
     # Process ngc-secrets.yaml using process_template function
     update_file_multi_replace \
