@@ -282,11 +282,7 @@ prepare_dpf_manifests() {
     
     # Always use auto-provisioned NFS for BFB storage (works for both SNO and MNO)
     # Remove storageClassName to enable direct binding to NFS PersistentVolume
-    if ! grep -v 'storageClassName: ""' "$GENERATED_DIR/bfb-pvc.yaml" > "$GENERATED_DIR/bfb-pvc.yaml.tmp"; then
-        log "ERROR" "Failed to process bfb-pvc.yaml for NFS binding"
-        return 1
-    fi
-    mv "$GENERATED_DIR/bfb-pvc.yaml.tmp" "$GENERATED_DIR/bfb-pvc.yaml"
+    sed -i '/storageClassName:/d' "$GENERATED_DIR/bfb-pvc.yaml"
 
     # Update static DPU cluster template
     sed -i "s|<KUBERNETES_VERSION>|$OPENSHIFT_VERSION|g" "$GENERATED_DIR/static-dpucluster-template.yaml"
