@@ -11,8 +11,7 @@ spec:
         k8s.v1.cni.cncf.io/networks: |-
           [
           {"name": "iprequest", "interface": "ip_lo", "cni-args": {"poolNames": ["loopback"], "poolType": "cidrpool"}},
-          {"name": "iprequest", "interface": "ip_pf2dpu2", "cni-args": {"poolNames": ["pool1"], "poolType": "cidrpool", "allocateDefaultGateway": true}},
-          {"name": "iprequest", "interface": "ip_asn", "cni-args": {"poolNames": ["asn"], "poolType": "cidrpool"}}
+          {"name": "iprequest", "interface": "ip_pf2dpu2", "cni-args": {"poolNames": ["pool1"], "poolType": "cidrpool", "allocateDefaultGateway": true}}
           ]
     helmChart:
       values:
@@ -47,7 +46,7 @@ spec:
                       mtu: 9216
                 router:
                   bgp:
-                    autonomous-system: {{ ( ipaddresses.ip_asn.ip.split(".")[2] | int ) * 256 + ( ipaddresses.ip_asn.ip.split(".")[3] | int ) + 65101 }}
+                    autonomous-system: {{ ( ipaddresses.ip_lo.ip.split(".")[3] | int ) + 65101 }}
                     enable: on
                     graceful-restart:
                       mode: full
