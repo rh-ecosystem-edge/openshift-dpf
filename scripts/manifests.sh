@@ -213,7 +213,6 @@ update_worker_manifest() {
 function deploy_core_operator_sources() {
     log [INFO] "Deploying NFD and SR-IOV subscriptions..."
     log [INFO] "Using catalog source: ${CATALOG_SOURCE_NAME}"
-    log [INFO] "Using v4.19 workaround: ${USE_V419_WORKAROUND}"
 
     mkdir -p "$GENERATED_DIR"
 
@@ -225,16 +224,6 @@ function deploy_core_operator_sources() {
             apply_manifest "$GENERATED_DIR/$(basename "$f")" true
         fi
     done
-
-    if [[ "${USE_V419_WORKAROUND}" == "true" ]]; then
-        log [INFO] "Deploying v4.19 catalog source (workaround enabled)"
-        local catalog_file="$MANIFESTS_DIR/cluster-installation/4.19-cataloguesource.yaml"
-        if [ -f "$catalog_file" ]; then
-            apply_manifest "$catalog_file" true
-        fi
-    else
-        log [INFO] "Skipping v4.19 catalog source deployment (using standard OLM)"
-    fi
 
     log [INFO] "Core operator sources deployed."
 }
@@ -299,16 +288,9 @@ prepare_dpf_manifests() {
         return 1
     fi
     
-    # For single-node clusters (VM_COUNT < 2), we use direct NFS PV binding, so remove storageClassName
-    if [ "${VM_COUNT}" -lt 2 ]; then
-        if ! grep -v 'storageClassName: ""' "$GENERATED_DIR/bfb-pvc.yaml" > "$GENERATED_DIR/bfb-pvc.yaml.tmp"; then
-            log "ERROR" "Failed to process bfb-pvc.yaml for single-node cluster"
-            return 1
-        fi
-        mv "$GENERATED_DIR/bfb-pvc.yaml.tmp" "$GENERATED_DIR/bfb-pvc.yaml"
-    else
-        sed -i "s|storageClassName: \"\"|storageClassName: \"$BFB_STORAGE_CLASS\"|g" "$GENERATED_DIR/bfb-pvc.yaml"
-    fi
+    # Always use auto-provisioned NFS for BFB storage (works for both SNO and MNO)
+    # Remove storageClassName to enable direct binding to NFS PersistentVolume
+    sed -i '/storageClassName:/d' "$GENERATED_DIR/bfb-pvc.yaml"
 
     # Update static DPU cluster template
     sed -i "s|<KUBERNETES_VERSION>|$OPENSHIFT_VERSION|g" "$GENERATED_DIR/static-dpucluster-template.yaml"
@@ -469,18 +451,9 @@ function enable_storage() {
         return 0
     fi
     
-    # Update cluster with storage operator
-    if [ "$VM_COUNT" -eq 1 ]; then
-        log [INFO] "Enable LVM operator"
-        aicli update cluster "$CLUSTER_NAME" -P olm_operators='[{"name": "lvm"}]'
-    else
-        if [ "${USE_V419_WORKAROUND}" = "false" ]; then
-            log [INFO] "Enable ODF operator via assisted installer OLM"
-            aicli update cluster "$CLUSTER_NAME" -P olm_operators='[{"name": "lso"}, {"name": "odf"}]'
-        else
-            log [INFO] "Skipping assisted installer OLM (using v4.19 workaround)"
-        fi
-    fi
+    # Update cluster with LVM operator via assisted installer OLM
+    log [INFO] "Enable LVM operator via assisted installer OLM"
+    aicli update cluster "$CLUSTER_NAME" -P olm_operators='[{"name": "lvm"}]'
 }
 
 # -----------------------------------------------------------------------------

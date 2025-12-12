@@ -142,13 +142,9 @@ HOST_CLUSTER_API=${HOST_CLUSTER_API:-"api.$CLUSTER_NAME.$BASE_DOMAIN"}
 NFS_SERVER_NODE_IP=${NFS_SERVER_NODE_IP:-""}
 NFS_PATH=${NFS_PATH:-"/"}
 
-if [ "${VM_COUNT}" -lt 2 ]; then
-  ETCD_STORAGE_CLASS=${ETCD_STORAGE_CLASS:-"lvms-vg1"}
-  BFB_STORAGE_CLASS=${BFB_STORAGE_CLASS:-"nfs-client"}
-else
-  ETCD_STORAGE_CLASS=${ETCD_STORAGE_CLASS:-"ocs-storagecluster-ceph-rbd"}
-  BFB_STORAGE_CLASS=${BFB_STORAGE_CLASS:-""}
-fi
+# Default to LVMS for both SNO and MNO deployments
+# See: https://docs.redhat.com/en/documentation/openshift_container_platform/4.15/html/storage/logical-volume-manager-storage
+ETCD_STORAGE_CLASS=${ETCD_STORAGE_CLASS:-"lvms-vg1"}
 NUM_VFS=${NUM_VFS:-"46"}
 
 # Feature Configuration
@@ -179,14 +175,6 @@ PRIMARY_IFACE=${PRIMARY_IFACE:-enp1s0}
 
 # OLM Catalog Source Configuration
 CATALOG_SOURCE_NAME=${CATALOG_SOURCE_NAME:-"redhat-operators"}
-
-USE_V419_WORKAROUND=${USE_V419_WORKAROUND:-"false"}
-
-if [[ "${USE_V419_WORKAROUND}" == "true" ]]; then
-    CATALOG_SOURCE_NAME="redhat-operators-v419"
-else
-    CATALOG_SOURCE_NAME="redhat-operators"
-fi
 
 # MetalLB Configuration (for multi-node clusters)
 # HYPERSHIFT_API_IP: IP address for Hypershift API server LoadBalancer (required for multi-node with Hypershift)
