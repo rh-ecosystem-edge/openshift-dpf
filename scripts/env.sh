@@ -67,8 +67,8 @@ HBN_OVN_NETWORK=${HBN_OVN_NETWORK:-"10.0.120.0/22"}
 # HBN Service Template Configuration
 HBN_HELM_REPO_URL=${HBN_HELM_REPO_URL:-"https://helm.ngc.nvidia.com/nvidia/doca"}
 HBN_HELM_CHART_VERSION=${HBN_HELM_CHART_VERSION:-"1.0.3"}
-HBN_IMAGE_REPO=${HBN_IMAGE_REPO:-"quay.io/eelgaev/doca_hbn"}
-HBN_IMAGE_TAG=${HBN_IMAGE_TAG:-"release-3.1.0.7-doca3.1.0-RHTP"}
+HBN_IMAGE_REPO=${HBN_IMAGE_REPO:-"nvcr.io/nvidia/doca/doca_hbn"}
+HBN_IMAGE_TAG=${HBN_IMAGE_TAG:-"3.2.0-doca3.2.0"}
 
 # DTS Service Template Configuration
 DTS_HELM_REPO_URL=${DTS_HELM_REPO_URL:-"https://helm.ngc.nvidia.com/nvidia/doca"}
