@@ -7,6 +7,7 @@ set -o pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/env.sh"
 source "${SCRIPT_DIR}/utils.sh"
+source "${SCRIPT_DIR}/cluster.sh"
 
 # Use existing path conventions from env.sh
 WORKER_TEMPLATE_DIR="${MANIFESTS_DIR}/worker-provisioning"
@@ -16,6 +17,9 @@ WORKER_GENERATED_DIR="${GENERATED_DIR}/worker-provisioning"
 provision_all_workers() {
     local count="${WORKER_COUNT:-0}"
     [[ "$count" -eq 0 ]] && { log "INFO" "WORKER_COUNT=0, skipping"; return 0; }
+
+    # Ensure kubeconfig is available
+    get_kubeconfig
 
     # BMO is pre-installed in OpenShift - verify it's available
     if ! oc get clusteroperator baremetal &>/dev/null; then
@@ -82,6 +86,7 @@ provision_all_workers() {
 }
 
 approve_worker_csrs() {
+    get_kubeconfig
     # Approve all pending CSRs - simple and effective for worker provisioning
     # OpenShift's cluster-machine-approver handles normal CSR approval,
     # but we need to approve CSRs for BMO-provisioned workers manually
@@ -113,6 +118,7 @@ is_worker_registered() {
 }
 
 wait_and_approve_csrs() {
+    get_kubeconfig
     local timeout="${CSR_APPROVAL_TIMEOUT:-600}"
     local count="${WORKER_COUNT:-0}"
     local end=$((SECONDS + timeout))
@@ -147,6 +153,7 @@ wait_and_approve_csrs() {
 }
 
 display_worker_status() {
+    get_kubeconfig
     echo "=== Worker Status ==="
     oc get bmh -n openshift-machine-api
     echo ""
