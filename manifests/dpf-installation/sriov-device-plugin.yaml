@@ -123,11 +123,13 @@ data:
     while true; do
       TOTAL_VFS=$(cat "$PF_PATH/device/sriov_numvfs" 2>/dev/null || echo 0)
 
+      # Check timeout at the start of every iteration
+      if [ "$VF_ELAPSED" -ge "$MAX_WAIT_SECONDS" ]; then
+        log "ERROR: Timeout waiting for VFs. Exiting."
+        exit 1
+      fi
+
       if [ "$TOTAL_VFS" -le "$DATA_VF_START" ]; then
-        if [ "$VF_ELAPSED" -ge "$MAX_WAIT_SECONDS" ]; then
-          log "ERROR: Timeout waiting for VFs. Exiting."
-          exit 1
-        fi
         sleep $POLL_INTERVAL
         VF_ELAPSED=$((VF_ELAPSED + POLL_INTERVAL))
         continue
@@ -158,6 +160,7 @@ data:
         break
       fi
       sleep $POLL_INTERVAL
+      VF_ELAPSED=$((VF_ELAPSED + POLL_INTERVAL))
     done
 
     log "Generating configuration..."
