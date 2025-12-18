@@ -17,30 +17,31 @@ NFS_SERVICE_SCRIPT := scripts/nfs-service.sh
 # Sanity tests script:
 SANITY_CHECKS_SCRIPT := scripts/dpf-sanity-checks.sh
 
+# Worker provisioning script
+WORKER_SCRIPT := scripts/worker.sh
+
 .PHONY: all clean check-cluster create-cluster prepare-manifests generate-ovn update-paths help delete-cluster verify-files \
         download-iso fix-yaml-spacing create-vms delete-vms enable-storage cluster-install wait-for-ready \
         wait-for-installed wait-for-status cluster-start clean-all deploy-dpf kubeconfig deploy-nfd \
         install-hypershift install-helm deploy-dpu-services prepare-dpu-files upgrade-dpf create-day2-cluster get-day2-iso \
         redeploy-dpu enable-ovn-injector deploy-argocd deploy-maintenance-operator configure-flannel \
-        deploy-core-operator-sources setup-nfs-server deploy-metallb deploy-lso deploy-odf prepare-nfs run-dpf-sanity
+        deploy-core-operator-sources setup-nfs-server deploy-metallb deploy-lso deploy-odf prepare-nfs run-dpf-sanity \
+        add-worker-nodes worker-status approve-worker-csrs wait-approve-csrs
 
 all: 
 	@mkdir -p logs
 	@bash -o pipefail -c '$(MAKE) _all 2>&1 | tee "logs/make_all_$(shell date +%Y%m%d_%H%M%S).log"'
 
-_all: verify-files check-cluster create-vms prepare-manifests cluster-install update-etc-hosts kubeconfig deploy-dpf prepare-dpu-files deploy-dpu-services enable-ovn-injector
+_all: verify-files check-cluster create-vms prepare-manifests cluster-install update-etc-hosts kubeconfig deploy-dpf prepare-dpu-files deploy-dpu-services enable-ovn-injector add-worker-nodes
 	@echo ""
 	@echo "================================================================================"
 	@echo "✅ DPF Installation Complete!"
 	@echo "================================================================================"
 	@echo ""
-	@echo "Next steps to add worker nodes with DPUs:"
-	@echo "1. Access Assisted Installer UI and download discovery ISO"
-	@echo "2. Boot worker nodes with the discovery ISO"
-	@echo "3. Approve pending certificate signing requests"
-	@echo "4. Wait for nodes to join the cluster"
-	@echo "5. Monitor DPU deployment progress"
+	@echo "Worker nodes have been provisioned via BMO/Redfish."
+	@echo "Run 'make worker-status' to check provisioning progress."
 	@echo ""
+	@echo "Note: Worker nodes will show NotReady until DPU services are fully configured."
 	@echo "================================================================================"
 
 verify-files:
@@ -178,6 +179,36 @@ run-dpf-sanity:
 	@chmod +x $(SANITY_CHECKS_SCRIPT)
 	@$(SANITY_CHECKS_SCRIPT)
 
+add-worker-nodes:
+	@echo "================================================================================"
+	@echo "Adding worker nodes via BMO/Redfish provisioning..."
+	@echo "================================================================================"
+	@mkdir -p $(GENERATED_DIR)/worker-provisioning
+	@$(WORKER_SCRIPT) provision-all-workers
+	@if [ "$(AUTO_APPROVE_WORKER_CSR)" = "true" ]; then \
+		echo ""; \
+		echo "AUTO_APPROVE_WORKER_CSR=true - Starting CSR auto-approval..."; \
+		$(WORKER_SCRIPT) wait-and-approve-csrs; \
+	else \
+		echo ""; \
+		$(WORKER_SCRIPT) display-manual-csr-instructions; \
+	fi
+	@echo ""
+	@echo "================================================================================"
+	@echo "Worker node provisioning initiated!"
+	@echo "Generated manifests: $(GENERATED_DIR)/worker-provisioning/"
+	@echo "Run 'make worker-status' to monitor progress."
+	@echo "================================================================================"
+
+worker-status:
+	@$(WORKER_SCRIPT) display-worker-status
+
+approve-worker-csrs:
+	@$(WORKER_SCRIPT) approve-worker-csrs
+
+wait-approve-csrs:
+	@$(WORKER_SCRIPT) wait-and-approve-csrs
+
 help:
 	@echo "Available targets:"
 	@echo "Cluster Management:"
@@ -219,6 +250,10 @@ help:
 	@echo "  prepare-dpu-files - Prepare post-installation manifests with custom values"
 	@echo "  deploy-dpu-services - Deploy DPU services to the cluster"
 	@echo "  configure-flannel - Deploy flannel IPAM controller for automatic podCIDR assignment"
+	@echo "  add-worker-nodes  - Provision worker nodes via BMO/Redfish (uses WORKER_* env vars)"
+	@echo "  worker-status     - Display provisioning status for all configured workers"
+	@echo "  approve-worker-csrs - Approve pending CSRs for configured workers"
+	@echo "  wait-approve-csrs - Wait and auto-approve CSRs until all workers are registered"
 	@echo ""
 	@echo "Hypershift Management:"
 	@echo "  install-hypershift - Install Hypershift binary and operator"
@@ -283,4 +318,13 @@ help:
 	@echo ""
 	@echo "Wait Configuration:"
 	@echo "  MAX_RETRIES      - Maximum number of retries for status checks (default: $(MAX_RETRIES))"
-	@echo "  SLEEP_TIME       - Sleep time in seconds between retries (default: $(SLEEP_TIME))" 
+	@echo "  SLEEP_TIME       - Sleep time in seconds between retries (default: $(SLEEP_TIME))"
+	@echo ""
+	@echo "Worker Node Configuration:"
+	@echo "  WORKER_COUNT          - Number of workers to provision (default: 0)"
+	@echo "  WORKER_n_NAME         - Worker hostname (e.g., WORKER_1_NAME=openshift-worker-1)"
+	@echo "  WORKER_n_BMC_IP       - BMC/iDRAC IP address for Redfish API"
+	@echo "  WORKER_n_BMC_USER     - BMC username"
+	@echo "  WORKER_n_BMC_PASSWORD - BMC password"
+	@echo "  WORKER_n_BOOT_MAC     - Boot NIC MAC address"
+	@echo "  WORKER_n_ROOT_DEVICE  - Target installation disk (e.g., /dev/sda)" 

@@ -1,0 +1,22 @@
+---
+apiVersion: metal3.io/v1alpha1
+kind: BareMetalHost
+metadata:
+  name: <WORKER_NAME>
+  namespace: openshift-machine-api
+  annotations:
+    inspect.metal3.io: disabled
+spec:
+  online: true
+  bootMACAddress: <BOOT_MAC>
+  bmc:
+    address: redfish-virtualmedia+https://<BMC_IP>
+    credentialsName: <WORKER_NAME>-bmc-secret
+    disableCertificateVerification: true
+  customDeploy:
+    method: install_coreos
+  rootDeviceHints:
+    deviceName: <ROOT_DEVICE>
+  userData:
+    name: worker-user-data-managed
+    namespace: openshift-machine-api
