@@ -5,7 +5,6 @@ metadata:
   namespace: openshift-storage
 spec:
   labelSelector:
-
     matchExpressions:
       - key: node-role.kubernetes.io/worker
         operator: In
