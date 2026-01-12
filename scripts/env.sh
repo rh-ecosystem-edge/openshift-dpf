@@ -173,6 +173,9 @@ HOSTED_CONTROL_PLANE_NAMESPACE="${CLUSTERS_NAMESPACE}-${HOSTED_CLUSTER_NAME}"
 MAX_RETRIES=${MAX_RETRIES:-"90"}
 SLEEP_TIME=${SLEEP_TIME:-"60"}
 
+# Worker Provisioning Configuration
+# Enable short worker hostnames (sets hostname based on MAC address via MachineConfig)
+ENABLE_SHORT_WORKER_HOSTNAMES=${ENABLE_SHORT_WORKER_HOSTNAMES:-"false"}
 STATIC_NET_FILE=${STATIC_NET_FILE:-"./configuration_templates/static_net.yaml"}
 NODES_MTU=${NODES_MTU:-"1500"}
 PRIMARY_IFACE=${PRIMARY_IFACE:-enp1s0}

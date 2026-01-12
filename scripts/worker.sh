@@ -21,6 +21,9 @@ provision_all_workers() {
     # Ensure kubeconfig is available
     get_kubeconfig
 
+    # Apply short worker hostnames MachineConfig if enabled
+    apply_short_worker_hostnames
+
     # BMO is pre-installed in OpenShift - verify it's available
     if ! oc get clusteroperator baremetal &>/dev/null; then
         log "ERROR" "Baremetal cluster operator not found. This should not happen in OpenShift."
@@ -169,6 +172,27 @@ display_manual_csr_instructions() {
     echo "Or: make approve-worker-csrs"
 }
 
+apply_short_worker_hostnames() {
+    # Apply MachineConfig that sets worker hostnames based on MAC address
+    # This is controlled by ENABLE_SHORT_WORKER_HOSTNAMES flag
+    if [[ "${ENABLE_SHORT_WORKER_HOSTNAMES}" != "true" ]]; then
+        log "INFO" "ENABLE_SHORT_WORKER_HOSTNAMES is not set to true, skipping short hostname MachineConfig"
+        return 0
+    fi
+
+    get_kubeconfig
+
+    local manifest="${WORKER_TEMPLATE_DIR}/99-short-worker-hostnames.yaml"
+    if [[ ! -f "$manifest" ]]; then
+        log "ERROR" "Short worker hostnames manifest not found: $manifest"
+        return 1
+    fi
+
+    log "INFO" "Applying short worker hostnames MachineConfig..."
+    apply_manifest "$manifest" false
+    log "INFO" "Short worker hostnames MachineConfig applied successfully"
+}
+
 # Command dispatcher
 case "${1:-}" in
     provision-all-workers) provision_all_workers ;;
@@ -176,8 +200,9 @@ case "${1:-}" in
     wait-and-approve-csrs) wait_and_approve_csrs ;;
     display-worker-status) display_worker_status ;;
     display-manual-csr-instructions) display_manual_csr_instructions ;;
+    apply-short-worker-hostnames) apply_short_worker_hostnames ;;
     *)
-        echo "Usage: $0 {provision-all-workers|approve-worker-csrs|wait-and-approve-csrs|display-worker-status|display-manual-csr-instructions}"
+        echo "Usage: $0 {provision-all-workers|approve-worker-csrs|wait-and-approve-csrs|display-worker-status|display-manual-csr-instructions|apply-short-worker-hostnames}"
         exit 1
         ;;
 esac

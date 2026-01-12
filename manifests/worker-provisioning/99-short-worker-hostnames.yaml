@@ -1,0 +1,38 @@
+apiVersion: machineconfiguration.openshift.io/v1
+kind: MachineConfig
+metadata:
+  labels:
+    machineconfiguration.openshift.io/role: worker
+  name: 99-worker-dynamic-hostname
+spec:
+  config:
+    ignition:
+      version: 3.2.0
+    storage:
+      files:
+      - path: /usr/local/bin/set-worker-hostname.sh
+        mode: 0755
+        overwrite: true
+        contents:
+          source: data:text/plain;charset=utf-8;base64,IyEvYmluL2Jhc2gKIyBTY3JpcHQgdG8gc2V0IGhvc3RuYW1lIGJhc2VkIG9uIGRlZmF1bHQgcm91dGUgaW50ZXJmYWNlIE1BQyBhZGRyZXNzCiMgUnVucyBvbmx5IG9uY2UgLSBwcmVzZXJ2ZXMgaG9zdG5hbWUgb24gc3Vic2VxdWVudCBydW5zCgpzZXQgLWV1byBwaXBlZmFpbAoKIyBNYXJrZXIgZmlsZSB0byBpbmRpY2F0ZSBzY3JpcHQgaGFzIHJ1bgpNQVJLRVJfRklMRT0iL2V0Yy9ob3N0bmFtZS1zZXQtb25jZSIKSE9TVE5BTUVfRklMRT0iL2V0Yy9ob3N0bmFtZSIKCiMgRnVuY3Rpb24gdG8gbG9nCmxvZygpIHsKICAgIGxvY2FsIG1zZz0iWyQoZGF0ZSArJVklbSVkLSVIOiVNOiVTKV0gJCoiCiAgICBlY2hvICIkbXNnIiA+JjIKICAgIGVjaG8gIiRtc2ciIHwgc3lzdGVtZC1jYXQgLXQgc2V0LWhvc3RuYW1lIC1wIGluZm8gMj4vZGV2L251bGwgfHwgdHJ1ZQp9CgojIEZ1bmN0aW9uIHRvIGdldCBNQUMgZnJvbSBkZWZhdWx0IHJvdXRlIGludGVyZmFjZQpnZXRfZGVmYXVsdF9yb3V0ZV9tYWMoKSB7CiAgICAjIEZpbmQgdGhlIGludGVyZmFjZSB0aGF0IGhhcyB0aGUgZGVmYXVsdCByb3V0ZQogICAgbG9jYWwgZGVmYXVsdF9pZmFjZT0kKGlwIHJvdXRlIHwgZ3JlcCBkZWZhdWx0IHwgYXdrICd7cHJpbnQgJDV9JyB8IGhlYWQgLW4gMSkKICAgIAogICAgaWYgW1sgLXogIiRkZWZhdWx0X2lmYWNlIiBdXTsgdGhlbgogICAgICAgIGxvZyAiRXJyb3I6IENvdWxkIG5vdCBmaW5kIGludGVyZmFjZSB3aXRoIGRlZmF1bHQgcm91dGUiCiAgICAgICAgcmV0dXJuIDEKICAgIGZpCiAgICAKICAgIGxvZyAiRGVmYXVsdCByb3V0ZSBpbnRlcmZhY2U6ICRkZWZhdWx0X2lmYWNlIgogICAgCiAgICAjIEdldCBNQUMgYWRkcmVzcyBvZiB0aGF0IGludGVyZmFjZQogICAgbG9jYWwgbWFjX2FkZHJlc3M9JChjYXQgL3N5cy9jbGFzcy9uZXQvIiRkZWZhdWx0X2lmYWNlIi9hZGRyZXNzIDI+L2Rldi9udWxsIHx8IGVjaG8gIiIpCiAgICAKICAgIGlmIFtbIC16ICIkbWFjX2FkZHJlc3MiIF1dIHx8IFtbICIkbWFjX2FkZHJlc3MiID09ICIwMDowMDowMDowMDowMDowMCIgXV07IHRoZW4KICAgICAgICBsb2cgIkNvdWxkIG5vdCBnZXQgTUFDIGZyb20gaW50ZXJmYWNlICRkZWZhdWx0X2lmYWNlIgogICAgICAgIHJldHVybiAxCiAgICBmaQogICAgCiAgICAjIFJlbW92ZSBjb2xvbnMgYW5kIGNvbnZlcnQgdG8gbG93ZXJjYXNlCiAgICBlY2hvICIkbWFjX2FkZHJlc3MiIHwgdHIgLWQgJzonIHwgdHIgJ0EtWicgJ2EteicKICAgIHJldHVybiAwCn0KCiMgTWFpbiBsb2dpYwptYWluKCkgewogICAgbG9nICJTdGFydGluZyBob3N0bmFtZSBjb25maWd1cmF0aW9uLi4uIgogICAgCiAgICAjIENoZWNrIGlmIHNjcmlwdCBoYXMgYWxyZWFkeSBydW4KICAgIGlmIFtbIC1mICIkTUFSS0VSX0ZJTEUiIF1dOyB0aGVuCiAgICAgICAgY3VycmVudF9ob3N0bmFtZT0kKGNhdCAiJEhPU1ROQU1FX0ZJTEUiIDI+L2Rldi9udWxsIHx8IGVjaG8gIiIpCiAgICAgICAgbG9nICJIb3N0bmFtZSBhbHJlYWR5IHNldCB0byAnJGN1cnJlbnRfaG9zdG5hbWUnLiBTa2lwcGluZyBjb25maWd1cmF0aW9uLiIKICAgICAgICBleGl0IDAKICAgIGZpCiAgICAKICAgICMgR2V0IE1BQyBhZGRyZXNzIGZyb20gZGVmYXVsdCByb3V0ZSBpbnRlcmZhY2UKICAgIGxvZyAiUmV0cmlldmluZyBNQUMgYWRkcmVzcyBmcm9tIGRlZmF1bHQgcm91dGUgaW50ZXJmYWNlLi4uIgogICAgbWFjPSQoZ2V0X2RlZmF1bHRfcm91dGVfbWFjKQogICAgCiAgICBpZiBbWyAteiAiJG1hYyIgXV07IHRoZW4KICAgICAgICBsb2cgIkVSUk9SOiBDb3VsZCBub3QgZGV0ZXJtaW5lIE1BQyBhZGRyZXNzLiBDYW5ub3QgcHJvY2VlZC4iCiAgICAgICAgZXhpdCAxCiAgICBmaQogICAgCiAgICAjIENyZWF0ZSBob3N0bmFtZSAoMTIgY2hhcmFjdGVyIE1BQyB3aXRob3V0IGNvbG9ucykKICAgIG5ld19ob3N0bmFtZT0id29ya2VyLSR7bWFjfSIKICAgIAogICAgbG9nICJTZXR0aW5nIGhvc3RuYW1lIHRvOiAkbmV3X2hvc3RuYW1lIgogICAgCiAgICAjIFNldCBob3N0bmFtZQogICAgZWNobyAiJG5ld19ob3N0bmFtZSIgPiAiJEhPU1ROQU1FX0ZJTEUiCiAgICBob3N0bmFtZWN0bCBzZXQtaG9zdG5hbWUgIiRuZXdfaG9zdG5hbWUiCiAgICAKICAgICMgQ3JlYXRlIG1hcmtlciBmaWxlIHdpdGggdGltZXN0YW1wIGFuZCBNQUMKICAgIHsKICAgICAgICBlY2hvICJIb3N0bmFtZSBzZXQgYXQ6ICQoZGF0ZSkiCiAgICAgICAgZWNobyAiTUFDIGFkZHJlc3M6ICRtYWMiCiAgICAgICAgZWNobyAiSG9zdG5hbWU6ICRuZXdfaG9zdG5hbWUiCiAgICB9ID4gIiRNQVJLRVJfRklMRSIKICAgIAogICAgbG9nICJIb3N0bmFtZSBjb25maWd1cmF0aW9uIGNvbXBsZXRlZC4iCn0KCm1haW4KZXhpdCAwCg==
+    systemd:
+      units:
+      - name: set-worker-hostname.service
+        enabled: true
+        contents: |
+          [Unit]
+          Description=Set Worker Hostname Based on Default Route Interface MAC
+          After=network-online.target
+          Wants=network-online.target
+          Before=kubelet.service crio.service
+          ConditionPathExists=!/etc/hostname-set-once
+
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/local/bin/set-worker-hostname.sh
+          RemainAfterExit=yes
+          StandardOutput=journal
+          StandardError=journal
+
+          [Install]
+          WantedBy=multi-user.target
