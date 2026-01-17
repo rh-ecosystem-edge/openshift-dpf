@@ -431,12 +431,8 @@ function apply_dpf() {
     fi
     log "INFO" "Cluster is accessible, proceeding with DPF deployment..."
     
-    # Deploy ArgoCD and Maintenance Operator for DPF v25.7+
-    if [[ "$DPF_VERSION" =~ ^v25\.[7-9] ]] || [[ "$DPF_VERSION" =~ ^v2[6-9] ]]; then
-        log [INFO] "DPF version $DPF_VERSION requires ArgoCD and Maintenance Operator"
-        deploy_argocd
-        deploy_maintenance_operator
-    fi
+    deploy_argocd
+    deploy_maintenance_operator
 
     log "INFO" "Enabling IP forwarding for OVN Kubernetes..."
     oc patch network.operator.openshift.io cluster --type=merge -p \
