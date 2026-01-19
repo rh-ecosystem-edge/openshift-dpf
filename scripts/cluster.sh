@@ -232,8 +232,9 @@ function start_cluster_installation() {
     wait_for_cluster_status "installed"
     log "INFO" "Cluster installation completed successfully"
     get_kubeconfig
-    if [ "${USE_V419_WORKAROUND}" == "true" ]; then
-        log "INFO" "Using v4.19 workaround. Deploying LSO and ODF..."
+
+    if [ "${STORAGE_TYPE}" == "odf" ]; then
+        log "INFO" "STORAGE_TYPE=odf detected. Deploying LSO and ODF..."
         deploy_lso
         deploy_odf
     fi
@@ -329,22 +330,22 @@ function deploy_lso() {
 }
 
 
-
-
-
-# Create ODF cluster as a workaround for OCS cluster creation issue
-# This is a temporary solution until the OCS cluster creation with LSO 4.19 will be fixed
 function deploy_odf() {
-    # Only deploy ODF for multi-node clusters
-    if [ "${VM_COUNT}" -le 1 ]; then
-        log "INFO" "Single-node cluster detected (VM_COUNT=${VM_COUNT}). Skipping ODF deployment."
+    if [ "${VM_COUNT}" -lt 3 ]; then
+        log "INFO" "ODF requires at least 3 nodes (VM_COUNT=${VM_COUNT}). Skipping ODF deployment."
         return 0
     fi
-    
+
+    if [ "${STORAGE_TYPE}" != "odf" ]; then
+        log "INFO" "STORAGE_TYPE is not 'odf' (current: ${STORAGE_TYPE}). Skipping ODF deployment."
+        log "INFO" "To use ODF, set STORAGE_TYPE=odf in your .env file."
+        return 0
+    fi
+
     log "INFO" "Multi-node cluster detected (VM_COUNT=${VM_COUNT}). Deploying OpenShift Data Foundation..."
-    
+
     get_kubeconfig
-    
+
     # Check if ODF subscription already exists
     if oc get subscription -n openshift-storage odf-operator &>/dev/null; then
         log "INFO" "ODF subscription already exists. Skipping subscription deployment."
@@ -360,31 +361,29 @@ function deploy_odf() {
 
         apply_manifest "${GENERATED_DIR}/odf-subscription.yaml" true
     fi
-    
+
     # Wait for ODF operator to create StorageCluster CRD
     log "INFO" "Waiting for ODF StorageCluster CRD to be available..."
-    local max_retries=60
-    local sleep_time=10
-    
+
     if retry 60 10 oc get storagecluster -A >/dev/null 2>&1; then
         log "INFO" "ODF StorageCluster CRD is available"
     else
         log "ERROR" "Timeout waiting for ODF StorageCluster CRD"
         return 1
     fi
-    
+
     apply_manifest "${MANIFESTS_DIR}/odf/odf-cluster.yaml" false
-    
+
     # Wait for StorageCluster to be ready
     log "INFO" "Waiting for ODF StorageCluster to be Ready..."
     if retry 120 10 bash -c 'oc get storagecluster -n openshift-storage ocs-storagecluster -o jsonpath="{.status.phase}" 2>/dev/null | grep -q "^Ready$"'; then
-        log "INFO" "✅ ODF StorageCluster is Ready"
+        log "INFO" "ODF StorageCluster is Ready"
     else
         log "ERROR" "Timeout waiting for ODF StorageCluster to be Ready"
         log "ERROR" "Check status manually: oc get storagecluster -n openshift-storage ocs-storagecluster"
         return 1
     fi
-    
+
     log "INFO" "ODF deployment completed successfully!"
 }
 

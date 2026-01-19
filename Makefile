@@ -25,7 +25,7 @@ WORKER_SCRIPT := scripts/worker.sh
         wait-for-installed wait-for-status cluster-start clean-all deploy-dpf kubeconfig deploy-nfd \
         install-hypershift install-helm deploy-dpu-services prepare-dpu-files upgrade-dpf create-day2-cluster get-day2-iso \
         redeploy-dpu enable-ovn-injector deploy-argocd deploy-maintenance-operator configure-flannel \
-        deploy-core-operator-sources setup-nfs-server deploy-metallb deploy-lso deploy-odf prepare-nfs run-dpf-sanity \
+        deploy-core-operator-sources setup-nfs-server deploy-metallb deploy-lso deploy-odf deploy-lvms prepare-nfs run-dpf-sanity \
         add-worker-nodes worker-status approve-worker-csrs wait-approve-csrs
 
 all: 
@@ -162,6 +162,12 @@ deploy-lso:
 deploy-odf:
 	@$(CLUSTER_SCRIPT) deploy-odf
 
+deploy-lvms:
+	@echo "INFO: LVMS is configured during cluster installation when STORAGE_TYPE=lvm (default)"
+	@echo "INFO: LVMS operator is deployed via assisted installer OLM during cluster creation"
+	@echo "INFO: Use 'make enable-storage' during cluster setup to configure LVMS"
+	@echo "INFO: To manually deploy LVMS post-installation, set STORAGE_TYPE=lvm and run 'make cluster-install'"
+
 prepare-nfs:
 	@$(MANIFESTS_SCRIPT) prepare-nfs
 
@@ -244,7 +250,8 @@ help:
 	@echo "  deploy-nfd       - Deploy NFD operator directly from source"
 	@echo "  deploy-metallb   - Deploy MetalLB operator for LoadBalancer support (only if HYPERSHIFT_API_IP is set)"
 	@echo "  deploy-lso       - Deploy Local Storage Operator for block storage (multi-node only)"
-	@echo "  deploy-odf       - Deploy OpenShift Data Foundation for distributed storage (multi-node only)"
+	@echo "  deploy-lvms      - Deploy LVMS (Logical Volume Manager Storage) for etcd storage (default with STORAGE_TYPE=lvm)"
+	@echo "  deploy-odf       - Deploy OpenShift Data Foundation for distributed storage (multi-node only, requires STORAGE_TYPE=odf)"
 	@echo "  prepare-nfs      - Prepare NFS manifests (internal or external NFS based on configuration)"
 	@echo "  upgrade-dpf       - Interactive DPF operator upgrade (user-friendly wrapper for prepare-dpf-manifests)"
 	@echo "  prepare-dpu-files - Prepare post-installation manifests with custom values"
