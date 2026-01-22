@@ -25,5 +25,7 @@ spec:
     bfCFGTemplateConfigMap: custom-bfb.cfg
     bfbPVCName: bfb-pvc
     dmsTimeout: 900
+    registry:
+      port: 8086
   staticClusterManager:
     disable: false
