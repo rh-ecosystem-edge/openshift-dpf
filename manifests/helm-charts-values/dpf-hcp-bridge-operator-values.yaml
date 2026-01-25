@@ -1,0 +1,70 @@
+# DPF HCP Bridge Operator Values for OpenShift DPF Automation
+# This file is used to configure the dpf-hcp-bridge-operator Helm chart deployment
+# Note: Image configuration is controlled via env vars (DPF_HCP_BRIDGE_OPERATOR_IMAGE_REPO/TAG)
+
+# Number of operator replicas
+replicaCount: 1
+
+# Namespace where the operator will be deployed
+namespace: dpf-hcp-bridge-system
+
+# Service account configuration
+serviceAccount:
+  name: ""
+  annotations: {}
+
+# Resource limits and requests
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+# Log level for the operator
+logLevel: info
+
+# Leader election configuration
+leaderElection:
+  enabled: true
+
+# Health probe configuration
+healthProbe:
+  port: 8081
+  livenessProbe:
+    initialDelaySeconds: 15
+    periodSeconds: 20
+  readinessProbe:
+    initialDelaySeconds: 5
+    periodSeconds: 10
+
+# Security context for the operator pod
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+# Security context for the operator container
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - "ALL"
+
+# Operator pod placement configuration
+# Automatically set based on VM_COUNT:
+# - VM_COUNT=1 (SNO): Deploy on master
+# - VM_COUNT>1 (Multi-node): Deploy on master
+placement:
+  target: master
+
+# Pod annotations
+podAnnotations:
+  kubectl.kubernetes.io/default-container: manager
+
+# Feature flags for operator functionality
+# Note: features.blueFieldValidation.enabled is controlled via env var (ENABLE_BLUEFIELD_VALIDATION)
+#features:
+#  blueFieldValidation:
+#    enabled: false
