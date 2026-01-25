@@ -123,7 +123,7 @@ prepare-dpu-files:
 deploy-dpu-services: prepare-dpu-files
 	@$(POST_INSTALL_SCRIPT) apply
 
-deploy-hypershift:
+deploy-hypershift: install-helm
 	@$(DPF_SCRIPT) deploy-hypershift
 
 create-ignition-template:
