@@ -448,7 +448,12 @@ function apply_dpf() {
     # This is required because the hostagent pods are created in the host network namespace and need to use the default DNS resolution mechanism.
     # This workaround should be removed when the hostagent pods are updated to use dnsPolicy: Default.
     log "INFO" "Applying DMS DNS policy mutation..."
-    apply_manifest "$MANIFESTS_DIR/dpf-installation/dms-dns-policy.yaml" true
+    mkdir -p "$GENERATED_DIR"
+    process_template \
+        "$MANIFESTS_DIR/dpf-installation/dms-dns-policy.yaml" \
+        "$GENERATED_DIR/dms-dns-policy.yaml" \
+        "<DMS_HOSTAGENT_IMAGE>" "$DMS_HOSTAGENT_IMAGE"
+    apply_manifest "$GENERATED_DIR/dms-dns-policy.yaml" true
     
     # Install/upgrade DPF Operator using helm (idempotent operation)
     log "INFO" "Installing/upgrading DPF Operator to $DPF_VERSION..."

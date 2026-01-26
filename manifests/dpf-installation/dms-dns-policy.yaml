@@ -24,7 +24,13 @@ spec:
       expression: >-
         Object{
           spec: Object.spec{
-            dnsPolicy: "Default"
+            dnsPolicy: "Default",
+            containers: [
+              Object.spec.containers{
+                name: "hostagent",
+                image: "<DMS_HOSTAGENT_IMAGE>"
+              }
+            ]
           }
         }
 ---

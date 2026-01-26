@@ -110,6 +110,10 @@ SKIP_BRIDGE_CONFIG=${SKIP_BRIDGE_CONFIG:-"false"}
 # DPF Configuration
 DPF_VERSION=${DPF_VERSION:-"v25.7.1"}
 
+# DMS Hostagent Image Override (for DNS policy workaround)
+# This image is used to patch hostagent pods with the dnsPolicy fix
+DMS_HOSTAGENT_IMAGE=${DMS_HOSTAGENT_IMAGE:-"ghcr.io/killianmuldoon/hostdriver:v25.10.1-patch.1"}
+
 # Helm Chart URLs - OCI registry format for v25.7+
 DPF_HELM_REPO_URL=${DPF_HELM_REPO_URL:-"https://helm.ngc.nvidia.com/nvidia/doca"}
 OVN_CHART_URL=${OVN_CHART_URL:-"oci://ghcr.io/mellanox/charts"}
