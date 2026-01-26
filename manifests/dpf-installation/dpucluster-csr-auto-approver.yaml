@@ -1,0 +1,79 @@
+---
+# CSR Auto-Approver for DPUCluster
+# Runs on host cluster, approves CSRs on DPUCluster using HyperShift kubeconfig
+# Template variables:
+#   <HOSTED_CONTROL_PLANE_NAMESPACE> - HCP namespace (e.g., clusters-doca)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: dpucluster-csr-approver
+  namespace: <HOSTED_CONTROL_PLANE_NAMESPACE>
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: dpucluster-csr-approver
+  namespace: <HOSTED_CONTROL_PLANE_NAMESPACE>
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  resourceNames: ["admin-kubeconfig"]
+  verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: dpucluster-csr-approver
+  namespace: <HOSTED_CONTROL_PLANE_NAMESPACE>
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: dpucluster-csr-approver
+subjects:
+- kind: ServiceAccount
+  name: dpucluster-csr-approver
+  namespace: <HOSTED_CONTROL_PLANE_NAMESPACE>
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: dpucluster-csr-auto-approver
+  namespace: <HOSTED_CONTROL_PLANE_NAMESPACE>
+spec:
+  schedule: "*/1 * * * *"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: dpucluster-csr-approver
+          containers:
+          - name: approver
+            image: registry.redhat.io/openshift4/ose-cli:latest
+            command:
+            - /bin/bash
+            - -c
+            - |
+              export KUBECONFIG=/etc/dpucluster/kubeconfig
+              echo "Checking for pending CSRs on DPUCluster..."
+              pending=$(oc get csr -o go-template='{{range .items}}{{if not .status}}{{.metadata.name}} {{end}}{{end}}' 2>/dev/null)
+              if [ -n "$pending" ]; then
+                for csr in $pending; do
+                  oc adm certificate approve "$csr" && echo "Approved: $csr"
+                done
+              else
+                echo "No pending CSRs"
+              fi
+            volumeMounts:
+            - name: dpucluster-kubeconfig
+              mountPath: /etc/dpucluster
+              readOnly: true
+          volumes:
+          - name: dpucluster-kubeconfig
+            secret:
+              secretName: admin-kubeconfig
+              items:
+              - key: kubeconfig
+                path: kubeconfig
+          restartPolicy: OnFailure

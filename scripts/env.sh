@@ -188,6 +188,12 @@ SLEEP_TIME=${SLEEP_TIME:-"60"}
 # Worker Provisioning Configuration
 # Enable short worker hostnames (sets hostname based on MAC address via MachineConfig)
 ENABLE_SHORT_WORKER_HOSTNAMES=${ENABLE_SHORT_WORKER_HOSTNAMES:-"false"}
+
+# CSR Auto-Approval Configuration
+# AUTO_APPROVE_WORKER_CSR: Deploy CronJob to auto-approve CSRs for host cluster workers
+AUTO_APPROVE_WORKER_CSR=${AUTO_APPROVE_WORKER_CSR:-"false"}
+# AUTO_APPROVE_DPUCLUSTER_CSR: Deploy CronJob to auto-approve CSRs for DPUCluster nodes
+AUTO_APPROVE_DPUCLUSTER_CSR=${AUTO_APPROVE_DPUCLUSTER_CSR:-"false"}
 STATIC_NET_FILE=${STATIC_NET_FILE:-"./configuration_templates/static_net.yaml"}
 NODES_MTU=${NODES_MTU:-"1500"}
 PRIMARY_IFACE=${PRIMARY_IFACE:-enp1s0}

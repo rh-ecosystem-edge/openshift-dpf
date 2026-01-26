@@ -106,55 +106,6 @@ approve_worker_csrs() {
     [[ $approved -gt 0 ]] && log "INFO" "Approved $approved CSR(s)" || true
 }
 
-is_worker_registered() {
-    # Check if worker's BMH is in provisioned state
-    # This means the worker has been fully provisioned and should be a node
-    local bmh_name="$1"
-
-    # Check BMH provisioning state - if "provisioned", the worker is done
-    local bmh_state
-    bmh_state=$(oc get bmh -n openshift-machine-api "$bmh_name" \
-        -o jsonpath='{.status.provisioning.state}' 2>/dev/null)
-    [[ "$bmh_state" == "provisioned" ]] && return 0
-
-    return 1
-}
-
-wait_and_approve_csrs() {
-    get_kubeconfig
-    local timeout="${CSR_APPROVAL_TIMEOUT:-600}"
-    local count="${WORKER_COUNT:-0}"
-    local end=$((SECONDS + timeout))
-
-    # Check if all workers already registered (skip wait if so)
-    local ready=0
-    for i in $(seq 1 "$count"); do
-        local name_var="WORKER_${i}_NAME"
-        local bmh_name="${!name_var}"
-        is_worker_registered "$bmh_name" && ((ready++)) || true
-    done
-    [[ "$ready" -ge "$count" ]] && { log "INFO" "All $count workers already registered, skipping CSR wait"; return 0; }
-
-    log "INFO" "Waiting for CSRs (timeout: ${timeout}s)..."
-
-    while [[ $SECONDS -lt $end ]]; do
-        approve_worker_csrs
-
-        # Check if all workers registered
-        local ready=0
-        for i in $(seq 1 "$count"); do
-            local name_var="WORKER_${i}_NAME"
-            local bmh_name="${!name_var}"
-            is_worker_registered "$bmh_name" && ((ready++)) || true
-        done
-
-        [[ "$ready" -ge "$count" ]] && { log "INFO" "All $count workers registered"; return 0; }
-        sleep 30
-    done
-
-    log "WARN" "Timeout - some workers may need manual CSR approval"
-}
-
 display_worker_status() {
     get_kubeconfig
     echo "=== Worker Status ==="
@@ -193,16 +144,51 @@ apply_short_worker_hostnames() {
     log "INFO" "Short worker hostnames MachineConfig applied successfully"
 }
 
+deploy_csr_auto_approver() {
+    # Deploy CSR auto-approver CronJob for host cluster
+    # This automatically approves CSRs for BMH-provisioned workers without Machine objects
+    get_kubeconfig
+
+    local manifest="${WORKER_TEMPLATE_DIR}/csr-auto-approver.yaml"
+    if [[ ! -f "$manifest" ]]; then
+        log "ERROR" "CSR auto-approver manifest not found: $manifest"
+        return 1
+    fi
+
+    # Check if already deployed
+    if oc get cronjob -n openshift-machine-api csr-auto-approver &>/dev/null; then
+        log "INFO" "CSR auto-approver already deployed, skipping"
+        return 0
+    fi
+
+    log "INFO" "Deploying CSR auto-approver for host cluster workers..."
+    apply_manifest "$manifest" false
+    log "INFO" "CSR auto-approver deployed successfully"
+}
+
+delete_csr_auto_approver() {
+    # Remove CSR auto-approver CronJob from host cluster
+    get_kubeconfig
+
+    log "INFO" "Removing CSR auto-approver from host cluster..."
+    oc delete cronjob -n openshift-machine-api csr-auto-approver --ignore-not-found
+    oc delete clusterrolebinding csr-approver --ignore-not-found
+    oc delete clusterrole csr-approver --ignore-not-found
+    oc delete serviceaccount -n openshift-machine-api csr-approver --ignore-not-found
+    log "INFO" "CSR auto-approver removed"
+}
+
 # Command dispatcher
 case "${1:-}" in
     provision-all-workers) provision_all_workers ;;
     approve-worker-csrs) approve_worker_csrs ;;
-    wait-and-approve-csrs) wait_and_approve_csrs ;;
     display-worker-status) display_worker_status ;;
     display-manual-csr-instructions) display_manual_csr_instructions ;;
     apply-short-worker-hostnames) apply_short_worker_hostnames ;;
+    deploy-csr-auto-approver) deploy_csr_auto_approver ;;
+    delete-csr-auto-approver) delete_csr_auto_approver ;;
     *)
-        echo "Usage: $0 {provision-all-workers|approve-worker-csrs|wait-and-approve-csrs|display-worker-status|display-manual-csr-instructions|apply-short-worker-hostnames}"
+        echo "Usage: $0 {provision-all-workers|approve-worker-csrs|display-worker-status|display-manual-csr-instructions|apply-short-worker-hostnames|deploy-csr-auto-approver|delete-csr-auto-approver}"
         exit 1
         ;;
 esac

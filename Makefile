@@ -26,7 +26,8 @@ WORKER_SCRIPT := scripts/worker.sh
         install-hypershift install-helm deploy-dpu-services prepare-dpu-files upgrade-dpf create-day2-cluster get-day2-iso \
         redeploy-dpu enable-ovn-injector deploy-argocd deploy-maintenance-operator configure-flannel \
         deploy-core-operator-sources setup-nfs-server deploy-metallb deploy-lso deploy-odf deploy-lvms prepare-nfs run-dpf-sanity \
-        add-worker-nodes worker-status approve-worker-csrs wait-approve-csrs
+        add-worker-nodes worker-status approve-worker-csrs \
+        deploy-csr-approver delete-csr-approver deploy-dpucluster-csr-approver delete-dpucluster-csr-approver
 
 all: 
 	@mkdir -p logs
@@ -193,8 +194,8 @@ add-worker-nodes:
 	@$(WORKER_SCRIPT) provision-all-workers
 	@if [ "$(AUTO_APPROVE_WORKER_CSR)" = "true" ]; then \
 		echo ""; \
-		echo "AUTO_APPROVE_WORKER_CSR=true - Starting CSR auto-approval..."; \
-		$(WORKER_SCRIPT) wait-and-approve-csrs; \
+		echo "AUTO_APPROVE_WORKER_CSR=true - Deploying CSR auto-approver CronJob..."; \
+		$(WORKER_SCRIPT) deploy-csr-auto-approver; \
 	else \
 		echo ""; \
 		$(WORKER_SCRIPT) display-manual-csr-instructions; \
@@ -212,8 +213,19 @@ worker-status:
 approve-worker-csrs:
 	@$(WORKER_SCRIPT) approve-worker-csrs
 
-wait-approve-csrs:
-	@$(WORKER_SCRIPT) wait-and-approve-csrs
+deploy-csr-approver:
+	@echo "Deploying CSR auto-approver for host cluster workers..."
+	@$(WORKER_SCRIPT) deploy-csr-auto-approver
+
+delete-csr-approver:
+	@$(WORKER_SCRIPT) delete-csr-auto-approver
+
+deploy-dpucluster-csr-approver:
+	@echo "Deploying CSR auto-approver for DPUCluster..."
+	@$(DPF_SCRIPT) deploy-dpucluster-csr-approver
+
+delete-dpucluster-csr-approver:
+	@$(DPF_SCRIPT) delete-dpucluster-csr-approver
 
 help:
 	@echo "Available targets:"
@@ -259,8 +271,11 @@ help:
 	@echo "  configure-flannel - Deploy flannel IPAM controller for automatic podCIDR assignment"
 	@echo "  add-worker-nodes  - Provision worker nodes via BMO/Redfish (uses WORKER_* env vars)"
 	@echo "  worker-status     - Display provisioning status for all configured workers"
-	@echo "  approve-worker-csrs - Approve pending CSRs for configured workers"
-	@echo "  wait-approve-csrs - Wait and auto-approve CSRs until all workers are registered"
+	@echo "  approve-worker-csrs - Approve pending CSRs (one-time, for manual use)"
+	@echo "  deploy-csr-approver - Deploy CSR auto-approver CronJob for host cluster workers"
+	@echo "  delete-csr-approver - Remove CSR auto-approver from host cluster"
+	@echo "  deploy-dpucluster-csr-approver - Deploy CSR auto-approver for DPUCluster (runs on host)"
+	@echo "  delete-dpucluster-csr-approver - Remove CSR auto-approver for DPUCluster"
 	@echo ""
 	@echo "Hypershift Management:"
 	@echo "  install-hypershift - Install Hypershift binary and operator"
@@ -334,4 +349,8 @@ help:
 	@echo "  WORKER_n_BMC_USER     - BMC username"
 	@echo "  WORKER_n_BMC_PASSWORD - BMC password"
 	@echo "  WORKER_n_BOOT_MAC     - Boot NIC MAC address"
-	@echo "  WORKER_n_ROOT_DEVICE  - Target installation disk (e.g., /dev/sda)" 
+	@echo "  WORKER_n_ROOT_DEVICE  - Target installation disk (e.g., /dev/sda)"
+	@echo ""
+	@echo "CSR Auto-Approval Configuration:"
+	@echo "  AUTO_APPROVE_WORKER_CSR     - Deploy CronJob to auto-approve CSRs for host cluster workers (default: false)"
+	@echo "  AUTO_APPROVE_DPUCLUSTER_CSR - Deploy CronJob to auto-approve CSRs for DPUCluster nodes (default: false)" 
