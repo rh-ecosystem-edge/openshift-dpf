@@ -96,9 +96,9 @@ WORKER_1_BMC_PASSWORD=your_password   # BMC password
 WORKER_1_BOOT_MAC=aa:bb:cc:dd:ee:01   # PXE boot interface MAC
 WORKER_1_ROOT_DEVICE=/dev/sda         # Installation disk (optional)
 
-# Security Settings
-AUTO_APPROVE_WORKER_CSR=false         # Manual approval (recommended)
-CSR_APPROVAL_TIMEOUT=600              # Approval timeout (seconds)
+# CSR Auto-Approval (deploy CronJobs to approve certificates)
+AUTO_APPROVE_WORKER_CSR=false         # Host cluster workers (recommended: false)
+AUTO_APPROVE_DPUCLUSTER_CSR=false     # DPUCluster nodes (recommended: false)
 ```
 
 ## Deployment Scenarios

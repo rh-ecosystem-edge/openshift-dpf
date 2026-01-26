@@ -211,7 +211,7 @@ DPF_OPERATOR_IMAGE=${PRIVATE_REGISTRY}/dpf-operator:v25.4
 ```bash
 # Disable auto-approvals in production
 AUTO_APPROVE_WORKER_CSR=false
-CSR_APPROVAL_TIMEOUT=300      # Shorter timeout for production
+AUTO_APPROVE_DPUCLUSTER_CSR=false
 
 # Use secure BMC credentials (never use defaults)
 WORKER_1_BMC_USER=admin       # Change from root
