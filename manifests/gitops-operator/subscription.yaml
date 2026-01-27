@@ -22,12 +22,10 @@ metadata:
   name: openshift-gitops-operator
   namespace: openshift-gitops-operator
 spec:
-  channel: gitops-<GITOPS_OPERATOR_CHANNEL>
   installPlanApproval: Automatic
   name: openshift-gitops-operator
   source: redhat-operators
   sourceNamespace: openshift-marketplace
-  startingCSV: openshift-gitops-operator.<GITOPS_OPERATOR_VERSION>
   config:
     env:
     - name: ARGOCD_CLUSTER_CONFIG_NAMESPACES
