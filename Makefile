@@ -335,3 +335,14 @@ help:
 	@echo "  WORKER_n_BMC_PASSWORD - BMC password"
 	@echo "  WORKER_n_BOOT_MAC     - Boot NIC MAC address"
 	@echo "  WORKER_n_ROOT_DEVICE  - Target installation disk (e.g., /dev/sda)" 
+
+# CI target - validates scripts without needing secrets
+ci-validate:
+	@echo "Validating shell scripts..."
+	@bash -n scripts/*.sh
+	@echo "Checking required files exist..."
+	@test -f Makefile
+	@test -f Containerfile
+	@test -d scripts
+	@test -d manifests
+	@echo "All validations passed"
