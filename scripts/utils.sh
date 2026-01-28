@@ -454,3 +454,4 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
             ;;
     esac
 fi 
+# CI test - can be removed
