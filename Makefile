@@ -22,7 +22,7 @@ WORKER_SCRIPT := scripts/worker.sh
 
 .PHONY: all clean check-cluster create-cluster prepare-manifests generate-ovn update-paths help delete-cluster verify-files \
         download-iso fix-yaml-spacing create-vms delete-vms enable-storage cluster-install wait-for-ready \
-        wait-for-installed wait-for-status cluster-start clean-all deploy-dpf kubeconfig deploy-nfd \
+        wait-for-installed wait-for-status cluster-start clean-all deploy-dpf kubeconfig kubeadmin-password deploy-nfd \
         install-hypershift install-helm deploy-dpu-services prepare-dpu-files upgrade-dpf create-day2-cluster get-day2-iso \
         redeploy-dpu enable-ovn-injector deploy-argocd deploy-maintenance-operator configure-flannel \
         deploy-core-operator-sources setup-nfs-server deploy-metallb deploy-lso deploy-odf deploy-lvms prepare-nfs run-dpf-sanity \
@@ -151,6 +151,9 @@ clean-all:
 kubeconfig:
 	@$(CLUSTER_SCRIPT) get-kubeconfig
 
+kubeadmin-password:
+	@$(CLUSTER_SCRIPT) get-kubeadmin-password
+
 deploy-nfd:
 	@$(DPF_SCRIPT) deploy-nfd
 
@@ -252,6 +255,7 @@ help:
 	@echo "  wait-for-ready    - Wait for cluster ready status"
 	@echo "  wait-for-installed - Wait for cluster installed status"
 	@echo "  kubeconfig       - Download cluster kubeconfig if not exists"
+	@echo "  kubeadmin-password - Download kubeadmin password for the cluster"
 	@echo ""
 	@echo "DPF Installation:"
 	@echo "  deploy-argocd     - Deploy GitOps operator"

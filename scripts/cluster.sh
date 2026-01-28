@@ -275,6 +275,26 @@ function get_kubeconfig() {
     fi
 }
 
+function get_kubeadmin_password() {
+    log "INFO" "Downloading kubeadmin password for cluster ${CLUSTER_NAME}..."
+    
+    if ! aicli download kubeadmin-password "${CLUSTER_NAME}"; then
+        log "ERROR" "Failed to download kubeadmin password for cluster ${CLUSTER_NAME}"
+        return 1
+    fi
+    
+    local password_file="kubeadmin-password.${CLUSTER_NAME}"
+    if [ -f "${password_file}" ]; then
+        log "INFO" "Kubeadmin password downloaded to: ${password_file}"
+        log "INFO" "Password: $(cat "${password_file}")"
+        log "INFO" "You can use this password to connect to the OpenShift console at:"
+        log "INFO" "  https://console-openshift-console.apps.${CLUSTER_NAME}.${BASE_DOMAIN}"
+        log "INFO" "  Username: kubeadmin"
+    else
+        log "WARN" "Password file not found at expected location: ${password_file}"
+    fi
+}
+
 function clean_all() {
     log "Performing full cleanup of cluster and VMs..."
     
@@ -494,6 +514,9 @@ function main() {
         get-kubeconfig)
             get_kubeconfig
             ;;
+        get-kubeadmin-password)
+            get_kubeadmin_password
+            ;;
         clean-all)
             clean_all
             ;;
@@ -517,7 +540,7 @@ function main() {
         *)
             log "Unknown command: $command"
             log "Available commands: check-create-cluster, delete-cluster, cluster-install,"
-            log "  wait-for-status, get-kubeconfig, clean-all, download-iso, create-day2-cluster, get-day2-iso, deploy-lso, deploy-odf"
+            log "  wait-for-status, get-kubeconfig, get-kubeadmin-password, clean-all, download-iso, create-day2-cluster, get-day2-iso, deploy-lso, deploy-odf"
             exit 1
             ;;
     esac
