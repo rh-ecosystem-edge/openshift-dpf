@@ -302,7 +302,7 @@ function clean_all() {
     
     # Delete VMs
     log "INFO" "Deleting VMs with prefix $VM_PREFIX..."
-    env VM_PREFIX="$VM_PREFIX" scripts/delete_vms.sh || true
+    scripts/vm.sh delete || true
     
     # Clean resources
     clean_resources

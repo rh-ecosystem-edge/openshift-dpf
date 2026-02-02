@@ -13,6 +13,7 @@ VM_SCRIPT := scripts/vm.sh
 UTILS_SCRIPT := scripts/utils.sh
 POST_INSTALL_SCRIPT := scripts/post-install.sh
 NFS_SERVICE_SCRIPT := scripts/nfs-service.sh
+VERIFY_SCRIPT := scripts/verify.sh
 
 # Sanity tests script:
 SANITY_CHECKS_SCRIPT := scripts/dpf-sanity-checks.sh
@@ -27,7 +28,8 @@ WORKER_SCRIPT := scripts/worker.sh
         redeploy-dpu enable-ovn-injector deploy-argocd deploy-maintenance-operator configure-flannel \
         deploy-core-operator-sources setup-nfs-server deploy-metallb deploy-lso deploy-odf deploy-lvms prepare-nfs run-dpf-sanity \
         add-worker-nodes worker-status approve-worker-csrs \
-        deploy-csr-approver delete-csr-approver deploy-dpucluster-csr-approver delete-dpucluster-csr-approver
+        deploy-csr-approver delete-csr-approver deploy-dpucluster-csr-approver delete-dpucluster-csr-approver \
+        verify-deployment verify-workers verify-dpu-nodes verify-dpudeployment
 
 all: 
 	@mkdir -p logs
@@ -38,12 +40,7 @@ _all: verify-files check-cluster create-vms prepare-manifests cluster-install up
 	@echo "================================================================================"
 	@echo "✅ DPF Installation Complete!"
 	@echo "================================================================================"
-	@echo ""
-	@echo "Worker nodes have been provisioned via BMO/Redfish."
-	@echo "Run 'make worker-status' to check provisioning progress."
-	@echo ""
-	@echo "Note: Worker nodes will show NotReady until DPU services are fully configured."
-	@echo "================================================================================"
+	@$(VERIFY_SCRIPT) verify-deployment
 
 verify-files:
 	@$(UTILS_SCRIPT) verify-files
@@ -227,6 +224,19 @@ deploy-dpucluster-csr-approver:
 delete-dpucluster-csr-approver:
 	@$(DPF_SCRIPT) delete-dpucluster-csr-approver
 
+# Verification targets
+verify-deployment:
+	@$(VERIFY_SCRIPT) verify-deployment
+
+verify-workers:
+	@$(VERIFY_SCRIPT) verify-workers
+
+verify-dpu-nodes:
+	@$(VERIFY_SCRIPT) verify-dpu-nodes
+
+verify-dpudeployment:
+	@$(VERIFY_SCRIPT) verify-dpudeployment
+
 help:
 	@echo "Available targets:"
 	@echo "Cluster Management:"
@@ -278,7 +288,13 @@ help:
 	@echo "  deploy-dpucluster-csr-approver - Deploy CSR auto-approver for DPUCluster (runs on host)"
 	@echo "  delete-dpucluster-csr-approver - Remove CSR auto-approver for DPUCluster"
 	@echo ""
-	@echo "Hypershift Management:"
+	@echo "Verification:"
+	@echo "  verify-deployment     - Full verification: workers + DPU nodes + DPUDeployment"
+	@echo "  verify-workers        - Wait for worker nodes to be Ready in host cluster"
+	@echo "  verify-dpu-nodes      - Wait for DPU nodes to be Ready in DPUCluster"
+	@echo "  verify-dpudeployment  - Wait for DPUDeployment to be Ready"
+	@echo ""
+	@echo "Hypershift Management:
 	@echo "  install-hypershift - Install Hypershift binary and operator"
 	@echo "  create-hypershift-cluster - Create a new Hypershift hosted cluster"
 	@echo "  configure-hypershift-dpucluster - Configure DPF to use Hypershift hosted cluster"
@@ -354,4 +370,9 @@ help:
 	@echo ""
 	@echo "CSR Auto-Approval Configuration:"
 	@echo "  AUTO_APPROVE_WORKER_CSR     - Deploy CronJob to auto-approve CSRs for host cluster workers (default: false)"
-	@echo "  AUTO_APPROVE_DPUCLUSTER_CSR - Deploy CronJob to auto-approve CSRs for DPUCluster nodes (default: false)" 
+	@echo "  AUTO_APPROVE_DPUCLUSTER_CSR - Deploy CronJob to auto-approve CSRs for DPUCluster nodes (default: false)"
+	@echo ""
+	@echo "Verification Configuration:"
+	@echo "  VERIFY_DEPLOYMENT    - Run verification after 'make all' completes (default: false)"
+	@echo "  VERIFY_MAX_RETRIES   - Max retry attempts for verification (default: 60)"
+	@echo "  VERIFY_SLEEP_SECONDS - Seconds between verification retries (default: 30)"
