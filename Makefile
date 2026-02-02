@@ -18,6 +18,9 @@ VERIFY_SCRIPT := scripts/verify.sh
 # Sanity tests script:
 SANITY_CHECKS_SCRIPT := scripts/dpf-sanity-checks.sh
 
+# Traffic flow tests script
+TFT_SCRIPT := scripts/traffic-flow-tests.sh
+
 # Worker provisioning script
 WORKER_SCRIPT := scripts/worker.sh
 
@@ -29,7 +32,8 @@ WORKER_SCRIPT := scripts/worker.sh
         deploy-core-operator-sources setup-nfs-server deploy-metallb deploy-lso deploy-odf deploy-lvms prepare-nfs run-dpf-sanity \
         add-worker-nodes worker-status approve-worker-csrs \
         deploy-csr-approver delete-csr-approver deploy-dpucluster-csr-approver delete-dpucluster-csr-approver \
-        verify-deployment verify-workers verify-dpu-nodes verify-dpudeployment
+        verify-deployment verify-workers verify-dpu-nodes verify-dpudeployment \
+        run-traffic-flow-tests tft-setup tft-cleanup tft-show-config tft-results
 
 all: 
 	@mkdir -p logs
@@ -183,6 +187,27 @@ run-dpf-sanity:
 	@chmod +x $(SANITY_CHECKS_SCRIPT)
 	@$(SANITY_CHECKS_SCRIPT)
 
+# Traffic Flow Tests
+run-traffic-flow-tests:
+	@echo "================================================================================"
+	@echo "Running Traffic Flow Tests..."
+	@echo "================================================================================"
+	@$(TFT_SCRIPT) run-full
+
+tft-setup:
+	@echo "Setting up Traffic Flow Tests environment..."
+	@$(TFT_SCRIPT) setup
+
+tft-cleanup:
+	@echo "Cleaning up Traffic Flow Tests..."
+	@$(TFT_SCRIPT) cleanup
+
+tft-show-config:
+	@$(TFT_SCRIPT) show-config
+
+tft-results:
+	@$(TFT_SCRIPT) show-results
+
 add-worker-nodes:
 	@echo "================================================================================"
 	@echo "Adding worker nodes via BMO/Redfish provisioning..."
@@ -294,6 +319,13 @@ help:
 	@echo "  verify-dpu-nodes      - Wait for DPU nodes to be Ready in DPUCluster"
 	@echo "  verify-dpudeployment  - Wait for DPUDeployment to be Ready"
 	@echo ""
+	@echo "Traffic Flow Tests:"
+	@echo "  run-traffic-flow-tests - Run kubernetes-traffic-flow-tests for network validation"
+	@echo "  tft-setup              - Setup TFT repository and Python environment only"
+	@echo "  tft-cleanup            - Remove TFT repository and virtual environment"
+	@echo "  tft-show-config        - Display current TFT configuration"
+	@echo "  tft-results            - Show results from the most recent test run"
+	@echo ""
 	@echo "Hypershift Management:
 	@echo "  install-hypershift - Install Hypershift binary and operator"
 	@echo "  create-hypershift-cluster - Create a new Hypershift hosted cluster"
@@ -376,3 +408,13 @@ help:
 	@echo "  VERIFY_DEPLOYMENT    - Run verification after 'make all' completes (default: false)"
 	@echo "  VERIFY_MAX_RETRIES   - Max retry attempts for verification (default: 60)"
 	@echo "  VERIFY_SLEEP_SECONDS - Seconds between verification retries (default: 30)"
+	@echo ""
+	@echo "Traffic Flow Tests Configuration:"
+	@echo "  TFT_REPO_URL         - TFT git repository URL"
+	@echo "  TFT_REPO_REV         - Git revision/branch/tag to checkout (default: main)"
+	@echo "  TFT_TEST_CASES       - Test cases to run (default: 1-25)"
+	@echo "  TFT_DURATION         - Duration per test in seconds (default: 10)"
+	@echo "  TFT_CONNECTION_TYPE  - Test type: iperf-tcp, iperf-udp, etc. (default: iperf-tcp)"
+	@echo "  TFT_KUBECONFIG       - Path to cluster kubeconfig"
+	@echo "  TFT_SERVER_NODE      - K8s node name for server (default: from HBN_HOSTNAME_NODE1)"
+	@echo "  TFT_CLIENT_NODE      - K8s node name for client (default: from HBN_HOSTNAME_NODE2)"

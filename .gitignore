@@ -23,9 +23,10 @@ kubeconfig*
 *.tmp
 test-charts/
 
-# Repos 
+# Repos
 cluster-nfd-operator
 node-feature-discovery
+/repos/
 
 # kubeconfigs
 *kubeconfig*
