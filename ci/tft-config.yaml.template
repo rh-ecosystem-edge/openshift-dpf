@@ -1,0 +1,121 @@
+# Traffic Flow Tests Configuration
+# ================================
+# Configuration for kubernetes-traffic-flow-tests
+# Repository: https://github.com/ovn-kubernetes/kubernetes-traffic-flow-tests
+#
+# This template is processed by scripts/traffic-flow-tests.sh
+# Placeholders (e.g., __WORKER_1_NAME__) are replaced with values from .env
+
+tft:
+  - name: "DPF Traffic Flow Test"
+    namespace: "default"
+
+    # Test Cases Configuration
+    # ------------------------
+    # Test cases can be specified:
+    #   - Individually: "1,2,3,6"
+    #   - As ranges: "1-9,15-19"
+    #   - By name: "POD_TO_POD_SAME_NODE,POD_TO_POD_DIFF_NODE"
+    #
+    # Available test cases (from kubernetes-traffic-flow-tests):
+    #   1  - POD_TO_POD_SAME_NODE
+    #   2  - POD_TO_POD_DIFF_NODE
+    #   3  - POD_TO_HOST_SAME_NODE
+    #   4  - POD_TO_HOST_DIFF_NODE
+    #   5  - POD_TO_CLUSTER_IP_TO_POD_SAME_NODE
+    #   6  - POD_TO_CLUSTER_IP_TO_POD_DIFF_NODE
+    #   7  - POD_TO_CLUSTER_IP_TO_HOST_SAME_NODE
+    #   8  - POD_TO_CLUSTER_IP_TO_HOST_DIFF_NODE
+    #   9  - POD_TO_NODE_PORT_TO_POD_SAME_NODE
+    #   10 - POD_TO_NODE_PORT_TO_POD_DIFF_NODE
+    #   15 - HOST_TO_POD_SAME_NODE
+    #   16 - HOST_TO_POD_DIFF_NODE
+    #   17 - HOST_TO_CLUSTER_IP_TO_POD_SAME_NODE
+    #   18 - HOST_TO_CLUSTER_IP_TO_POD_DIFF_NODE
+    #   19 - HOST_TO_CLUSTER_IP_TO_HOST_SAME_NODE
+    #   20 - HOST_TO_CLUSTER_IP_TO_HOST_DIFF_NODE
+    #   21 - HOST_TO_NODE_PORT_TO_POD_SAME_NODE
+    #   22 - HOST_TO_NODE_PORT_TO_POD_DIFF_NODE
+    #   23 - HOST_TO_NODE_PORT_TO_HOST_SAME_NODE
+    #   24 - HOST_TO_NODE_PORT_TO_HOST_DIFF_NODE
+    #   25 - POD_TO_EXTERNAL
+    #   27 - POD_TO_POD_2ND_INTERFACE_SAME_NODE
+    #   28 - POD_TO_POD_2ND_INTERFACE_DIFF_NODE
+    #   29 - POD_TO_POD_MULTI_NETWORK_POLICY
+    #
+    test_cases: "__TFT_TEST_CASES__"
+
+    # Duration in seconds for each test
+    duration: "__TFT_DURATION__"
+
+    # Log output location (optional)
+    # Defaults to "<working-dir>/ft-logs/" if not set
+    # Recommended: pass "--output-base" to ./tft.py instead
+    # logs: "/tmp/ft-logs"
+
+    connections:
+      - name: "Connection_1"
+        # Connection Type
+        # ---------------
+        # Supported types:
+        #   - iperf-tcp         : TCP throughput test using iperf3
+        #   - iperf-udp         : UDP throughput test using iperf3
+        #   - netperf-tcp-stream: TCP streaming test using netperf
+        #   - netperf-tcp-rr    : TCP request/response latency test
+        #   - http              : HTTP connectivity test
+        #   - simple            : Basic connectivity test
+        type: "__TFT_CONNECTION_TYPE__"
+
+        # Number of parallel test instances
+        instances: 1
+
+        server:
+          - name: "__TFT_SERVER_NODE__"
+            # Keep server pod running after test completion (true/false)
+            persistent: "false"
+            # Use SR-IOV for the server pod (true/false)
+            # sriov: "false"
+            # Default network for SR-IOV pod (optional)
+            # default_network: ""
+
+        client:
+          - name: "__TFT_CLIENT_NODE__"
+            # Use SR-IOV for the client pod (true/false)
+            # sriov: "false"
+            # Default network for SR-IOV pod (optional)
+            # default_network: ""
+            # Extra arguments for the test tool (optional)
+            # args: "-b 10G"
+
+        # Plugins (optional)
+        # ------------------
+        # Available plugins:
+        #   - measure_cpu      : Measure CPU usage during test
+        #   - measure_power    : Measure power consumption
+        #   - validate_offload : Verify OvS hardware offload (requires DPU mode)
+        # plugins:
+        #   - name: "measure_cpu"
+
+        # Secondary Network Configuration (optional)
+        # ------------------------------------------
+        # For tests 27-29, defaults to "tft-secondary" if not set.
+        # For other tests, uses primary network if unset.
+        # secondary_network_nad: "tft-secondary"
+
+        # Resource Name (optional)
+        # ------------------------
+        # Resource name for SR-IOV pods (resource limits/requests).
+        # Auto-detected from secondary_network_nad if not set.
+        # resource_name: ""
+
+# Kubeconfig Files
+# ----------------
+# Path to kubeconfig for the tenant/host cluster
+kubeconfig: __TFT_KUBECONFIG__
+
+# DPU Mode Configuration (optional)
+# ---------------------------------
+# Uncomment the following lines to enable DPU mode with validate_offload plugin:
+#
+# kubeconfig_infra: __TFT_KUBECONFIG_INFRA__
+# dpu_node_host_label: "provisioning.dpu.nvidia.com/host"

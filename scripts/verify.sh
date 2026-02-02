@@ -32,8 +32,7 @@ verify_worker_nodes() {
     for attempt in $(seq 1 "$VERIFY_MAX_RETRIES"); do
         # Count Ready worker nodes using jq
         local ready_workers
-        ready_workers=$(oc get nodes -l node-role.kubernetes.io/worker= -o json 2>/dev/null \
-            | jq '[.items[] | select(.status.conditions[] | select(.type=="Ready" and .status=="True"))] | length')
+        ready_workers=$(oc get nodes -l '!node-role.kubernetes.io/control-plane' -o json | jq '[.items[] | select(.status.conditions[] | select(.type=="Ready" and .status=="True"))] | length')
         
         if [[ "$ready_workers" -ge "$expected_count" ]]; then
             log "INFO" "All $expected_count worker node(s) are Ready"
