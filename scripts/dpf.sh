@@ -54,46 +54,45 @@ function deploy_metallb() {
         log [INFO] "HYPERSHIFT_API_IP not set. Skipping MetalLB deployment."
         return 0
     fi
-    
-    
-    log [INFO] "Deploying MetalLB for Hypershift API LoadBalancer: ${HYPERSHIFT_API_IP}..."
-    
+
+
+    log [INFO] "Deploying MetalLB operator for Hypershift API LoadBalancer..."
+
     get_kubeconfig
-    
+
     # Check if MetalLB subscription already exists
     if oc get subscription -n openshift-operators metallb-operator &>/dev/null; then
         log [INFO] "MetalLB subscription already exists. Skipping subscription deployment."
     else
         log [INFO] "Deploying MetalLB subscription..."
         mkdir -p "$GENERATED_DIR"
-        
+
         # Process subscription template
         process_template \
             "${MANIFESTS_DIR}/metallb/metallb-subscription.yaml" \
             "${GENERATED_DIR}/metallb-subscription.yaml" \
             "<CATALOG_SOURCE_NAME>" "${CATALOG_SOURCE_NAME}"
-        
-        apply_manifest "${GENERATED_DIR}/metallb-subscription.yaml" true  
+
+        apply_manifest "${GENERATED_DIR}/metallb-subscription.yaml" true
     fi
-    
+
     # Wait for MetalLB operator pods to be ready
     log [INFO] "Waiting for MetalLB operator to be ready..."
     wait_for_pods "openshift-operators" "control-plane=controller-manager" 60 5
-    
-    log [INFO] "Creating MetalLB instance and IP address pool..."
-    
-    # Process MetalLB objects template
+
+    log [INFO] "Creating MetalLB instance..."
+
+    # Process MetalLB CR template (only the MetalLB instance, not IPAddressPool/L2Advertisement)
+    # Note: IPAddressPool and L2Advertisement are now managed by dpf-hcp-bridge-operator
     process_template \
         "${MANIFESTS_DIR}/metallb/metallb-objects.yaml" \
-        "${GENERATED_DIR}/metallb-objects.yaml" \
-        "<HYPERSHIFT_API_IP>" "${HYPERSHIFT_API_IP}" \
-        "<HOSTED_CONTROL_PLANE_NAMESPACE>" "${HOSTED_CONTROL_PLANE_NAMESPACE}"
-    
-    # Apply MetalLB objects
+        "${GENERATED_DIR}/metallb-objects.yaml"
+
+    # Apply MetalLB CR
     retry 5 10 apply_manifest "${GENERATED_DIR}/metallb-objects.yaml" true
-            
-    log [INFO] "MetalLB deployment completed successfully!"
-    log [INFO] "Hypershift API LoadBalancer will use IP: ${HYPERSHIFT_API_IP}"
+
+    log [INFO] "MetalLB operator deployment completed successfully!"
+    log [INFO] "Note: IPAddressPool and L2Advertisement will be managed by dpf-hcp-bridge-operator"
 }
 
 function apply_scc() {
@@ -297,9 +296,9 @@ function deploy_hypershift() {
         wait_for_pods "hypershift" "app=operator" 30 5
     fi
 
-    # Step 3: Deploy MetalLB if HYPERSHIFT_API_IP is configured (multi-node clusters only)
+    # Step 3: Deploy MetalLB operator if HYPERSHIFT_API_IP is configured (multi-node clusters only)
     if [ -n "${HYPERSHIFT_API_IP}" ]; then
-        log [INFO] "HYPERSHIFT_API_IP configured. Deploying MetalLB for LoadBalancer support..."
+        log [INFO] "HYPERSHIFT_API_IP configured. Deploying MetalLB operator for LoadBalancer support..."
         deploy_metallb
     elif [ "${VM_COUNT}" -gt 1 ]; then
         log [WARN] "Multi-node cluster detected but HYPERSHIFT_API_IP not set."

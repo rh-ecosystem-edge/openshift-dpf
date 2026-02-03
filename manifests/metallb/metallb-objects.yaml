@@ -10,26 +10,3 @@ spec:
     - key: node-role.kubernetes.io/control-plane
       operator: Exists
       effect: NoSchedule
-
----
-apiVersion: metallb.io/v1beta1
-kind: IPAddressPool
-metadata:
-  name: hypershift-api-pool
-  namespace: openshift-operators
-spec:
-  autoAssign: true
-  addresses:
-    - <HYPERSHIFT_API_IP>/32
-  serviceAllocation:
-    namespaces:
-      - <HOSTED_CONTROL_PLANE_NAMESPACE>
----
-apiVersion: metallb.io/v1beta1
-kind: L2Advertisement
-metadata:
-  name: advertise-hypershift-api
-  namespace: openshift-operators
-spec:
-  ipAddressPools:
-  - hypershift-api-pool
