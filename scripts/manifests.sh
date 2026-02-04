@@ -134,8 +134,13 @@ function prepare_cluster_manifests() {
         "99-worker-bridge.yaml"
     )
 
-    # Always exclude v4.19-specific CatalogSource (no longer needed with LVMS)
-    excluded_files+=("4.19-cataloguesource.yaml")
+    # Only exclude v4.19 catalog source if the workaround is not enabled
+    # USE_V419_WORKAROUND is INDEPENDENT of STORAGE_TYPE - it controls OLM catalog
+    # for all operators (NFD, SR-IOV, LSO, ODF, etc.) on OpenShift versions where
+    # these operators aren't available in the standard redhat-operators catalog
+    if [ "${USE_V419_WORKAROUND}" != "true" ]; then
+        excluded_files+=("4.19-cataloguesource.yaml")
+    fi
 
     # Copy all manifests except excluded files using utility function
     copy_manifests_with_exclusions "$MANIFESTS_DIR/cluster-installation" "$GENERATED_DIR" "${excluded_files[@]}"
