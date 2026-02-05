@@ -404,6 +404,17 @@ copy_manifests_with_exclusions() {
     return 0
 }
 
+function ensure_ssh_key_in_home() {
+    if [ ! -f "${SSH_KEY}" ]; then
+        log "ERROR" "SSH public key file not found: ${SSH_KEY}. Set SSH_KEY in .env and place your .pub key there."
+        return 1
+    fi
+    if [[ "${SSH_KEY}" != *.pub ]]; then
+        log "ERROR" "SSH_KEY must point to a .pub file, got: ${SSH_KEY}"
+        return 1
+    fi
+}
+
 # -----------------------------------------------------------------------------
 # Cleanup functions
 # -----------------------------------------------------------------------------

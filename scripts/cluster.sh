@@ -260,7 +260,9 @@ function check_create_cluster() {
 
     if ! aicli info cluster ${CLUSTER_NAME} >/dev/null 2>&1; then
         log "INFO" "Cluster ${CLUSTER_NAME} not found, creating..."
-
+        
+        ensure_ssh_key_in_home || return 1
+        
         if [ "$VM_COUNT" -eq 1 ]; then
             log "INFO" "Creating single-node cluster..."
             aicli create cluster \

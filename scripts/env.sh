@@ -51,6 +51,20 @@ if [ -z "${MAKELEVEL:-}" ]; then
     validate_mtu
 fi
 
+# aicli uses HOME to find ~/.aicli/offlinetoken.txt. Default: $HOME. Override with AICLI_HOME (e.g. in .env).
+# When using AICLI_HOME, OPENSHIFT_PULL_SECRET must be a pull secret for the same Red Hat account as that token.
+AICLI_HOME=${AICLI_HOME:-$HOME}
+if [[ "$AICLI_HOME" != "$HOME" ]] && [[ ! -f "${AICLI_HOME}/.aicli/offlinetoken.txt" ]]; then
+    echo "Error: ${AICLI_HOME}/.aicli/offlinetoken.txt not found." >&2
+    exit 1
+fi
+export HOME="${AICLI_HOME}"
+if ! aicli list clusters &>/dev/null; then
+    echo "Error: aicli list clusters failed. Check token at ${AICLI_HOME}/.aicli/offlinetoken.txt and connectivity." >&2
+    exit 1
+fi
+
+
 # Directory Configuration
 MANIFESTS_DIR=${MANIFESTS_DIR:-"manifests"}
 GENERATED_DIR=${GENERATED_DIR:-"$MANIFESTS_DIR/generated"}
