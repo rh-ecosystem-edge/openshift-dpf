@@ -26,7 +26,7 @@ WORKER_SCRIPT := scripts/worker.sh
         install-hypershift install-helm deploy-dpu-services prepare-dpu-files upgrade-dpf create-day2-cluster get-day2-iso \
         redeploy-dpu enable-ovn-injector deploy-argocd deploy-maintenance-operator configure-flannel \
         deploy-core-operator-sources setup-nfs-server deploy-metallb deploy-lso deploy-odf deploy-lvms prepare-nfs run-dpf-sanity \
-        add-worker-nodes worker-status approve-worker-csrs wait-approve-csrs
+        add-worker-nodes worker-status approve-worker-csrs wait-approve-csrs aicli-list
 
 all: 
 	@mkdir -p logs
@@ -50,6 +50,9 @@ verify-files:
 clean:
 	@$(CLUSTER_SCRIPT) clean
 
+aicli-list:
+	@bash -c 'source scripts/env.sh && aicli list clusters'
+	
 delete-cluster:
 	@$(CLUSTER_SCRIPT) delete-cluster
 

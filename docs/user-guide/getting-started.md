@@ -102,6 +102,9 @@ echo "YOUR_OFFLINE_TOKEN" > ~/.aicli/offlinetoken.txt
 chmod 600 ~/.aicli/offlinetoken.txt
 ```
 
+To use a different user's token (e.g. when running as root but using tokens under `/root/xyz`), set `AICLI_HOME` in your `.env` or environment (e.g. `export AICLI_HOME=/root/xyz`). The automation will use `$AICLI_HOME/.aicli/offlinetoken.txt` and will check that this file exists when `AICLI_HOME` is set.
+**When using `AICLI_HOME`, your `OPENSHIFT_PULL_SECRET` file must contain a pull secret for the same Red Hat account** as the offline token (otherwise the API returns "pull secret token does not match current user").
+
 ### NVIDIA NGC API Key
 
 1. Create account at [NVIDIA NGC](https://ngc.nvidia.com/)
