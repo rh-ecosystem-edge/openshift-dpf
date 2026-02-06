@@ -32,7 +32,7 @@ verify_worker_nodes() {
     if retry "$VERIFY_MAX_RETRIES" "$VERIFY_SLEEP_SECONDS" bash -c '
         expected="$1"
         ready_workers=$(oc get nodes -l "!node-role.kubernetes.io/control-plane" -o json | jq "[.items[] | select(.status.conditions[] | select(.type==\"Ready\" and .status==\"True\"))] | length")
-        log "INFO" "Worker nodes: $ready_workers/$expected Ready"
+        echo "Worker nodes: $ready_workers/$expected Ready"
         [[ "$ready_workers" -ge "$expected" ]]
     ' _ "$expected_count"; then
         log "INFO" "All $expected_count worker node(s) are Ready"
@@ -75,7 +75,7 @@ verify_dpu_nodes() {
         kubeconfig="$2"
         ready_dpus=$(KUBECONFIG="$kubeconfig" oc get nodes -l node-role.kubernetes.io/worker= -o json 2>/dev/null \
             | jq "[.items[] | select(.status.conditions[] | select(.type==\"Ready\" and .status==\"True\"))] | length")
-        log "INFO" "DPU nodes: $ready_dpus/$expected Ready"
+        echo "DPU nodes: $ready_dpus/$expected Ready"
         [[ "$ready_dpus" -ge "$expected" ]]
     ' _ "$expected_count" "$hosted_kubeconfig"; then
         log "INFO" "All $expected_count DPU node(s) are Ready in DPUCluster"
@@ -107,7 +107,7 @@ verify_dpudeployment() {
         name="$2"
         ready_status=$(oc get dpudeployment -n "$ns" "$name" \
             -o jsonpath="{.status.conditions[?(@.type==\"Ready\")].status}" 2>/dev/null || echo "")
-        log "INFO" "DPUDeployment Ready=$ready_status"
+        echo "DPUDeployment Ready=$ready_status"
         [[ "$ready_status" == "True" ]]
     ' _ "$namespace" "$name"; then
         log "INFO" "DPUDeployment is Ready"
