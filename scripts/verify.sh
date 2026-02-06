@@ -166,25 +166,6 @@ verify_deployment() {
 }
 
 # -----------------------------------------------------------------------------
-# Status (non-blocking)
-# -----------------------------------------------------------------------------
-status() {
-    echo "=== Host Cluster Nodes ==="
-    oc get nodes || true
-    
-    echo ""
-    echo "=== DPUDeployment ==="
-    oc get dpudeployment -n dpf-operator-system || true
-    
-    local hosted_kubeconfig="${HOSTED_CLUSTER_NAME}.kubeconfig"
-    if [[ -f "$hosted_kubeconfig" ]]; then
-        echo ""
-        echo "=== DPUCluster Nodes ==="
-        KUBECONFIG="$hosted_kubeconfig" oc get nodes || true
-    fi
-}
-
-# -----------------------------------------------------------------------------
 # Command Dispatcher
 # -----------------------------------------------------------------------------
 case "${1:-}" in
@@ -192,9 +173,8 @@ case "${1:-}" in
     verify-dpu-nodes)     verify_dpu_nodes ;;
     verify-dpudeployment) verify_dpudeployment ;;
     verify-deployment)    verify_deployment ;;
-    status)               status ;;
     *)
-        echo "Usage: $0 {verify-workers|verify-dpu-nodes|verify-dpudeployment|verify-deployment|status}"
+        echo "Usage: $0 {verify-workers|verify-dpu-nodes|verify-dpudeployment|verify-deployment}"
         exit 1
         ;;
 esac
