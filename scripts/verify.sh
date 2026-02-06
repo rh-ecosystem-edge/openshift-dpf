@@ -28,24 +28,20 @@ verify_worker_nodes() {
     fi
     
     log "INFO" "Waiting for $expected_count worker node(s) to be Ready..."
-    
-    for attempt in $(seq 1 "$VERIFY_MAX_RETRIES"); do
-        # Count Ready worker nodes using jq
-        local ready_workers
-        ready_workers=$(oc get nodes -l '!node-role.kubernetes.io/control-plane' -o json | jq '[.items[] | select(.status.conditions[] | select(.type=="Ready" and .status=="True"))] | length')
-        
-        if [[ "$ready_workers" -ge "$expected_count" ]]; then
-            log "INFO" "All $expected_count worker node(s) are Ready"
-            oc get nodes -l node-role.kubernetes.io/worker=
-            return 0
-        fi
-        
-        log "INFO" "Worker nodes: $ready_workers/$expected_count Ready (attempt $attempt/$VERIFY_MAX_RETRIES)"
-        sleep "$VERIFY_SLEEP_SECONDS"
-    done
-    
+
+    if retry "$VERIFY_MAX_RETRIES" "$VERIFY_SLEEP_SECONDS" bash -c '
+        expected="$1"
+        ready_workers=$(oc get nodes -l "!node-role.kubernetes.io/control-plane" -o json | jq "[.items[] | select(.status.conditions[] | select(.type==\"Ready\" and .status==\"True\"))] | length")
+        log "INFO" "Worker nodes: $ready_workers/$expected Ready"
+        [[ "$ready_workers" -ge "$expected" ]]
+    ' _ "$expected_count"; then
+        log "INFO" "All $expected_count worker node(s) are Ready"
+        oc get nodes -l "!node-role.kubernetes.io/control-plane"
+        return 0
+    fi
+
     log "ERROR" "Timed out waiting for worker nodes"
-    oc get nodes -l node-role.kubernetes.io/worker=
+    oc get nodes -l "!node-role.kubernetes.io/control-plane"
     return 1
 }
 
@@ -73,23 +69,20 @@ verify_dpu_nodes() {
     fi
     
     log "INFO" "Waiting for $expected_count DPU node(s) to be Ready in DPUCluster..."
-    
-    for attempt in $(seq 1 "$VERIFY_MAX_RETRIES"); do
-        # Count Ready worker nodes in DPUCluster using jq
-        local ready_dpus
-        ready_dpus=$(KUBECONFIG="$hosted_kubeconfig" oc get nodes -l node-role.kubernetes.io/worker= -o json 2>/dev/null \
-            | jq '[.items[] | select(.status.conditions[] | select(.type=="Ready" and .status=="True"))] | length')
-        
-        if [[ "$ready_dpus" -ge "$expected_count" ]]; then
-            log "INFO" "All $expected_count DPU node(s) are Ready in DPUCluster"
-            KUBECONFIG="$hosted_kubeconfig" oc get nodes -l node-role.kubernetes.io/worker=
-            return 0
-        fi
-        
-        log "INFO" "DPU nodes: $ready_dpus/$expected_count Ready (attempt $attempt/$VERIFY_MAX_RETRIES)"
-        sleep "$VERIFY_SLEEP_SECONDS"
-    done
-    
+
+    if retry "$VERIFY_MAX_RETRIES" "$VERIFY_SLEEP_SECONDS" bash -c '
+        expected="$1"
+        kubeconfig="$2"
+        ready_dpus=$(KUBECONFIG="$kubeconfig" oc get nodes -l node-role.kubernetes.io/worker= -o json 2>/dev/null \
+            | jq "[.items[] | select(.status.conditions[] | select(.type==\"Ready\" and .status==\"True\"))] | length")
+        log "INFO" "DPU nodes: $ready_dpus/$expected Ready"
+        [[ "$ready_dpus" -ge "$expected" ]]
+    ' _ "$expected_count" "$hosted_kubeconfig"; then
+        log "INFO" "All $expected_count DPU node(s) are Ready in DPUCluster"
+        KUBECONFIG="$hosted_kubeconfig" oc get nodes -l node-role.kubernetes.io/worker=
+        return 0
+    fi
+
     log "ERROR" "Timed out waiting for DPU nodes"
     KUBECONFIG="$hosted_kubeconfig" oc get nodes -l node-role.kubernetes.io/worker=
     return 1
@@ -101,29 +94,27 @@ verify_dpu_nodes() {
 verify_dpudeployment() {
     local name="dpudeployment"
     local namespace="dpf-operator-system"
-    
+
     if ! oc get dpudeployment -n "$namespace" "$name" &>/dev/null; then
         log "WARN" "DPUDeployment not found, skipping"
         return 0
     fi
-    
+
     log "INFO" "Waiting for DPUDeployment to be Ready..."
-    
-    for attempt in $(seq 1 "$VERIFY_MAX_RETRIES"); do
-        local ready_status
-        ready_status=$(oc get dpudeployment -n "$namespace" "$name" \
-            -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "")
-        
-        if [[ "$ready_status" == "True" ]]; then
-            log "INFO" "DPUDeployment is Ready"
-            oc get dpudeployment -n "$namespace" "$name"
-            return 0
-        fi
-        
-        log "INFO" "DPUDeployment Ready=$ready_status (attempt $attempt/$VERIFY_MAX_RETRIES)"
-        sleep "$VERIFY_SLEEP_SECONDS"
-    done
-    
+
+    if retry "$VERIFY_MAX_RETRIES" "$VERIFY_SLEEP_SECONDS" bash -c '
+        ns="$1"
+        name="$2"
+        ready_status=$(oc get dpudeployment -n "$ns" "$name" \
+            -o jsonpath="{.status.conditions[?(@.type==\"Ready\")].status}" 2>/dev/null || echo "")
+        log "INFO" "DPUDeployment Ready=$ready_status"
+        [[ "$ready_status" == "True" ]]
+    ' _ "$namespace" "$name"; then
+        log "INFO" "DPUDeployment is Ready"
+        oc get dpudeployment -n "$namespace" "$name"
+        return 0
+    fi
+
     log "ERROR" "Timed out waiting for DPUDeployment"
     oc get dpudeployment -n "$namespace" "$name" -o yaml
     return 1
