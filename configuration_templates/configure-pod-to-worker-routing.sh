@@ -63,8 +63,15 @@ while true; do
             
             echo "br-dpu gateway: $br_dpu_gateway"
             
-            # Get OVN-K subnet from DHCP route
-            ovnk_subnet=$(ip $IP_FLAG -j route | jq -r ".[] | select(.dev == \"$ovnk_iface\" and .protocol == \"dhcp\" and .dst != \"default\") | .dst" | head -n1)
+            # Get OVN-K subnet: directly connected route on the interface (kernel or dhcp; exclude link-local)
+            ovnk_subnet=$(ip $IP_FLAG -j route | jq --arg dev "$ovnk_iface" --arg pattern "$LINK_LOCAL_PATTERN" -r '
+              .[] | select(
+                .dev == $dev
+                and .dst != null
+                and .dst != "default"
+                and (.dst | test($pattern) | not)
+                and .gateway == null
+              ) | .dst' | head -n1)
             
             if [ -z "$ovnk_subnet" ]; then
                 echo "Error: Could not find subnet for $ovnk_iface"

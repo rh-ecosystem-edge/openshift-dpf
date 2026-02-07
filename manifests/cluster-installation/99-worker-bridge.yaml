@@ -30,7 +30,7 @@ spec:
         - contents: |
             [Unit]
             Description=Apply NMState bridge configuration
-            After=network.target NetworkManager.service
+            After=network.target NetworkManager.service nodeip-configuration.service nmstate.service
             Wants=NetworkManager.service
             
             [Service]
