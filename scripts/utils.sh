@@ -68,6 +68,11 @@ function verify_files() {
         exit 1
     fi
 
+    if [ ! -f "${HELM_CHARTS_DIR}/dpf-hcp-bridge-operator-values.yaml" ]; then
+        log "ERROR" "${HELM_CHARTS_DIR}/dpf-hcp-bridge-operator-values.yaml not found"
+        exit 1
+    fi
+
     log "INFO" "All required files verified successfully"
 }
 

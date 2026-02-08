@@ -1,0 +1,30 @@
+apiVersion: provisioning.dpu.hcp.io/v1alpha1
+kind: DPFHCPBridge
+metadata:
+  name: <HOSTED_CLUSTER_NAME>
+  namespace: <CLUSTERS_NAMESPACE>
+spec:
+  # Base domain for the hosted cluster
+  baseDomain: <BASE_DOMAIN>
+
+  # Reference to DPUCluster CR (created by DPF operator)
+  dpuClusterRef:
+    name: <HOSTED_CLUSTER_NAME>
+    namespace: dpf-operator-system
+
+  # Storage class for etcd
+  etcdStorageClass: <ETCD_STORAGE_CLASS>
+
+  # OCP release image
+  ocpReleaseImage: <OCP_RELEASE_IMAGE>
+
+  # Pull secret reference
+  pullSecretRef:
+    name: <DPFHCPBRIDGE_PULL_SECRET_NAME>
+
+  # SSH key reference
+  sshKeySecretRef:
+    name: <DPFHCPBRIDGE_SSH_SECRET_NAME>
+
+  # Control plane availability policy
+  controlPlaneAvailabilityPolicy: <CONTROL_PLANE_POLICY>
