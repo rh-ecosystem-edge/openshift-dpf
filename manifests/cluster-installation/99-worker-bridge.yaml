@@ -20,6 +20,11 @@ spec:
           mode: 0755
           overwrite: true
           path: /usr/local/bin/configure-p0-routing.sh
+        - contents:
+            source: data:text/plain;charset=utf-8;base64,IyEvYmluL2Jhc2gKc2V0IC1lCiMKIyBDb25maWd1cmUgRFBVIFBGIGludGVyZmFjZXMgd2l0aCBESENQIGFuZCBNVFUgdXNpbmcgbm1zdGF0ZWN0bAojCiMgUmVhZHMgUEYgaW50ZXJmYWNlIG5hbWVzIGZyb20gTkZEIChOb2RlIEZlYXR1cmUgRGlzY292ZXJ5KSBmZWF0dXJlcyBmaWxlOgojICAgL2V0Yy9rdWJlcm5ldGVzL25vZGUtZmVhdHVyZS1kaXNjb3ZlcnkvZmVhdHVyZXMuZC9kcHUKIwojIE1UVSBpcyBhdXRvbWF0aWNhbGx5IHJlYWQgZnJvbSBici1kcHUgYnJpZGdlIHRvIGVuc3VyZSBjb25zaXN0ZW5jeQojCgpORkRfRFBVX0ZFQVRVUkVTX0ZJTEU9Ii9ldGMva3ViZXJuZXRlcy9ub2RlLWZlYXR1cmUtZGlzY292ZXJ5L2ZlYXR1cmVzLmQvZHB1IgpXQUlUX0lOVEVSVkFMPTUgICMgQ2hlY2sgaW50ZXJ2YWwgaW4gc2Vjb25kcwpMT0dfRVZFUlk9NiAgICAgICMgTG9nIGV2ZXJ5IE50aCBhdHRlbXB0IChldmVyeSAzMHMgd2l0aCA1cyBpbnRlcnZhbCkKCmxvZygpIHsKICAgIGVjaG8gIlskKGRhdGUgJyslWS0lbS0lZCAlSDolTTolUycpXSAkKiIKfQoKIyBHZW5lcmljIHdhaXQgZnVuY3Rpb24KIyBVc2FnZTogd2FpdF9mb3IgPGRlc2NyaXB0aW9uPiA8Y2hlY2tfY29tbWFuZC4uLj4KIyBMb29wcyB1bnRpbCBjaGVja19jb21tYW5kIHN1Y2NlZWRzIChyZXR1cm5zIDApCndhaXRfZm9yKCkgewogICAgbG9jYWwgZGVzYz0kMQogICAgc2hpZnQKICAgIGxvY2FsIGF0dGVtcHQ9MQogICAgbG9nICJXYWl0aW5nIGZvciAke2Rlc2N9Li4uIgogICAgd2hpbGUgISAiJEAiOyBkbwogICAgICAgIGlmICgoIGF0dGVtcHQgJSBMT0dfRVZFUlkgPT0gMCApKTsgdGhlbgogICAgICAgICAgICBsb2cgIlN0aWxsIHdhaXRpbmcgZm9yICR7ZGVzY30uLi4gKEF0dGVtcHQgJGF0dGVtcHQpIgogICAgICAgIGZpCiAgICAgICAgc2xlZXAgJFdBSVRfSU5URVJWQUwKICAgICAgICBhdHRlbXB0PSQoKGF0dGVtcHQgKyAxKSkKICAgIGRvbmUKICAgIGxvZyAiJHtkZXNjfSAtIHJlYWR5LiIKfQoKIyBHZXQgTVRVIGZyb20gYnItZHB1IGJyaWRnZQpnZXRfYnJpZGdlX210dSgpIHsKICAgIGlmIGlwIGxpbmsgc2hvdyBici1kcHUgJj4vZGV2L251bGw7IHRoZW4KICAgICAgICBpcCBsaW5rIHNob3cgYnItZHB1IHwgZ3JlcCAtb1AgJ210dSBcS1swLTldKycKICAgIGVsc2UKICAgICAgICBlY2hvICIiCiAgICBmaQp9CgojIEZ1bmN0aW9uIHRvIGZpbmQgUEYgaW50ZXJmYWNlcyBmcm9tIE5GRCBEUFUgZmVhdHVyZXMgZmlsZQpmaW5kX3BmX2ludGVyZmFjZXMoKSB7CiAgICBsb2NhbCBwZl9pbnRlcmZhY2VzPSgpCgogICAgIyBSZWFkIFBGIG5hbWVzIGZyb20gZW50cmllcyBsaWtlOiBkcHUtWC1wZlktbmFtZT08aW50ZXJmYWNlX25hbWU+CiAgICB3aGlsZSBJRlM9Jz0nIHJlYWQgLXIga2V5IHZhbHVlOyBkbwogICAgICAgIGlmIFtbICIka2V5IiA9fiBeZHB1LVswLTldKy1wZlswLTldKy1uYW1lJCBdXSAmJiBbIC1uICIkdmFsdWUiIF07IHRoZW4KICAgICAgICAgICAgcGZfaW50ZXJmYWNlcys9KCIkdmFsdWUiKQogICAgICAgIGZpCiAgICBkb25lIDwgPCh0ciAtZCAnXHInIDwgIiRORkRfRFBVX0ZFQVRVUkVTX0ZJTEUiKQoKICAgIGVjaG8gIiR7cGZfaW50ZXJmYWNlc1tAXX0iCn0KCiMgSGVscGVyIGNoZWNrcyB1c2VkIHdpdGggd2FpdF9mb3IKY2hlY2tfYnJpZGdlKCkgICAgICAgIHsgaXAgbGluayBzaG93IGJyLWRwdSAmPi9kZXYvbnVsbDsgfQpjaGVja19uZmRfZmlsZSgpICAgICAgeyBbIC1mICIkTkZEX0RQVV9GRUFUVVJFU19GSUxFIiBdOyB9CmNoZWNrX3BmX2ludGVyZmFjZXMoKSB7IFsgIiQoZmluZF9wZl9pbnRlcmZhY2VzIHwgd2MgLXcpIiAtZ3QgMCBdOyB9CmNoZWNrX25tX2ludGVyZmFjZSgpICB7IG5tc3RhdGVjdGwgc2hvdyAiJDEiICY+L2Rldi9udWxsOyB9CgojIEZ1bmN0aW9uIHRvIGNvbmZpZ3VyZSBQRiBpbnRlcmZhY2Ugd2l0aCBESENQIGFuZCBNVFUgdXNpbmcgbm1zdGF0ZWN0bApjb25maWd1cmVfcGZfaW50ZXJmYWNlKCkgewogICAgbG9jYWwgcGZfbmFtZT0kMQogICAgbG9jYWwgcGZfbXR1PSQyCgogICAgd2FpdF9mb3IgIk5NIHRvIG1hbmFnZSAkcGZfbmFtZSIgY2hlY2tfbm1faW50ZXJmYWNlICIkcGZfbmFtZSIKCiAgICBsb2cgIkNvbmZpZ3VyaW5nIFBGIGludGVyZmFjZTogJHBmX25hbWUgd2l0aCBNVFU6ICRwZl9tdHUiCgogICAgbG9jYWwgcGZfY29uZmlnX2ZpbGUKICAgIHBmX2NvbmZpZ19maWxlPSQobWt0ZW1wKQoKICAgIGNhdCA+ICIkcGZfY29uZmlnX2ZpbGUiIDw8IEVPRgppbnRlcmZhY2VzOgogIC0gbmFtZTogJHBmX25hbWUKICAgIHR5cGU6IGV0aGVybmV0CiAgICBzdGF0ZTogdXAKICAgIG10dTogJHBmX210dQogICAgaXB2NDoKICAgICAgZW5hYmxlZDogdHJ1ZQogICAgICBkaGNwOiB0cnVlCiAgICBpcHY2OgogICAgICBlbmFibGVkOiBmYWxzZQpFT0YKCiAgICBubXN0YXRlY3RsIGFwcGx5ICIkcGZfY29uZmlnX2ZpbGUiCiAgICBybSAtZiAiJHBmX2NvbmZpZ19maWxlIgoKICAgICMgVmVyaWZ5IG5tc3RhdGVjdGwgYWN0dWFsbHkgY29uZmlndXJlZCB0aGUgaW50ZXJmYWNlCiAgICBpZiAhIG5tc3RhdGVjdGwgc2hvdyAiJHBmX25hbWUiIC0tanNvbiB8IGpxIC1lICcuaW50ZXJmYWNlc1swXS5pcHY0LmRoY3AnICY+L2Rldi9udWxsOyB0aGVuCiAgICAgICAgbG9nICJFcnJvcjogbm1zdGF0ZWN0bCBhcHBseSBzdWNjZWVkZWQgYnV0IERIQ1Agd2FzIG5vdCBjb25maWd1cmVkIG9uICRwZl9uYW1lIiA+JjIKICAgICAgICBleGl0IDEKICAgIGZpCiAgICBsb2cgIlN1Y2Nlc3NmdWxseSBjb25maWd1cmVkIFBGIGludGVyZmFjZTogJHBmX25hbWUiCn0KCiMgLS0tIE1haW4gRXhlY3V0aW9uIC0tLQoKd2FpdF9mb3IgImJyLWRwdSBicmlkZ2UiIGNoZWNrX2JyaWRnZQoKUEZfTVRVPSQoZ2V0X2JyaWRnZV9tdHUpCmlmIFsgLXogIiRQRl9NVFUiIF07IHRoZW4KICAgIGxvZyAiRXJyb3I6IENvdWxkIG5vdCBnZXQgTVRVIGZyb20gYnItZHB1IGJyaWRnZSIgPiYyCiAgICBleGl0IDEKZmkKbG9nICJici1kcHUgYnJpZGdlIGZvdW5kIHdpdGggTVRVOiAkUEZfTVRVIgoKd2FpdF9mb3IgIk5GRCBEUFUgZmVhdHVyZXMgZmlsZSIgY2hlY2tfbmZkX2ZpbGUKbG9nICJORkQgRFBVIGZlYXR1cmVzIGZpbGUgZm91bmQuIgoKd2FpdF9mb3IgIlBGIGludGVyZmFjZXMgaW4gTkZEIGZlYXR1cmVzIiBjaGVja19wZl9pbnRlcmZhY2VzCnJlYWQgLXJhIFBGX0lOVEVSRkFDRVMgPDw8ICIkKGZpbmRfcGZfaW50ZXJmYWNlcykiCmxvZyAiRm91bmQgUEYgaW50ZXJmYWNlczogJHtQRl9JTlRFUkZBQ0VTWypdfSIKCmZvciBwZiBpbiAiJHtQRl9JTlRFUkZBQ0VTW0BdfSI7IGRvCiAgICBjb25maWd1cmVfcGZfaW50ZXJmYWNlICIkcGYiICIkUEZfTVRVIgpkb25lCgpsb2cgIlBGIGNvbmZpZ3VyYXRpb24gY29tcGxldGUuIgo=
+          mode: 0755
+          overwrite: true
+          path: /usr/local/bin/configure-pf-dhcp.sh
     systemd:
       units:
         - contents: |
@@ -37,6 +42,25 @@ spec:
             WantedBy=multi-user.target
           enabled: true
           name: nmstate-bridge.service
+        - name: configure-pf-dhcp.service
+          enabled: true
+          contents: |
+            [Unit]
+            Description=Configure DPU PF interfaces with DHCP
+            After=nmstate-bridge.service kubelet.service network-online.target
+            Wants=network-online.target
+            
+            [Service]
+            Type=oneshot
+            ExecStart=/usr/local/bin/configure-pf-dhcp.sh
+            RemainAfterExit=yes
+            Restart=on-failure
+            RestartSec=10
+            StandardOutput=journal
+            StandardError=journal
+            
+            [Install]
+            WantedBy=multi-user.target
         - name: ovs-configuration.service
           enabled: false
         - name: openvswitch.service
