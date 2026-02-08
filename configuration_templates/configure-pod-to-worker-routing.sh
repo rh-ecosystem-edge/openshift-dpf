@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 
 # Script to wait for OVN-K interface (identified by link-local) and configure routing table 100
 
@@ -63,8 +64,15 @@ while true; do
             
             echo "br-dpu gateway: $br_dpu_gateway"
             
-            # Get OVN-K subnet from DHCP route
-            ovnk_subnet=$(ip $IP_FLAG -j route | jq -r ".[] | select(.dev == \"$ovnk_iface\" and .protocol == \"dhcp\" and .dst != \"default\") | .dst" | head -n1)
+            # Get OVN-K subnet: directly connected route on the interface (kernel or dhcp; exclude link-local)
+            ovnk_subnet=$(ip $IP_FLAG -j route | jq --arg dev "$ovnk_iface" --arg pattern "$LINK_LOCAL_PATTERN" -r '
+              .[] | select(
+                .dev == $dev
+                and .dst != null
+                and .dst != "default"
+                and (.dst | test($pattern) | not)
+                and .gateway == null
+              ) | .dst' | head -n1)
             
             if [ -z "$ovnk_subnet" ]; then
                 echo "Error: Could not find subnet for $ovnk_iface"
@@ -85,7 +93,8 @@ while true; do
             if ip $IP_FLAG -j rule list | jq -e --arg src "$br_dpu_ip" '.[] | select(.src == $src and .table == "100")' > /dev/null 2>&1; then
                 echo "Rule already exists"
             else
-                ip $IP_FLAG rule add from $br_dpu_ip/$PREFIX_LEN lookup 100 2>/dev/null && echo "Rule added successfully" || echo "Failed to add rule (may already exist)"
+                ip $IP_FLAG rule add from $br_dpu_ip/$PREFIX_LEN lookup 100
+                echo "Rule added successfully"
             fi
             
             # 2. Add OVN-K route via gateway
@@ -94,7 +103,8 @@ while true; do
             if ip $IP_FLAG -j route show table 100 | jq -e --arg dst "$ovnk_subnet" '.[] | select(.dst == $dst)' > /dev/null 2>&1; then
                 echo "Route already exists"
             else
-                ip $IP_FLAG route add $ovnk_subnet via $br_dpu_gateway table 100 2>/dev/null && echo "Route added successfully" || echo "Failed to add route (may already exist)"
+                ip $IP_FLAG route add $ovnk_subnet via $br_dpu_gateway table 100
+                echo "Route added successfully"
             fi
             
             # 3. Add br-dpu subnet route
@@ -103,7 +113,8 @@ while true; do
             if ip $IP_FLAG -j route show table 100 | jq -e --arg dst "$br_dpu_network" '.[] | select(.dst == $dst and .dev == "br-dpu")' > /dev/null 2>&1; then
                 echo "Route already exists"
             else
-                ip $IP_FLAG route add $br_dpu_network dev br-dpu proto kernel scope link src $br_dpu_ip metric $br_dpu_metric table 100 2>/dev/null && echo "Route added successfully" || echo "Failed to add route (may already exist)"
+                ip $IP_FLAG route add $br_dpu_network dev br-dpu proto kernel scope link src $br_dpu_ip metric $br_dpu_metric table 100
+                echo "Route added successfully"
             fi
             
             echo ""
