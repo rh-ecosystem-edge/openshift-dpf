@@ -6,4 +6,3 @@ metadata:
 spec:
   type: static
   maxNodes: 10
-  kubeconfig: <HOSTED_CLUSTER_NAME>-admin-kubeconfig
