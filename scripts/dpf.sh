@@ -162,53 +162,53 @@ function deploy_cert_manager() {
     fi
 }
 
-function deploy_dpf_hcp_bridge_operator() {
-    log [INFO] "Deploying DPF HCP Bridge Operator..."
+function deploy_dpf_hcp_provisioner_operator() {
+    log [INFO] "Deploying DPF HCP Provisioner Operator..."
 
     # Ensure helm is installed
     ensure_helm_installed
 
-    log [INFO] "Installing/upgrading DPF HCP Bridge Operator..."
+    log [INFO] "Installing/upgrading DPF HCP Provisioner Operator..."
     log [INFO] "BlueField validation enabled: ${ENABLE_BLUEFIELD_VALIDATION}"
 
-    if helm upgrade --install dpf-hcp-bridge-operator \
-        "${DPF_HCP_BRIDGE_OPERATOR_CHART_URL}" \
-        --namespace ${DPF_HCP_BRIDGE_OPERATOR_NAMESPACE} \
+    if helm upgrade --install dpf-hcp-provisioner-operator \
+        "${DPF_HCP_PROVISIONER_OPERATOR_CHART_URL}" \
+        --namespace ${DPF_HCP_PROVISIONER_OPERATOR_NAMESPACE} \
         --create-namespace \
-        --version ${DPF_HCP_BRIDGE_OPERATOR_VERSION} \
-        --set image.repository=${DPF_HCP_BRIDGE_OPERATOR_IMAGE_REPO} \
-        --set image.tag=${DPF_HCP_BRIDGE_OPERATOR_IMAGE_TAG} \
+        --version ${DPF_HCP_PROVISIONER_OPERATOR_VERSION} \
+        --set image.repository=${DPF_HCP_PROVISIONER_OPERATOR_IMAGE_REPO} \
+        --set image.tag=${DPF_HCP_PROVISIONER_OPERATOR_IMAGE_TAG} \
         --set features.blueFieldValidation.enabled=${ENABLE_BLUEFIELD_VALIDATION}; then
 
-        log [INFO] "Helm release 'dpf-hcp-bridge-operator' deployed successfully"
-        log [INFO] "DPF HCP Bridge Operator deployment initiated. Use 'oc get pods -n ${DPF_HCP_BRIDGE_OPERATOR_NAMESPACE}' to monitor progress."
+        log [INFO] "Helm release 'dpf-hcp-provisioner-operator' deployed successfully"
+        log [INFO] "DPF HCP Provisioner Operator deployment initiated. Use 'oc get pods -n ${DPF_HCP_PROVISIONER_OPERATOR_NAMESPACE}' to monitor progress."
     else
-        log [ERROR] "Helm deployment of DPF HCP Bridge Operator failed"
+        log [ERROR] "Helm deployment of DPF HCP Provisioner Operator failed"
         return 1
     fi
 
-    log [INFO] "Waiting for DPF HCP Bridge Operator to be ready..."
-    wait_for_pods "${DPF_HCP_BRIDGE_OPERATOR_NAMESPACE}" "app.kubernetes.io/name=dpf-hcp-bridge-operator" 60 10
+    log [INFO] "Waiting for DPF HCP Provisioner Operator to be ready..."
+    wait_for_pods "${DPF_HCP_PROVISIONER_OPERATOR_NAMESPACE}" "app.kubernetes.io/name=dpf-hcp-provisioner-operator" 60 10
 
-    log [INFO] "DPF HCP Bridge Operator is ready!"
+    log [INFO] "DPF HCP Provisioner Operator is ready!"
 }
 
-function create_dpfhcpbridge_secrets() {
+function create_dpfhcpprovisioner_secrets() {
     log [INFO] "Creating secrets in ${CLUSTERS_NAMESPACE} namespace..."
 
     # Create namespace if it doesn't exist
     oc create namespace ${CLUSTERS_NAMESPACE} || true
 
     # Create pull-secret
-    log [INFO] "Creating pull secret ${DPFHCPBRIDGE_PULL_SECRET_NAME}..."
-    oc create secret generic ${DPFHCPBRIDGE_PULL_SECRET_NAME} \
+    log [INFO] "Creating pull secret ${DPFHCPPROVISIONER_PULL_SECRET_NAME}..."
+    oc create secret generic ${DPFHCPPROVISIONER_PULL_SECRET_NAME} \
         --from-file=.dockerconfigjson=${OPENSHIFT_PULL_SECRET} \
         -n ${CLUSTERS_NAMESPACE} \
         --type=Opaque || true
 
     # Create SSH key secret
-    log [INFO] "Creating SSH key secret ${DPFHCPBRIDGE_SSH_SECRET_NAME}..."
-    oc create secret generic ${DPFHCPBRIDGE_SSH_SECRET_NAME} \
+    log [INFO] "Creating SSH key secret ${DPFHCPPROVISIONER_SSH_SECRET_NAME}..."
+    oc create secret generic ${DPFHCPPROVISIONER_SSH_SECRET_NAME} \
         --from-file=id_rsa.pub=${SSH_KEY} \
         -n ${CLUSTERS_NAMESPACE} \
         --type=Opaque || true
@@ -216,8 +216,8 @@ function create_dpfhcpbridge_secrets() {
     log [INFO] "Secrets created successfully in ${CLUSTERS_NAMESPACE} namespace"
 }
 
-function create_dpfhcpbridge_cr() {
-    log [INFO] "Creating DPFHCPBridge Custom Resource..."
+function create_dpfhcpprovisioner_cr() {
+    log [INFO] "Creating DPFHCPProvisioner Custom Resource..."
 
     # Ensure generated directory exists
     mkdir -p "${GENERATED_DIR}"
@@ -225,9 +225,9 @@ function create_dpfhcpbridge_cr() {
     # Ensure namespace exists
     oc create namespace ${CLUSTERS_NAMESPACE} || true
 
-    # Check if DPFHCPBridge CR already exists
-    if oc get dpfhcpbridge -n ${CLUSTERS_NAMESPACE} ${HOSTED_CLUSTER_NAME} &>/dev/null; then
-        log [INFO] "DPFHCPBridge CR ${HOSTED_CLUSTER_NAME} already exists. Skipping creation."
+    # Check if DPFHCPProvisioner CR already exists
+    if oc get dpfhcpprovisioner -n ${CLUSTERS_NAMESPACE} ${HOSTED_CLUSTER_NAME} &>/dev/null; then
+        log [INFO] "DPFHCPProvisioner CR ${HOSTED_CLUSTER_NAME} already exists. Skipping creation."
         return 0
     fi
 
@@ -241,19 +241,19 @@ function create_dpfhcpbridge_cr() {
         log [INFO] "Single-node cluster (VM_COUNT=${VM_COUNT}). Using SingleReplica control plane policy."
     fi
 
-    # Process template to generate DPFHCPBridge CR
-    local cr_file="${GENERATED_DIR}/dpfhcpbridge-${HOSTED_CLUSTER_NAME}.yaml"
+    # Process template to generate DPFHCPProvisioner CR
+    local cr_file="${GENERATED_DIR}/dpfhcpprovisioner-${HOSTED_CLUSTER_NAME}.yaml"
 
     process_template \
-        "${MANIFESTS_DIR}/dpf-hcp-bridge-operator/dpfhcpbridge-cr-template.yaml" \
+        "${MANIFESTS_DIR}/dpf-hcp-provisioner-operator/dpfhcpprovisioner-cr-template.yaml" \
         "${cr_file}" \
         "<HOSTED_CLUSTER_NAME>" "${HOSTED_CLUSTER_NAME}" \
         "<CLUSTERS_NAMESPACE>" "${CLUSTERS_NAMESPACE}" \
         "<BASE_DOMAIN>" "${BASE_DOMAIN}" \
         "<ETCD_STORAGE_CLASS>" "${ETCD_STORAGE_CLASS}" \
         "<OCP_RELEASE_IMAGE>" "${OCP_RELEASE_IMAGE}" \
-        "<DPFHCPBRIDGE_PULL_SECRET_NAME>" "${DPFHCPBRIDGE_PULL_SECRET_NAME}" \
-        "<DPFHCPBRIDGE_SSH_SECRET_NAME>" "${DPFHCPBRIDGE_SSH_SECRET_NAME}" \
+        "<DPFHCPPROVISIONER_PULL_SECRET_NAME>" "${DPFHCPPROVISIONER_PULL_SECRET_NAME}" \
+        "<DPFHCPPROVISIONER_SSH_SECRET_NAME>" "${DPFHCPPROVISIONER_SSH_SECRET_NAME}" \
         "<CONTROL_PLANE_POLICY>" "${control_plane_policy}"
 
     # Add virtualIP if HYPERSHIFT_API_IP is set
@@ -263,18 +263,18 @@ function create_dpfhcpbridge_cr() {
   # Virtual IP for LoadBalancer
   virtualIP: ${HYPERSHIFT_API_IP}
 EOF
-        log [INFO] "Added virtualIP: ${HYPERSHIFT_API_IP} to DPFHCPBridge CR"
+        log [INFO] "Added virtualIP: ${HYPERSHIFT_API_IP} to DPFHCPProvisioner CR"
     fi
 
-    # Apply the DPFHCPBridge CR using apply_manifest
-    log [INFO] "Applying DPFHCPBridge CR from ${cr_file}..."
+    # Apply the DPFHCPProvisioner CR using apply_manifest
+    log [INFO] "Applying DPFHCPProvisioner CR from ${cr_file}..."
     apply_manifest "${cr_file}" true
 
-    log [INFO] "DPFHCPBridge CR ${HOSTED_CLUSTER_NAME} created successfully!"
-    log [INFO] "Monitoring DPFHCPBridge status..."
+    log [INFO] "DPFHCPProvisioner CR ${HOSTED_CLUSTER_NAME} created successfully!"
+    log [INFO] "Monitoring DPFHCPProvisioner status..."
 
     # Show initial status
-    oc get dpfhcpbridge -n ${CLUSTERS_NAMESPACE} ${HOSTED_CLUSTER_NAME} || true
+    oc get dpfhcpprovisioner -n ${CLUSTERS_NAMESPACE} ${HOSTED_CLUSTER_NAME} || true
 }
 
 function deploy_hosted_cluster() {
@@ -283,13 +283,13 @@ function deploy_hosted_cluster() {
 
 function deploy_hypershift() {
     log [INFO] "================================================================================"
-    log [INFO] "Deploying Hosted Cluster using DPF HCP Bridge Operator"
+    log [INFO] "Deploying Hosted Cluster using DPF HCP Provisioner Operator"
     log [INFO] "================================================================================"
 
-    # Step 1: Deploy DPF HCP Bridge Operator
-    deploy_dpf_hcp_bridge_operator
+    # Step 1: Deploy DPF HCP Provisioner Operator
+    deploy_dpf_hcp_provisioner_operator
 
-    # Step 2: Install Hypershift operator (required by dpf-hcp-bridge-operator)
+    # Step 2: Install Hypershift operator (required by dpf-hcp-provisioner-operator)
     if oc get deployment -n hypershift hypershift-operator &>/dev/null; then
         log [INFO] "Hypershift operator already installed. Skipping deployment."
     else
@@ -308,18 +308,18 @@ function deploy_hypershift() {
     fi
 
     # Step 4: Create secrets in clusters namespace
-    create_dpfhcpbridge_secrets
+    create_dpfhcpprovisioner_secrets
 
-    # Step 5: Create DPFHCPBridge Custom Resource
-    create_dpfhcpbridge_cr
+    # Step 5: Create DPFHCPProvisioner Custom Resource
+    create_dpfhcpprovisioner_cr
 
     # Step 6: Wait for HostedCluster to be created by the operator
-    # The operator creates HostedCluster in the same namespace as DPFHCPBridge CR
-    log [INFO] "Waiting for DPF HCP Bridge Operator to create HostedCluster..."
+    # The operator creates HostedCluster in the same namespace as DPFHCPProvisioner CR
+    log [INFO] "Waiting for DPF HCP Provisioner Operator to create HostedCluster..."
     if ! retry 5 30 oc get hostedcluster -n ${CLUSTERS_NAMESPACE} ${HOSTED_CLUSTER_NAME} &>/dev/null; then
         log [ERROR] "Timeout: HostedCluster was not created after 2.5 minutes"
-        log [ERROR] "Check DPFHCPBridge CR status:"
-        oc get dpfhcpbridge -n ${CLUSTERS_NAMESPACE} ${HOSTED_CLUSTER_NAME} -o yaml
+        log [ERROR] "Check DPFHCPProvisioner CR status:"
+        oc get dpfhcpprovisioner -n ${CLUSTERS_NAMESPACE} ${HOSTED_CLUSTER_NAME} -o yaml
         return 1
     fi
 
@@ -347,7 +347,7 @@ function deploy_hypershift() {
     create_ignition_template
 
     log [INFO] "================================================================================"
-    log [INFO] "Hosted Cluster deployment via DPF HCP Bridge Operator completed!"
+    log [INFO] "Hosted Cluster deployment via DPF HCP Provisioner Operator completed!"
     log [INFO] "================================================================================"
 }
 
@@ -398,13 +398,13 @@ function configure_hypershift() {
         grep -q "kind: Config" "$name.kubeconfig"
     ' _ "${CLUSTERS_NAMESPACE}" "${HOSTED_CLUSTER_NAME}"
 
-    # Wait for the dpf-hcp-bridge-operator to copy the secret to dpf-operator-system namespace
-    log [INFO] "Waiting for dpf-hcp-bridge-operator to create kubeconfig secret in dpf-operator-system..."
+    # Wait for the dpf-hcp-provisioner-operator to copy the secret to dpf-operator-system namespace
+    log [INFO] "Waiting for dpf-hcp-provisioner-operator to create kubeconfig secret in dpf-operator-system..."
     if ! retry 30 10 oc get secret -n dpf-operator-system "${HOSTED_CLUSTER_NAME}-admin-kubeconfig" &>/dev/null; then
-        log [ERROR] "Timeout: dpf-hcp-bridge-operator did not create kubeconfig secret in dpf-operator-system after 5 minutes"
+        log [ERROR] "Timeout: dpf-hcp-provisioner-operator did not create kubeconfig secret in dpf-operator-system after 5 minutes"
         return 1
     fi
-    log [INFO] "Kubeconfig secret successfully created by dpf-hcp-bridge-operator in dpf-operator-system"
+    log [INFO] "Kubeconfig secret successfully created by dpf-hcp-provisioner-operator in dpf-operator-system"
 }
 
 function apply_remaining() {
@@ -694,14 +694,14 @@ function main() {
             deploy-hypershift)
                 deploy_hypershift
                 ;;
-            deploy-dpf-hcp-bridge-operator)
-                deploy_dpf_hcp_bridge_operator
+            deploy-dpf-hcp-provisioner-operator)
+                deploy_dpf_hcp_provisioner_operator
                 ;;
-            create-dpfhcpbridge-secrets)
-                create_dpfhcpbridge_secrets
+            create-dpfhcpprovisioner-secrets)
+                create_dpfhcpprovisioner_secrets
                 ;;
-            create-dpfhcpbridge-cr)
-                create_dpfhcpbridge_cr
+            create-dpfhcpprovisioner-cr)
+                create_dpfhcpprovisioner_cr
                 ;;
             create-ignition-template)
                 create_ignition_template
@@ -714,7 +714,7 @@ function main() {
                 ;;
             *)
                 log [INFO] "Unknown command: $command"
-                log [INFO] "Available commands: deploy-nfd, deploy-metallb, deploy-argocd, deploy-maintenance-operator, apply-dpf, deploy-hypershift, deploy-dpucluster-csr-approver, delete-dpucluster-csr-approver, deploy-dpf-hcp-bridge-operator, create-dpfhcpbridge-secrets, create-dpfhcpbridge-cr"
+                log [INFO] "Available commands: deploy-nfd, deploy-metallb, deploy-argocd, deploy-maintenance-operator, apply-dpf, deploy-hypershift, deploy-dpucluster-csr-approver, delete-dpucluster-csr-approver, deploy-dpf-hcp-provisioner-operator, create-dpfhcpprovisioner-secrets, create-dpfhcpprovisioner-cr"
                 exit 1
                 ;;
         esac
