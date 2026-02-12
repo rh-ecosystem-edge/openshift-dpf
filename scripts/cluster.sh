@@ -220,6 +220,9 @@ function start_cluster_installation() {
     if check_cluster_installed; then
         log "INFO" "Cluster ${CLUSTER_NAME} is already installed. Fetching kubeconfig..."
         get_kubeconfig
+        if [ "${SKIP_DEPLOY_STORAGE}" = "true" ]; then
+            validate_storage_classes_available || return 1
+        fi
         return 0
     fi
 
@@ -232,7 +235,12 @@ function start_cluster_installation() {
     wait_for_cluster_status "installed"
     log "INFO" "Cluster installation completed successfully"
     get_kubeconfig
-    if [ "${STORAGE_TYPE}" == "odf" ]; then
+
+    if [ "${SKIP_DEPLOY_STORAGE}" = "true" ]; then
+        log "INFO" "SKIP_DEPLOY_STORAGE=true: validating that required StorageClasses exist (user-provided storage)..."
+        validate_storage_classes_available
+        log "INFO" "Skipping LSO/ODF deployment; using existing StorageClasses."
+    elif [ "${STORAGE_TYPE}" == "odf" ]; then
         log "INFO" "STORAGE_TYPE=odf detected. Deploying LSO and ODF..."
         deploy_lso
         deploy_odf
@@ -308,6 +316,26 @@ function clean_all() {
     clean_resources
     
     log "Full cleanup complete"
+}
+
+# Validates that StorageClasses required when SKIP_DEPLOY_STORAGE=true exist in the cluster.
+# Requires KUBECONFIG to be set (cluster must be installed).
+function validate_storage_classes_available() {
+    local missing=()
+    if [ -z "${ETCD_STORAGE_CLASS}" ]; then
+        log "ERROR" "ETCD_STORAGE_CLASS is not set. Set it in .env to the name of your existing StorageClass for etcd."
+        return 1
+    fi
+    if ! oc get storageclass "${ETCD_STORAGE_CLASS}" -o name &>/dev/null; then
+        missing+=("${ETCD_STORAGE_CLASS}")
+    fi
+    if [ ${#missing[@]} -gt 0 ]; then
+        log "ERROR" "SKIP_DEPLOY_STORAGE=true but the following StorageClass(es) are not present in the cluster: ${missing[*]}"
+        log "ERROR" "Create them (e.g. via your storage operator) or set ETCD_STORAGE_CLASS to an existing StorageClass name. Current: oc get storageclass"
+        return 1
+    fi
+    log "INFO" "Required StorageClass(es) present: ETCD_STORAGE_CLASS=${ETCD_STORAGE_CLASS}"
+    return 0
 }
 
 function deploy_lso() {

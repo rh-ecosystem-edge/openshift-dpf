@@ -184,13 +184,11 @@ make delete-cluster delete-vms clean-all
 ### External Storage Integration
 
 ```bash
-# Use external storage instead of local
-EXTERNAL_STORAGE=true
-STORAGE_CLASS=fast-ssd        # Your storage class name
-
-# Skip local storage operators
-SKIP_LSO=true
-SKIP_ODF=true
+# Use existing StorageClasses instead of deploying LSO/LVM/ODF
+# You must create the StorageClass in the cluster first (e.g. via your storage operator).
+# Scripts validate that ETCD_STORAGE_CLASS exists after cluster install.
+SKIP_DEPLOY_STORAGE=true
+ETCD_STORAGE_CLASS=fast-ssd   # Your existing StorageClass name for etcd
 ```
 
 ### Custom Registry Configuration

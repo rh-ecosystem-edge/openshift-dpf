@@ -147,7 +147,12 @@ NFS_SERVER_NODE_IP=${NFS_SERVER_NODE_IP:-""}
 NFS_PATH=${NFS_PATH:-"/"}
 
 # Storage Configuration
-# STORAGE_TYPE: Choose storage backend for Hypershift etcd
+# SKIP_DEPLOY_STORAGE: When true, do not deploy LSO/LVM/ODF; use existing StorageClasses.
+#   You must set ETCD_STORAGE_CLASS to a StorageClass that already exists in the cluster.
+#   Validation runs after cluster install to ensure the StorageClass exists.
+SKIP_DEPLOY_STORAGE=${SKIP_DEPLOY_STORAGE:-"false"}
+
+# STORAGE_TYPE: Choose storage backend for Hypershift etcd (ignored when SKIP_DEPLOY_STORAGE=true)
 #   - lvm: Logical Volume Manager Storage (default, works for SNO and MNO)
 #   - odf: OpenShift Data Foundation (multi-node only, requires 3+ nodes)
 STORAGE_TYPE=${STORAGE_TYPE:-"lvm"}
@@ -158,8 +163,17 @@ if [ "${STORAGE_TYPE}" == "odf" ] && [ "${VM_COUNT}" -lt 3 ]; then
     STORAGE_TYPE="lvm"
 fi
 
-# Set storage class based on STORAGE_TYPE
-if [ "${STORAGE_TYPE}" == "odf" ]; then
+# Set storage class based on STORAGE_TYPE (when not skipping storage deploy).
+# When SKIP_DEPLOY_STORAGE=true: ETCD_STORAGE_CLASS is user-defined only (no default).
+# Existence of the StorageClass in the cluster is validated after install (see cluster.sh validate_storage_classes_available).
+if [ "${SKIP_DEPLOY_STORAGE}" = "true" ]; then
+    if [ -z "${ETCD_STORAGE_CLASS}" ]; then
+        echo "Error: SKIP_DEPLOY_STORAGE=true requires ETCD_STORAGE_CLASS to be set in .env to your existing StorageClass name." >&2
+        echo "Create the StorageClass in the cluster (e.g. via your storage operator), then set ETCD_STORAGE_CLASS in .env." >&2
+        exit 1
+    fi
+    # Do not assign a default; user must define ETCD_STORAGE_CLASS in .env.
+elif [ "${STORAGE_TYPE}" == "odf" ]; then
     ETCD_STORAGE_CLASS=${ETCD_STORAGE_CLASS:-"ocs-storagecluster-ceph-rbd"}
 else
     ETCD_STORAGE_CLASS=${ETCD_STORAGE_CLASS:-"lvms-vg1"}

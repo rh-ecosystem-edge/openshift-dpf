@@ -1,0 +1,175 @@
+diff --git a/.env.example b/.env.example
+index d053de4..ab68a42 100644
+--- a/.env.example
++++ b/.env.example
+@@ -33,7 +33,11 @@ GITOPS_OPERATOR_CHANNEL=1.16
+ GITOPS_OPERATOR_VERSION=v1.16.3
+ 
+ # Storage Configuration for Hypershift etcd
+-# STORAGE_TYPE: Choose storage backend for Hypershift etcd
++# SKIP_DEPLOY_STORAGE: Set to true to use existing StorageClasses (no LSO/LVM/ODF deployment).
++#   When true, you must set ETCD_STORAGE_CLASS to a StorageClass that already exists in the cluster.
++#   Scripts validate that the StorageClass exists after cluster install.
++#SKIP_DEPLOY_STORAGE=false
++# STORAGE_TYPE: Choose storage backend for Hypershift etcd (ignored when SKIP_DEPLOY_STORAGE=true)
+ #   - lvm: Logical Volume Manager Storage (default, works for SNO and MNO)
+ #   - odf: OpenShift Data Foundation (multi-node only, requires 3+ nodes)
+ #STORAGE_TYPE=lvm
+diff --git a/Makefile b/Makefile
+index 5828027..777757a 100644
+--- a/Makefile
++++ b/Makefile
+@@ -252,9 +252,10 @@ help:
+ 	@echo "  update-etc-hosts - Update /etc/hosts with cluster entries"
+ 	@echo "  deploy-nfd       - Deploy NFD operator directly from source"
+ 	@echo "  deploy-metallb   - Deploy MetalLB operator for LoadBalancer support (only if HYPERSHIFT_API_IP is set)"
+-	@echo "  deploy-lso       - Deploy Local Storage Operator for block storage (multi-node only)"
++	@echo "  deploy-lso       - Deploy Local Storage Operator for block storage (multi-node only; skipped if SKIP_DEPLOY_STORAGE=true)"
+ 	@echo "  deploy-lvms      - Deploy LVMS (Logical Volume Manager Storage) for etcd storage (default with STORAGE_TYPE=lvm)"
+ 	@echo "  deploy-odf       - Deploy OpenShift Data Foundation for distributed storage (multi-node only, requires STORAGE_TYPE=odf)"
++	@echo "  SKIP_DEPLOY_STORAGE=true - Use existing StorageClasses; set ETCD_STORAGE_CLASS to your StorageClass name"
+ 	@echo "  prepare-nfs      - Prepare NFS manifests (internal or external NFS based on configuration)"
+ 	@echo "  upgrade-dpf       - Interactive DPF operator upgrade (user-friendly wrapper for prepare-dpf-manifests)"
+ 	@echo "  prepare-dpu-files - Prepare post-installation manifests with custom values"
+@@ -303,7 +304,8 @@ help:
+ 	@echo ""
+ 	@echo "DPF Configuration:"
+ 	@echo "  DPF_VERSION      - DPF operator version (default: $(DPF_VERSION))"
+-	@echo "  ETCD_STORAGE_CLASS - StorageClass for hosted cluster etcd (default: $(ETCD_STORAGE_CLASS))"
++	@echo "  SKIP_DEPLOY_STORAGE - If true, skip LSO/LVM/ODF deployment; ETCD_STORAGE_CLASS must point to existing StorageClass (default: false)"
++	@echo "  ETCD_STORAGE_CLASS - StorageClass for hosted cluster etcd (default: $(ETCD_STORAGE_CLASS)); required when SKIP_DEPLOY_STORAGE=true"
+ 	@echo "  BFB_STORAGE_CLASS - StorageClass for BFB PVC (default: $(BFB_STORAGE_CLASS))"
+ 	@echo ""
+ 	@echo "MetalLB Configuration:"
+diff --git a/docs/user-guide/advanced-topics.md b/docs/user-guide/advanced-topics.md
+index c21b5d7..52ece1a 100644
+--- a/docs/user-guide/advanced-topics.md
++++ b/docs/user-guide/advanced-topics.md
+@@ -184,13 +184,11 @@ make delete-cluster delete-vms clean-all
+ ### External Storage Integration
+ 
+ ```bash
+-# Use external storage instead of local
+-EXTERNAL_STORAGE=true
+-STORAGE_CLASS=fast-ssd        # Your storage class name
+-
+-# Skip local storage operators
+-SKIP_LSO=true
+-SKIP_ODF=true
++# Use existing StorageClasses instead of deploying LSO/LVM/ODF
++# You must create the StorageClass in the cluster first (e.g. via your storage operator).
++# Scripts validate that ETCD_STORAGE_CLASS exists after cluster install.
++SKIP_DEPLOY_STORAGE=true
++ETCD_STORAGE_CLASS=fast-ssd   # Your existing StorageClass name for etcd
+ ```
+ 
+ ### Custom Registry Configuration
+diff --git a/scripts/cluster.sh b/scripts/cluster.sh
+index 013440c..f1a23d6 100755
+--- a/scripts/cluster.sh
++++ b/scripts/cluster.sh
+@@ -222,6 +222,9 @@ function start_cluster_installation() {
+     if check_cluster_installed; then
+         log "INFO" "Cluster ${CLUSTER_NAME} is already installed. Fetching kubeconfig..."
+         get_kubeconfig
++        if [ "${SKIP_DEPLOY_STORAGE}" = "true" ]; then
++            validate_storage_classes_available || return 1
++        fi
+         return 0
+     fi
+ 
+@@ -235,7 +238,11 @@ function start_cluster_installation() {
+     log "INFO" "Cluster installation completed successfully"
+     get_kubeconfig
+ 
+-    if [ "${STORAGE_TYPE}" == "odf" ]; then
++    if [ "${SKIP_DEPLOY_STORAGE}" = "true" ]; then
++        log "INFO" "SKIP_DEPLOY_STORAGE=true: validating that required StorageClasses exist (user-provided storage)..."
++        validate_storage_classes_available
++        log "INFO" "Skipping LSO/ODF deployment; using existing StorageClasses."
++    elif [ "${STORAGE_TYPE}" == "odf" ]; then
+         log "INFO" "STORAGE_TYPE=odf detected. Deploying LSO and ODF..."
+         deploy_lso
+         deploy_odf
+@@ -293,6 +300,26 @@ function clean_all() {
+     log "Full cleanup complete"
+ }
+ 
++# Validates that StorageClasses required when SKIP_DEPLOY_STORAGE=true exist in the cluster.
++# Requires KUBECONFIG to be set (cluster must be installed).
++function validate_storage_classes_available() {
++    local missing=()
++    if [ -z "${ETCD_STORAGE_CLASS}" ]; then
++        log "ERROR" "ETCD_STORAGE_CLASS is not set. Set it in .env to the name of your existing StorageClass for etcd."
++        return 1
++    fi
++    if ! oc get storageclass "${ETCD_STORAGE_CLASS}" -o name &>/dev/null; then
++        missing+=("${ETCD_STORAGE_CLASS}")
++    fi
++    if [ ${#missing[@]} -gt 0 ]; then
++        log "ERROR" "SKIP_DEPLOY_STORAGE=true but the following StorageClass(es) are not present in the cluster: ${missing[*]}"
++        log "ERROR" "Create them (e.g. via your storage operator) or set ETCD_STORAGE_CLASS to an existing StorageClass name. Current: oc get storageclass"
++        return 1
++    fi
++    log "INFO" "Required StorageClass(es) present: ETCD_STORAGE_CLASS=${ETCD_STORAGE_CLASS}"
++    return 0
++}
++
+ function deploy_lso() {
+     # Only deploy LSO for multi-node clusters
+     if [ "${VM_COUNT}" -le 1 ]; then
+diff --git a/scripts/env.sh b/scripts/env.sh
+index fd008d7..d76d6c8 100755
+--- a/scripts/env.sh
++++ b/scripts/env.sh
+@@ -157,7 +157,12 @@ NFS_SERVER_NODE_IP=${NFS_SERVER_NODE_IP:-""}
+ NFS_PATH=${NFS_PATH:-"/"}
+ 
+ # Storage Configuration
+-# STORAGE_TYPE: Choose storage backend for Hypershift etcd
++# SKIP_DEPLOY_STORAGE: When true, do not deploy LSO/LVM/ODF; use existing StorageClasses.
++#   You must set ETCD_STORAGE_CLASS to a StorageClass that already exists in the cluster.
++#   Validation runs after cluster install to ensure the StorageClass exists.
++SKIP_DEPLOY_STORAGE=${SKIP_DEPLOY_STORAGE:-"false"}
++
++# STORAGE_TYPE: Choose storage backend for Hypershift etcd (ignored when SKIP_DEPLOY_STORAGE=true)
+ #   - lvm: Logical Volume Manager Storage (default, works for SNO and MNO)
+ #   - odf: OpenShift Data Foundation (multi-node only, requires 3+ nodes)
+ STORAGE_TYPE=${STORAGE_TYPE:-"lvm"}
+@@ -168,8 +173,17 @@ if [ "${STORAGE_TYPE}" == "odf" ] && [ "${VM_COUNT}" -lt 3 ]; then
+     STORAGE_TYPE="lvm"
+ fi
+ 
+-# Set storage class based on STORAGE_TYPE
+-if [ "${STORAGE_TYPE}" == "odf" ]; then
++# Set storage class based on STORAGE_TYPE (when not skipping storage deploy).
++# When SKIP_DEPLOY_STORAGE=true: ETCD_STORAGE_CLASS is user-defined only (no default).
++# Existence of the StorageClass in the cluster is validated after install (see cluster.sh validate_storage_classes_available).
++if [ "${SKIP_DEPLOY_STORAGE}" = "true" ]; then
++    if [ -z "${ETCD_STORAGE_CLASS}" ]; then
++        echo "Error: SKIP_DEPLOY_STORAGE=true requires ETCD_STORAGE_CLASS to be set in .env to your existing StorageClass name." >&2
++        echo "Create the StorageClass in the cluster (e.g. via your storage operator), then set ETCD_STORAGE_CLASS in .env." >&2
++        exit 1
++    fi
++    # Do not assign a default; user must define ETCD_STORAGE_CLASS in .env.
++elif [ "${STORAGE_TYPE}" == "odf" ]; then
+     ETCD_STORAGE_CLASS=${ETCD_STORAGE_CLASS:-"ocs-storagecluster-ceph-rbd"}
+ else
+     ETCD_STORAGE_CLASS=${ETCD_STORAGE_CLASS:-"lvms-vg1"}
+diff --git a/scripts/manifests.sh b/scripts/manifests.sh
+index 095047f..e772a99 100755
+--- a/scripts/manifests.sh
++++ b/scripts/manifests.sh
+@@ -457,6 +457,12 @@ function generate_ovn_manifests() {
+ function enable_storage() {
+     log [INFO] "Enabling storage operator (STORAGE_TYPE=${STORAGE_TYPE})"
+ 
++    # Skip when user provides their own StorageClasses
++    if [ "${SKIP_DEPLOY_STORAGE}" = "true" ]; then
++        log [INFO] "SKIP_DEPLOY_STORAGE=true: not enabling LSO/LVM operator; using existing StorageClasses (ETCD_STORAGE_CLASS=${ETCD_STORAGE_CLASS})"
++        return 0
++    fi
++
+     # Check if cluster is already installed
+     if check_cluster_installed; then
+         log [INFO] "Skipping storage operator configuration as cluster is already installed"

@@ -462,6 +462,12 @@ function generate_ovn_manifests() {
 function enable_storage() {
     log [INFO] "Enabling storage operator (STORAGE_TYPE=${STORAGE_TYPE})"
 
+    # Skip when user provides their own StorageClasses
+    if [ "${SKIP_DEPLOY_STORAGE}" = "true" ]; then
+        log [INFO] "SKIP_DEPLOY_STORAGE=true: not enabling LSO/LVM operator; using existing StorageClasses (ETCD_STORAGE_CLASS=${ETCD_STORAGE_CLASS})"
+        return 0
+    fi
+
     # Check if cluster is already installed
     if check_cluster_installed; then
         log [INFO] "Skipping storage operator configuration as cluster is already installed"
