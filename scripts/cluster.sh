@@ -97,10 +97,100 @@ function set_cluster_mtu() {
     fi
     echo "static_network_config:" >> "$STATIC_NET_FILE"
 
+    if [[ "${VM_STATIC_IP:-false}" == "true" ]]; then
+        for var in VM_EXT_IPS VM_EXT_PL VM_GW VM_DNS; do
+            if [[ -z "${!var}" ]]; then
+                log "ERROR" "VM_STATIC_IP is enabled but $var is not set"
+                return 1
+            fi
+        done
+
+        IFS=',' read -ra IP_ARRAY <<< "$VM_EXT_IPS"
+        IP_ARRAY=("${IP_ARRAY[@]// /}")
+        for ip in "${IP_ARRAY[@]}"; do
+            if ! is_valid_ip "$ip"; then
+                log "ERROR" "Invalid IP address in VM_EXT_IPS: $ip"
+                return 1
+            fi
+        done
+
+        if ! is_valid_ip "${VM_GW}"; then
+            log "ERROR" "Invalid IP for VM_GW: ${VM_GW}"
+            return 1
+        fi
+
+        IFS=',' read -ra DNS_ARRAY <<< "$VM_DNS"
+        DNS_ARRAY=("${DNS_ARRAY[@]// /}")
+        local dns_count=0
+        for dns_ip in "${DNS_ARRAY[@]}"; do
+            if [[ -z "$dns_ip" ]]; then
+                continue
+            fi
+            if ! is_valid_ip "$dns_ip"; then
+                log "ERROR" "Invalid IP in VM_DNS: $dns_ip"
+                return 1
+            fi
+            ((dns_count++)) || true
+        done
+        if [[ "$dns_count" -eq 0 ]]; then
+            log "ERROR" "VM_DNS must contain at least one DNS server IP (comma-separated for multiple)"
+            return 1
+        fi
+
+        DNS_SERVERS_YAML=""
+        for d in "${DNS_ARRAY[@]}"; do
+            [[ -z "$d" ]] && continue
+            DNS_SERVERS_YAML="${DNS_SERVERS_YAML}                - ${d}"$'\n'
+        done
+
+        if [[ "${#IP_ARRAY[@]}" -lt "$VM_COUNT" ]]; then
+            log "ERROR" "Not enough IPs in VM_EXT_IPS (got ${#IP_ARRAY[@]}, need $VM_COUNT)"
+            return 1
+        fi
+
+        for i in $(seq 1 "$VM_COUNT"); do
+            VM_NAME="${VM_PREFIX}${i}"
+            NODE_IP="${IP_ARRAY[$((i-1))]}"
+
+            if ! UNIQUE_MAC=$(generate_mac_from_machine_id "$VM_NAME"); then
+                log "ERROR" "Failed to generate MAC for $VM_NAME"
+                return 1
+            fi
+
+            log "INFO" "Set MAC: $UNIQUE_MAC, Static IP: $NODE_IP/${VM_EXT_PL}, GW: $VM_GW, DNS: $VM_DNS, Will be set on VM: $VM_NAME"
+
+            cat << EOF >> "$STATIC_NET_FILE"
+        - interfaces:
+           - name: ${PRIMARY_IFACE:-enp1s0}
+             type: ethernet
+             state: up
+             mtu: ${NODES_MTU}
+             mac-address: '${UNIQUE_MAC}'
+             ipv4:
+               enabled: true
+               dhcp: false
+               address:
+                 - ip: ${NODE_IP}
+                   prefix-length: ${VM_EXT_PL}
+          dns-resolver:
+            config:
+              server:
+${DNS_SERVERS_YAML}
+          routes:
+            config:
+              - destination: 0.0.0.0/0
+                next-hop-address: ${VM_GW}
+                next-hop-interface: ${PRIMARY_IFACE:-enp1s0}
+EOF
+        done
+
+        return 0
+    fi
+
+    # Default: DHCP mode
     for i in $(seq 1 "$VM_COUNT"); do
         VM_NAME="${VM_PREFIX}${i}"
 
-        # Use machine-id based MAC (default)
         if ! UNIQUE_MAC=$(generate_mac_from_machine_id "$VM_NAME"); then
             log "ERROR" "Failed to generate MAC for $VM_NAME"
             return 1
@@ -137,7 +227,9 @@ function check_create_cluster() {
 
     if ! aicli info cluster ${CLUSTER_NAME} >/dev/null 2>&1; then
         log "INFO" "Cluster ${CLUSTER_NAME} not found, creating..."
-
+        
+        ensure_ssh_key_in_home || return 1
+        
         if [ "$VM_COUNT" -eq 1 ]; then
             log "INFO" "Creating single-node cluster..."
             aicli create cluster \
@@ -220,9 +312,6 @@ function start_cluster_installation() {
     if check_cluster_installed; then
         log "INFO" "Cluster ${CLUSTER_NAME} is already installed. Fetching kubeconfig..."
         get_kubeconfig
-        if [ "${SKIP_DEPLOY_STORAGE}" = "true" ]; then
-            validate_storage_classes_available || return 1
-        fi
         return 0
     fi
 
@@ -236,11 +325,7 @@ function start_cluster_installation() {
     log "INFO" "Cluster installation completed successfully"
     get_kubeconfig
 
-    if [ "${SKIP_DEPLOY_STORAGE}" = "true" ]; then
-        log "INFO" "SKIP_DEPLOY_STORAGE=true: validating that required StorageClasses exist (user-provided storage)..."
-        validate_storage_classes_available
-        log "INFO" "Skipping LSO/ODF deployment; using existing StorageClasses."
-    elif [ "${STORAGE_TYPE}" == "odf" ]; then
+    if [ "${STORAGE_TYPE}" == "odf" ]; then
         log "INFO" "STORAGE_TYPE=odf detected. Deploying LSO and ODF..."
         deploy_lso
         deploy_odf
@@ -282,26 +367,6 @@ function get_kubeconfig() {
     fi
 }
 
-function get_kubeadmin_password() {
-    log "INFO" "Downloading kubeadmin password for cluster ${CLUSTER_NAME}..."
-    
-    if ! aicli download kubeadmin-password "${CLUSTER_NAME}"; then
-        log "ERROR" "Failed to download kubeadmin password for cluster ${CLUSTER_NAME}"
-        return 1
-    fi
-    
-    local password_file="kubeadmin-password.${CLUSTER_NAME}"
-    if [ -f "${password_file}" ]; then
-        log "INFO" "Kubeadmin password downloaded to: ${password_file}"
-        log "INFO" "Password: $(cat "${password_file}")"
-        log "INFO" "You can use this password to connect to the OpenShift console at:"
-        log "INFO" "  https://console-openshift-console.apps.${CLUSTER_NAME}.${BASE_DOMAIN}"
-        log "INFO" "  Username: kubeadmin"
-    else
-        log "WARN" "Password file not found at expected location: ${password_file}"
-    fi
-}
-
 function clean_all() {
     log "Performing full cleanup of cluster and VMs..."
     
@@ -310,32 +375,12 @@ function clean_all() {
     
     # Delete VMs
     log "INFO" "Deleting VMs with prefix $VM_PREFIX..."
-    scripts/vm.sh delete || true
+    env VM_PREFIX="$VM_PREFIX" scripts/delete_vms.sh || true
     
     # Clean resources
     clean_resources
     
     log "Full cleanup complete"
-}
-
-# Validates that StorageClasses required when SKIP_DEPLOY_STORAGE=true exist in the cluster.
-# Requires KUBECONFIG to be set (cluster must be installed).
-function validate_storage_classes_available() {
-    local missing=()
-    if [ -z "${ETCD_STORAGE_CLASS}" ]; then
-        log "ERROR" "ETCD_STORAGE_CLASS is not set. Set it in .env to the name of your existing StorageClass for etcd."
-        return 1
-    fi
-    if ! oc get storageclass "${ETCD_STORAGE_CLASS}" -o name &>/dev/null; then
-        missing+=("${ETCD_STORAGE_CLASS}")
-    fi
-    if [ ${#missing[@]} -gt 0 ]; then
-        log "ERROR" "SKIP_DEPLOY_STORAGE=true but the following StorageClass(es) are not present in the cluster: ${missing[*]}"
-        log "ERROR" "Create them (e.g. via your storage operator) or set ETCD_STORAGE_CLASS to an existing StorageClass name. Current: oc get storageclass"
-        return 1
-    fi
-    log "INFO" "Required StorageClass(es) present: ETCD_STORAGE_CLASS=${ETCD_STORAGE_CLASS}"
-    return 0
 }
 
 function deploy_lso() {
@@ -377,11 +422,6 @@ function deploy_lso() {
 }
 
 
-
-
-
-# Create ODF cluster as a workaround for OCS cluster creation issue
-# This is a temporary solution until the OCS cluster creation with LSO 4.19 will be fixed
 function deploy_odf() {
     if [ "${VM_COUNT}" -lt 3 ]; then
         log "INFO" "ODF requires at least 3 nodes (VM_COUNT=${VM_COUNT}). Skipping ODF deployment."
@@ -395,9 +435,9 @@ function deploy_odf() {
     fi
 
     log "INFO" "Multi-node cluster detected (VM_COUNT=${VM_COUNT}). Deploying OpenShift Data Foundation..."
-    
+
     get_kubeconfig
-    
+
     # Check if ODF subscription already exists
     if oc get subscription -n openshift-storage odf-operator &>/dev/null; then
         log "INFO" "ODF subscription already exists. Skipping subscription deployment."
@@ -413,31 +453,29 @@ function deploy_odf() {
 
         apply_manifest "${GENERATED_DIR}/odf-subscription.yaml" true
     fi
-    
+
     # Wait for ODF operator to create StorageCluster CRD
     log "INFO" "Waiting for ODF StorageCluster CRD to be available..."
-    local max_retries=60
-    local sleep_time=10
-    
+
     if retry 60 10 oc get storagecluster -A >/dev/null 2>&1; then
         log "INFO" "ODF StorageCluster CRD is available"
     else
         log "ERROR" "Timeout waiting for ODF StorageCluster CRD"
         return 1
     fi
-    
+
     apply_manifest "${MANIFESTS_DIR}/odf/odf-cluster.yaml" false
-    
+
     # Wait for StorageCluster to be ready
     log "INFO" "Waiting for ODF StorageCluster to be Ready..."
     if retry 120 10 bash -c 'oc get storagecluster -n openshift-storage ocs-storagecluster -o jsonpath="{.status.phase}" 2>/dev/null | grep -q "^Ready$"'; then
-        log "INFO" "✅ ODF StorageCluster is Ready"
+        log "INFO" "ODF StorageCluster is Ready"
     else
         log "ERROR" "Timeout waiting for ODF StorageCluster to be Ready"
         log "ERROR" "Check status manually: oc get storagecluster -n openshift-storage ocs-storagecluster"
         return 1
     fi
-    
+
     log "INFO" "ODF deployment completed successfully!"
 }
 
@@ -548,9 +586,6 @@ function main() {
         get-kubeconfig)
             get_kubeconfig
             ;;
-        get-kubeadmin-password)
-            get_kubeadmin_password
-            ;;
         clean-all)
             clean_all
             ;;
@@ -574,7 +609,7 @@ function main() {
         *)
             log "Unknown command: $command"
             log "Available commands: check-create-cluster, delete-cluster, cluster-install,"
-            log "  wait-for-status, get-kubeconfig, get-kubeadmin-password, clean-all, download-iso, create-day2-cluster, get-day2-iso, deploy-lso, deploy-odf"
+            log "  wait-for-status, get-kubeconfig, clean-all, download-iso, create-day2-cluster, get-day2-iso, deploy-lso, deploy-odf"
             exit 1
             ;;
     esac

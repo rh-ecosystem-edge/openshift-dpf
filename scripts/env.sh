@@ -95,6 +95,7 @@ VCPUS=${VCPUS:-"14"}
 DISK_SIZE1=${DISK_SIZE1:-"120"}
 DISK_SIZE2=${DISK_SIZE2:-"80"}
 VM_PREFIX=${VM_PREFIX:-"vm-dpf"}
+VM_STATIC_IP=${VM_STATIC_IP:-"false"}
 
 # MAC Address Configuration
 MAC_PREFIX=${MAC_PREFIX:-""}  # If set, use custom-prefix method, otherwise use machine-id

@@ -120,6 +120,27 @@ WORKER_COUNT=2               # Number of physical worker nodes
 make all
 ```
 
+### VMs with static IPs
+To assign fixed IPs to cluster VMs (e.g. for predictable addressing or firewall rules), set `VM_STATIC_IP=true` and provide these **required** variables in `.env`:
+
+| Variable     | Description |
+|-------------|----------------------------------------------------------------|
+| `VM_EXT_IPS` | Comma-separated list of static IPs, **one per VM** (must have at least `VM_COUNT` entries). Example: `10.8.2.110,10.8.2.111,10.8.2.112` |
+| `VM_EXT_PL`  | Prefix length for the subnet (e.g. `24` for /24) |
+| `VM_GW`      | Default gateway IP |
+| `VM_DNS`     | DNS server IP(s), comma-separated |
+
+Example for 3 VMs:
+```bash
+VM_STATIC_IP=true
+VM_EXT_IPS=10.8.2.110,10.8.2.111,10.8.2.112
+VM_EXT_PL=24
+VM_GW=10.8.2.1
+VM_DNS=10.8.2.1
+```
+
+Optional: `PRIMARY_IFACE` (default `enp1s0`) — interface name used for static config on the VMs.
+
 ## 🛠️ Key Commands
 
 ### Complete Deployment
