@@ -74,7 +74,6 @@ OVN_CHART_VERSION=v25.7.1-f073927     # Matches DPF version
 ```bash
 # DPU Interface Settings
 DPU_INTERFACE=ens7f0np0               # Physical DPU interface
-DPU_OVN_VF=ens7f0v1                  # OVN virtual function
 NUM_VFS=46                            # Number of SR-IOV VFs
 DPU_HOST_CIDR=10.6.130.0/24          # DPU host network
 HBN_OVN_NETWORK=10.6.150.0/27        # HBN network range

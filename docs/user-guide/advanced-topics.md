@@ -34,7 +34,6 @@ NODES_MTU=9000  # Add to .env file
 ```bash
 # Optimize SR-IOV VF allocation for your workload
 NUM_VFS=32                    # Reduce if not using all VFs
-DPU_OVN_VF=ens7f0v1          # First VF for OVN-Kubernetes
 
 # Advanced DPU network configuration
 HBN_OVN_NETWORK=10.6.150.0/27    # HBN network range

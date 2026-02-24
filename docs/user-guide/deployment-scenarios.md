@@ -193,7 +193,6 @@ WORKER_2_ROOT_DEVICE=/dev/sda
 
 # DPU Configuration
 DPU_INTERFACE=ens7f0np0         # Physical DPU interface
-DPU_OVN_VF=ens7f0v1           # OVN virtual function
 NUM_VFS=46                    # Number of virtual functions
 ```
 

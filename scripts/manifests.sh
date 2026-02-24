@@ -427,7 +427,6 @@ function generate_ovn_manifests() {
         -e "s|<TARGETCLUSTER_API_SERVER_PORT>|6443|" \
         -e "s|<POD_CIDR>|$POD_CIDR|" \
         -e "s|<SERVICE_CIDR>|$SERVICE_CIDR|" \
-        -e "s|<DPU_P0_VF1>|${DPU_OVN_VF:-ens7f0v1}|" \
         -e "s|<OVN_KUBERNETES_IMAGE_REPO>|$OVN_KUBERNETES_IMAGE_REPO|" \
         -e "s|<OVN_KUBERNETES_IMAGE_TAG>|$OVN_KUBERNETES_IMAGE_TAG|" \
         -e "s|<OVN_KUBERNETES_UTILS_IMAGE_REPO>|$OVN_KUBERNETES_UTILS_IMAGE_REPO|" \
