@@ -666,6 +666,66 @@ function delete_dpucluster_csr_approver() {
     log "INFO" "DPUCluster CSR auto-approver removed"
 }
 
+function delete_dpf_hcp_provisioner_operator() {
+    # Remove DPF HCP Provisioner Operator and all related resources
+    log "INFO" "Removing DPF HCP Provisioner Operator..."
+
+    get_kubeconfig
+
+    # Ensure helm is installed
+    ensure_helm_installed
+
+    # Delete DPFHCPProvisioner CR instances (if any exist)
+    log "INFO" "Deleting DPFHCPProvisioner custom resources..."
+    if oc get dpfhcpprovisioner -n "${CLUSTERS_NAMESPACE}" &>/dev/null 2>&1; then
+        if ! oc delete dpfhcpprovisioner --all -n "${CLUSTERS_NAMESPACE}" --ignore-not-found --timeout=600s; then
+            log "ERROR" "Failed to delete DPFHCPProvisioner CRs. Exiting..."
+            return 1
+        fi
+    else
+        log "INFO" "No DPFHCPProvisioner CRs found in ${CLUSTERS_NAMESPACE}"
+    fi
+
+    # Delete secrets created for DPFHCPProvisioner in clusters namespace
+    log "INFO" "Deleting DPFHCPProvisioner secrets from ${CLUSTERS_NAMESPACE}..."
+    oc delete secret -n "${CLUSTERS_NAMESPACE}" "${DPFHCPPROVISIONER_PULL_SECRET_NAME}" --ignore-not-found || {
+        log "WARN" "Failed to delete secret ${DPFHCPPROVISIONER_PULL_SECRET_NAME} - it may not exist or there may be permission issues"
+    }
+    oc delete secret -n "${CLUSTERS_NAMESPACE}" "${DPFHCPPROVISIONER_SSH_SECRET_NAME}" --ignore-not-found || {
+        log "WARN" "Failed to delete secret ${DPFHCPPROVISIONER_SSH_SECRET_NAME} - it may not exist or there may be permission issues"
+    }
+
+    # Uninstall helm release
+    log "INFO" "Uninstalling DPF HCP Provisioner Operator helm release..."
+    if helm list -n "${DPF_HCP_PROVISIONER_OPERATOR_NAMESPACE}" | grep -q "^dpf-hcp-provisioner-operator[[:space:]]"; then
+        helm uninstall dpf-hcp-provisioner-operator -n "${DPF_HCP_PROVISIONER_OPERATOR_NAMESPACE}" --wait || {
+            log "WARN" "Failed to uninstall helm release dpf-hcp-provisioner-operator"
+        }
+        log "INFO" "Helm release uninstalled successfully"
+    else
+        log "INFO" "Helm release dpf-hcp-provisioner-operator not found"
+    fi
+
+    # Delete the CRD
+    log "INFO" "Deleting DPFHCPProvisioner CRD..."
+    oc delete crd dpfhcpprovisioners.provisioning.dpu.hcp.io --ignore-not-found --timeout=600s || {
+        log "WARN" "Failed to delete DPFHCPProvisioner CRD, it may have finalizers or dependent resources"
+    }
+
+    # Delete the operator namespace (helm uninstall does not delete namespaces)
+    log "INFO" "Deleting DPF HCP Provisioner Operator namespace ${DPF_HCP_PROVISIONER_OPERATOR_NAMESPACE}..."
+    if oc get namespace "${DPF_HCP_PROVISIONER_OPERATOR_NAMESPACE}" &>/dev/null 2>&1; then
+        oc delete namespace "${DPF_HCP_PROVISIONER_OPERATOR_NAMESPACE}" --ignore-not-found --timeout=180s || {
+            log "WARN" "Failed to delete namespace ${DPF_HCP_PROVISIONER_OPERATOR_NAMESPACE}, it may have finalizers or remaining resources"
+        }
+    else
+        log "INFO" "Namespace ${DPF_HCP_PROVISIONER_OPERATOR_NAMESPACE} not found"
+    fi
+
+    log "INFO" "DPF HCP Provisioner Operator removal complete"
+    log "INFO" "Note: The ${CLUSTERS_NAMESPACE} namespace was not deleted as it may contain other resources"
+}
+
 # -----------------------------------------------------------------------------
 # Command dispatcher
 # -----------------------------------------------------------------------------
@@ -696,6 +756,9 @@ function main() {
             deploy-dpf-hcp-provisioner-operator)
                 deploy_dpf_hcp_provisioner_operator
                 ;;
+            delete-dpf-hcp-provisioner-operator)
+                delete_dpf_hcp_provisioner_operator
+                ;;
             create-dpfhcpprovisioner-secrets)
                 create_dpfhcpprovisioner_secrets
                 ;;
@@ -713,7 +776,7 @@ function main() {
                 ;;
             *)
                 log [INFO] "Unknown command: $command"
-                log [INFO] "Available commands: deploy-nfd, deploy-metallb, deploy-argocd, deploy-maintenance-operator, apply-dpf, deploy-hypershift, deploy-dpucluster-csr-approver, delete-dpucluster-csr-approver, deploy-dpf-hcp-provisioner-operator, create-dpfhcpprovisioner-secrets, create-dpfhcpprovisioner-cr"
+                log [INFO] "Available commands: deploy-nfd, deploy-metallb, deploy-argocd, deploy-maintenance-operator, apply-dpf, deploy-hypershift, deploy-dpucluster-csr-approver, delete-dpucluster-csr-approver, deploy-dpf-hcp-provisioner-operator, delete-dpf-hcp-provisioner-operator, create-dpfhcpprovisioner-secrets, create-dpfhcpprovisioner-cr"
                 exit 1
                 ;;
         esac

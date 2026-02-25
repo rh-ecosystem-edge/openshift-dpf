@@ -32,6 +32,7 @@ WORKER_SCRIPT := scripts/worker.sh
         deploy-core-operator-sources setup-nfs-server deploy-metallb deploy-lso deploy-odf deploy-lvms prepare-nfs run-dpf-sanity \
         add-worker-nodes worker-status approve-worker-csrs \
         deploy-csr-approver delete-csr-approver deploy-dpucluster-csr-approver delete-dpucluster-csr-approver \
+        delete-dpf-hcp-provisioner-operator \
         verify-deployment verify-workers verify-dpu-nodes verify-dpudeployment \
         run-traffic-flow-tests tft-setup tft-cleanup tft-show-config tft-results
 
@@ -249,6 +250,10 @@ deploy-dpucluster-csr-approver:
 delete-dpucluster-csr-approver:
 	@$(DPF_SCRIPT) delete-dpucluster-csr-approver
 
+delete-dpf-hcp-provisioner-operator:
+	@echo "Deleting DPF HCP Provisioner Operator..."
+	@$(DPF_SCRIPT) delete-dpf-hcp-provisioner-operator
+
 # Verification targets
 verify-deployment:
 	@$(VERIFY_SCRIPT) verify-deployment
@@ -314,6 +319,7 @@ help:
 	@echo "  delete-csr-approver - Remove CSR auto-approver from host cluster"
 	@echo "  deploy-dpucluster-csr-approver - Deploy CSR auto-approver for DPUCluster (runs on host)"
 	@echo "  delete-dpucluster-csr-approver - Remove CSR auto-approver for DPUCluster"
+	@echo "  delete-dpf-hcp-provisioner-operator - Remove DPF HCP Provisioner Operator and related resources"
 	@echo ""
 	@echo "Verification:"
 	@echo "  verify-deployment     - Full verification: workers + DPU nodes + DPUDeployment"
