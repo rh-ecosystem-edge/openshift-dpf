@@ -109,7 +109,6 @@ get_dpu_output=$(oc get dpu -n ${dpf_operator_namespace} --kubeconfig=${mgmt_kub
 echo -e "Output of oc get dpu:\n${get_dpu_output}"
 
 # Note worker node names may not have .com and FQDN anymore, this is mainly for the kubernetes network flow tests
-## dpu_worker_list=$(oc get dpu -n "${dpf_operator_namespace}" --no-headers --kubeconfig="${mgmt_kubecfg}" | awk '$2=="True" && $3=="Ready" {print $1}' | xargs)
 dpu_worker_list=$(oc get nodes --no-headers --kubeconfig="${hosted_kubecfg}" | awk '$2=="Ready" && $3=="worker" {print $1}' | xargs)
 
 echo -e "\nChecking how many DPU worker nodes are in Ready Phase on management cluster"
