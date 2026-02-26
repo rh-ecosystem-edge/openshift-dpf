@@ -56,12 +56,6 @@ HELM_CHARTS_DIR=${HELM_CHARTS_DIR:-"$MANIFESTS_DIR/helm-charts-values"}
 HOST_CLUSTER_API=${HOST_CLUSTER_API:-"api.$CLUSTER_NAME.$BASE_DOMAIN"}
 HOSTED_CONTROL_PLANE_NAMESPACE=${HOSTED_CONTROL_PLANE_NAMESPACE:-"${CLUSTERS_NAMESPACE}-${HOSTED_CLUSTER_NAME}"}
 
-# OLM Catalog Source — conditional on USE_V419_WORKAROUND
-CATALOG_SOURCE_NAME=${CATALOG_SOURCE_NAME:-"redhat-operators"}
-if [[ "${USE_V419_WORKAROUND}" == "true" ]]; then
-    CATALOG_SOURCE_NAME="redhat-operators-v419"
-fi
-
 # Storage class — conditional on STORAGE_TYPE and SKIP_DEPLOY_STORAGE
 if [ "${STORAGE_TYPE}" == "odf" ] && [ "${VM_COUNT}" -lt 3 ]; then
     echo "Warning: ODF requires at least 3 nodes. Falling back to LVM." >&2
