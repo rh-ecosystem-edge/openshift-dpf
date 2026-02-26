@@ -134,9 +134,7 @@ function prepare_cluster_manifests() {
         "99-worker-bridge.yaml"
     )
 
-    if [ "${USE_V419_WORKAROUND}" != "true" ]; then
-        excluded_files+=("4.19-cataloguesource.yaml")
-    fi
+    excluded_files+=("custom-catalogsource.yaml")
 
     # Copy all manifests except excluded files using utility function
     copy_manifests_with_exclusions "$MANIFESTS_DIR/cluster-installation" "$GENERATED_DIR" "${excluded_files[@]}"
@@ -206,7 +204,6 @@ update_worker_manifest() {
 function deploy_core_operator_sources() {
     log [INFO] "Deploying NFD and SR-IOV subscriptions..."
     log [INFO] "Using catalog source: ${CATALOG_SOURCE_NAME}"
-    log [INFO] "Using v4.19 workaround: ${USE_V419_WORKAROUND}"
 
     mkdir -p "$GENERATED_DIR"
 
@@ -216,14 +213,14 @@ function deploy_core_operator_sources() {
         "<CATALOG_SOURCE_NAME>" "$CATALOG_SOURCE_NAME"
     apply_manifest "$GENERATED_DIR/nfd-subscription.yaml" true
 
-    if [[ "${USE_V419_WORKAROUND}" == "true" ]]; then
-        log [INFO] "Deploying v4.19 catalog source (workaround enabled)"
-        local catalog_file="$MANIFESTS_DIR/cluster-installation/4.19-cataloguesource.yaml"
-        if [ -f "$catalog_file" ]; then
-            apply_manifest "$catalog_file" true
-        fi
-    else
-        log [INFO] "Skipping v4.19 catalog source deployment (using standard OLM)"
+    if [[ -n "${CATALOG_SOURCE_IMAGE}" ]]; then
+        log [INFO] "Deploying custom catalog source: ${CATALOG_SOURCE_NAME} (image: ${CATALOG_SOURCE_IMAGE})"
+        update_file_multi_replace \
+            "$MANIFESTS_DIR/cluster-installation/custom-catalogsource.yaml" \
+            "$GENERATED_DIR/custom-catalogsource.yaml" \
+            "<CATALOG_SOURCE_NAME>" "$CATALOG_SOURCE_NAME" \
+            "<CATALOG_SOURCE_IMAGE>" "$CATALOG_SOURCE_IMAGE"
+        apply_manifest "$GENERATED_DIR/custom-catalogsource.yaml" true
     fi
 
     log [INFO] "Core operator sources deployed."
