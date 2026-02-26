@@ -192,7 +192,6 @@ WORKER_2_BOOT_MAC=aa:bb:cc:dd:ee:02
 WORKER_2_ROOT_DEVICE=/dev/sda
 
 # DPU Configuration
-DPU_INTERFACE=ens7f0np0         # Physical DPU interface
 NUM_VFS=46                    # Number of virtual functions
 ```
 
