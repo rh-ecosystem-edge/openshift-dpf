@@ -1,5 +1,5 @@
-# Include environment variables (skip for generate-env so it starts clean)
-ifeq ($(filter generate-env,$(MAKECMDGOALS)),)
+# Include environment variables (skip for targets that don't need a .env)
+ifeq ($(filter generate-env validate-env-files help,$(MAKECMDGOALS)),)
 include .env
 export
 endif
@@ -34,7 +34,7 @@ WORKER_SCRIPT := scripts/worker.sh
         deploy-csr-approver delete-csr-approver deploy-dpucluster-csr-approver delete-dpucluster-csr-approver \
         verify-deployment verify-workers verify-dpu-nodes verify-dpudeployment \
         run-traffic-flow-tests tft-setup tft-cleanup tft-show-config tft-results \
-        generate-env
+        validate-env-files generate-env
 
 all: 
 	@mkdir -p logs
@@ -263,8 +263,42 @@ verify-dpu-nodes:
 verify-dpudeployment:
 	@$(VERIFY_SCRIPT) verify-dpudeployment
 
+validate-env-files:
+	@bash -c '\
+		set -e; \
+		defaults=$$(grep -oP "^\w+" ci/env.defaults | sort); \
+		template=$$(grep -oP "^\w+" ci/env.template | sort); \
+		required=$$(grep -oP "\w+(?=:)" ci/env.required | sort); \
+		known=$$( echo "$$defaults"; echo "$$required" ); \
+		missing=""; \
+		for var in $$defaults; do \
+			if ! echo "$$template" | grep -qx "$$var"; then \
+				missing="$$missing $$var"; \
+			fi; \
+		done; \
+		extra=""; \
+		for var in $$template; do \
+			if ! echo "$$known" | grep -qx "$$var"; then \
+				extra="$$extra $$var"; \
+			fi; \
+		done; \
+		if [ -n "$$missing" ]; then \
+			echo "ERROR: variables in ci/env.defaults that are missing from ci/env.template:"; \
+			for var in $$missing; do echo "  - $$var"; done; \
+			echo ""; \
+			echo "These variables will be silently dropped from .env."; \
+			echo "Fix: add a line  VAR_NAME=\$${VAR_NAME}  to ci/env.template for each."; \
+			exit 1; \
+		fi; \
+		if [ -n "$$extra" ]; then \
+			count=$$(echo $$extra | wc -w | tr -d " "); \
+			echo "OK  $$count template-only variable(s) have no default (set per-environment):$${extra}"; \
+		fi; \
+		echo "OK  all ci/env.defaults variables are present in ci/env.template"; \
+	'
+
 FORCE ?= false
-generate-env:
+generate-env: validate-env-files
 	@if [ -f .env ] && [ "$(FORCE)" != "true" ]; then \
 		echo "ERROR: .env already exists. To overwrite, run:  make generate-env FORCE=true"; \
 		exit 1; \
