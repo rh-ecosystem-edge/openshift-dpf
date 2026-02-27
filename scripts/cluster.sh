@@ -184,7 +184,9 @@ function set_node_nmstate() {
             VM_NAME="${VM_PREFIX}${i}"
             NODE_IP="${IP_ARRAY[$((i-1))]}"
 
-            if ! UNIQUE_MAC=$(generate_mac_from_machine_id "$VM_NAME"); then
+            if [ -n "$MAC_PREFIX" ]; then
+                UNIQUE_MAC="52:54:00:${MAC_PREFIX}:$(printf '%02x' "$i")"
+            elif ! UNIQUE_MAC=$(generate_mac_from_machine_id "$VM_NAME"); then
                 log "ERROR" "Failed to generate MAC for $VM_NAME"
                 return 1
             fi
@@ -222,7 +224,9 @@ EOF
     for i in $(seq 1 "$VM_COUNT"); do
         VM_NAME="${VM_PREFIX}${i}"
 
-        if ! UNIQUE_MAC=$(generate_mac_from_machine_id "$VM_NAME"); then
+        if [ -n "$MAC_PREFIX" ]; then
+            UNIQUE_MAC="52:54:00:${MAC_PREFIX}:$(printf '%02x' "$i")"
+        elif ! UNIQUE_MAC=$(generate_mac_from_machine_id "$VM_NAME"); then
             log "ERROR" "Failed to generate MAC for $VM_NAME"
             return 1
         fi
