@@ -60,26 +60,73 @@ provision_all_workers() {
         [[ -z "$bmc_pass" ]] && { log "ERROR" "WORKER_${i}_BMC_PASSWORD not set"; return 1; }
         [[ -z "$boot_mac" ]] && { log "ERROR" "WORKER_${i}_BOOT_MAC not set"; return 1; }
 
+        if [[ "${WORKER_STATIC_IP}" == "true" ]]; then
+           for var in WORKER_${i}_INT WORKER_${i}_IPADDR WORKER_${i}_GW WORKER_${i}_PL WORKER_${i}_DNS; do
+              if [[ -z "${!var}" ]]; then
+                 log "ERROR" "WORKER_STATIC_IP is enabled but $var is not set"
+                 return 1
+              fi
+           done
+           local ipaddr_var="WORKER_${i}_IPADDR"; local ipaddr="${!ipaddr_var}"
+           local gw_var="WORKER_${i}_GW"; local gw="${!gw_var}"
+           local int_var="WORKER_${i}_INT"; local int="${!int_var}"
+           local pl_var="WORKER_${i}_PL"; local pl="${!pl_var}"
+           local dns_var="WORKER_${i}_DNS"; local dns="${!dns_var}"
+
+           #TBD dns array
+           for ip in $ipaddr $gw $dns; do
+             if ! is_valid_ip "$ip"; then
+                log "ERROR" "ip not valid: $ip "
+                return 1
+             fi
+           done
+        fi
+
         log "INFO" "Creating manifests for $name..."
 
         # Generate BMC secret using process_template
         process_template \
-            "${WORKER_TEMPLATE_DIR}/bmc-secret.yaml" \
-            "${WORKER_GENERATED_DIR}/${name}-bmc-secret.yaml" \
-            "<WORKER_NAME>" "$name" \
-            "<BMC_USER_BASE64>" "$(printf '%s' "$bmc_user" | base64)" \
-            "<BMC_PASSWORD_BASE64>" "$(printf '%s' "$bmc_pass" | base64)"
+           "${WORKER_TEMPLATE_DIR}/bmc-secret.yaml" \
+           "${WORKER_GENERATED_DIR}/${name}-bmc-secret.yaml" \
+           "<WORKER_NAME>" "$name" \
+           "<BMC_USER_BASE64>" "$(printf '%s' "$bmc_user" | base64)" \
+           "<BMC_PASSWORD_BASE64>" "$(printf '%s' "$bmc_pass" | base64)"
 
-        # Generate BareMetalHost using process_template
-        process_template \
-            "${WORKER_TEMPLATE_DIR}/baremetalhost.yaml" \
-            "${WORKER_GENERATED_DIR}/${name}-bmh.yaml" \
-            "<WORKER_NAME>" "$name" \
-            "<BOOT_MAC>" "$boot_mac" \
-            "<BMC_IP>" "$bmc_ip" \
-            "<ROOT_DEVICE>" "$root_dev"
+        if [[ "${WORKER_STATIC_IP}" == "true" ]]; then
+           process_template \
+               "${WORKER_TEMPLATE_DIR}/baremetalhost-static-ip.yaml" \
+               "${WORKER_GENERATED_DIR}/${name}-bmh.yaml" \
+               "<WORKER_NAME>" "$name" \
+               "<BOOT_MAC>" "$boot_mac" \
+               "<BMC_IP>" "$bmc_ip" \
+               "<ROOT_DEVICE>" "$root_dev"
+
+           process_template \
+               "${WORKER_TEMPLATE_DIR}/bmc-secret-static-ip.yaml" \
+               "${WORKER_GENERATED_DIR}/${name}-bmc-secret-static-ip.yaml" \
+               "<WORKER_NAME>" "$name" \
+               "<BOOT_MAC>" "$boot_mac" \
+               "<IPADDR>" "$ipaddr" \
+               "<GW>" "$gw" \
+               "<PL>" "$pl" \
+               "<INTERFACE>" "$int" \
+	       "<NODES_MTU>" "${NODES_MTU}" \
+               "<DNS_IP>" "$dns"
+        else
+           # Generate BareMetalHost using process_template
+           process_template \
+              "${WORKER_TEMPLATE_DIR}/baremetalhost.yaml" \
+              "${WORKER_GENERATED_DIR}/${name}-bmh.yaml" \
+              "<WORKER_NAME>" "$name" \
+              "<BOOT_MAC>" "$boot_mac" \
+              "<BMC_IP>" "$bmc_ip" \
+              "<ROOT_DEVICE>" "$root_dev"
+        fi
 
         # Apply manifests
+        if [[ "${WORKER_STATIC_IP}" == "true" ]]; then
+            apply_manifest "${WORKER_GENERATED_DIR}/${name}-bmc-secret-static-ip.yaml" false
+        fi
         apply_manifest "${WORKER_GENERATED_DIR}/${name}-bmc-secret.yaml" false
         apply_manifest "${WORKER_GENERATED_DIR}/${name}-bmh.yaml" false
         log "INFO" "BMH $name created"

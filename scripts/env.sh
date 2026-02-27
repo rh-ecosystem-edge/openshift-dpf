@@ -203,6 +203,8 @@ MAX_RETRIES=${MAX_RETRIES:-"90"}
 SLEEP_TIME=${SLEEP_TIME:-"60"}
 
 # Worker Provisioning Configuration
+WORKER_STATIC_IP=${WORKER_STATIC_IP:-"false"}
+
 # Enable short worker hostnames (sets hostname based on MAC address via MachineConfig)
 ENABLE_SHORT_WORKER_HOSTNAMES=${ENABLE_SHORT_WORKER_HOSTNAMES:-"false"}
 
