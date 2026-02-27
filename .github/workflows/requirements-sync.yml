@@ -1,0 +1,40 @@
+name: Sync Requirements to GitHub Issues
+
+on:
+  push:
+    branches: [main, public-main]
+    paths:
+      - 'requirements/requirements.json'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+          token: ${{ secrets.PROJECT_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Sync issues and project
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_TOKEN || secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: ./requirements/sync-issues.sh
+
+      - name: Commit updated issue numbers
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add requirements/requirements.json
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "[skip ci] Update requirements.json with issue numbers"
+            git push
+          fi
