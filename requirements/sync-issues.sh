@@ -99,11 +99,18 @@ _Requirement ID: ${REQ_ID}_"
     if [[ "${ISSUE_NUM}" == "null" || -z "${ISSUE_NUM}" ]]; then
         echo "  [${REQ_ID}] Creating issue: ${TITLE}"
         if [[ "${DRY_RUN}" == "false" ]]; then
-            NEW_NUM=$(gh issue create ${REPO_FLAG} \
+            CREATE_OUTPUT=$(gh issue create ${REPO_FLAG} \
                 --title "${TITLE}" \
                 --body "${BODY}" \
-                --label "${REQ_LABELS},status/untested" \
-                2>&1 | grep -oE '[0-9]+$')
+                --label "${REQ_LABELS},status/untested" 2>&1) || {
+                echo "    -> ERROR creating issue: ${CREATE_OUTPUT}" >&2
+                continue
+            }
+            NEW_NUM=$(echo "${CREATE_OUTPUT}" | grep -oE '[0-9]+$' || true)
+            if [[ -z "${NEW_NUM}" ]]; then
+                echo "    -> ERROR: could not extract issue number from: ${CREATE_OUTPUT}" >&2
+                continue
+            fi
             echo "    -> Created issue #${NEW_NUM}"
             UPDATED_JSON=$(echo "${UPDATED_JSON}" | jq ".requirements[${i}].issue_number = ${NEW_NUM}")
         else
@@ -115,7 +122,7 @@ _Requirement ID: ${REQ_ID}_"
             gh issue edit "${ISSUE_NUM}" ${REPO_FLAG} \
                 --title "${TITLE}" \
                 --body "${BODY}" \
-                --add-label "${REQ_LABELS}" || true
+                --add-label "${REQ_LABELS}" 2>&1 || echo "    -> WARNING: failed to update issue #${ISSUE_NUM}" >&2
         else
             echo "    -> [dry-run] Would update issue #${ISSUE_NUM}"
         fi
@@ -135,13 +142,19 @@ echo "=== Syncing GitHub Project ==="
 
 OWNER=$(echo "${GITHUB_REPOSITORY}" | cut -d'/' -f1)
 
-PROJECT_NUM=$(gh project list --owner "${OWNER}" --format json \
-    | jq -r ".projects[] | select(.title == \"${PROJECT_NAME}\") | .number" 2>/dev/null || true)
+PROJECT_LIST=$(gh project list --owner "${OWNER}" --format json 2>/dev/null || echo '{"projects":[]}')
+PROJECT_NUM=$(echo "${PROJECT_LIST}" | jq -r ".projects[] | select(.title == \"${PROJECT_NAME}\") | .number" 2>/dev/null || true)
 
 if [[ -z "${PROJECT_NUM}" ]]; then
     echo "  Creating project: ${PROJECT_NAME}"
     if [[ "${DRY_RUN}" == "false" ]]; then
-        PROJECT_NUM=$(gh project create --owner "${OWNER}" --title "${PROJECT_NAME}" --format json | jq -r '.number')
+        PROJECT_OUTPUT=$(gh project create --owner "${OWNER}" --title "${PROJECT_NAME}" --format json 2>&1) || {
+            echo "    -> WARNING: failed to create project: ${PROJECT_OUTPUT}" >&2
+            PROJECT_NUM=""
+        }
+        if [[ -n "${PROJECT_OUTPUT}" ]]; then
+            PROJECT_NUM=$(echo "${PROJECT_OUTPUT}" | jq -r '.number' 2>/dev/null || true)
+        fi
         echo "    -> Created project #${PROJECT_NUM}"
     else
         echo "    -> [dry-run] Would create project"
