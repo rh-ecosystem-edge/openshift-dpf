@@ -5,552 +5,662 @@
     {
       "id": "REQ-001",
       "requirement": "DPF on OCP supports amd64 worker and control plane nodes",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/system",
         "type/functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-002",
       "requirement": "DPF 26.4.X can be installed successfully on OCP 4.22.X",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/installation",
         "type/functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-003",
       "requirement": "DPF 26.4.X has a documented process to upgrade to 26.4.Z",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/installation",
         "type/functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-004",
       "requirement": "DPF 26.4.X can be uninstalled successfully",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/installation",
         "type/functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-005",
       "requirement": "DPF 26.4.X runs in DPF host-trusted mode",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/installation",
         "type/functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-006",
       "requirement": "DPF 26.4.X detects DPUs on worker nodes automatically",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/installation",
         "type/functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-007",
       "requirement": "DPF 26.4.X operates a cluster with a mix of DPU workers and non-DPU workers",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/installation",
         "type/functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-008",
       "requirement": "A DPUDeployment can configure DPUs to DPU mode with desired firmware settings",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/dpudeployment",
         "type/functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-009",
       "requirement": "A DPUDeployment can provision DPUs",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/dpudeployment",
         "type/functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-010",
       "requirement": "A DPUDeployment can be deleted",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/dpudeployment",
         "type/functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-011",
       "requirement": "A DPUDeployment can scale DPUs up and down based on selectors",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/dpudeployment",
         "type/functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-012",
       "requirement": "A DPUDeployment can be updated with a new BFB and rolled out",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/dpudeployment",
         "type/functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-013",
       "requirement": "A DPUDeployment can deploy DPUServices",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/dpudeployment",
         "type/functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-014",
       "requirement": "A DPUDeployment can be updated with DPUService changes and rolled out",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/dpudeployment",
         "type/functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-015",
       "requirement": "The OVN Kubernetes and HBN DPUServices can run a variety of traffic flows in the Kubernetes cluster",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/ovn-hbn",
         "type/functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-016",
       "requirement": "The OVN Kubernetes and HBN DPUServices can be upgraded with new configuration",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/ovn-hbn",
         "type/functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-017",
       "requirement": "OVN Kubernetes with HBN has feature parity with OVN Kubernetes on OpenShift without DPUs with documented exceptions",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/ovn-hbn",
         "type/functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-018",
       "requirement": "The version of OVN Kubernetes linked to an OpenShift release supports all DPF supported RHCOS + DOCA versions",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/ovn-hbn",
         "type/functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-019",
       "requirement": "The DTS DPUService can be installed",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/dts",
         "type/functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-020",
       "requirement": "The DTS DPUService can be updated with new configuration",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/dts",
         "type/functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-021",
       "requirement": "The DTS DPUService can be deleted",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/dts",
         "type/functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-022",
       "requirement": "The DTS DPUService reports metrics to a Prometheus endpoint available on the DPU",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/dts",
         "type/functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-023",
       "requirement": "The DTS DPUService exposes metrics to the end user through Prometheus",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/dts",
         "type/functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-024",
       "requirement": "OpenShift 4.22.X deployed with OVN Kubernetes and HBN DPUServices can add and remove nodes from the cluster",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/openshift",
         "type/functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-025",
       "requirement": "OpenShift 4.22.X deployed with OVN Kubernetes and HBN DPUServices is a conformant OpenShift cluster",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/openshift",
         "type/functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-026",
       "requirement": "OpenShift 4.22.X deployed with OVN Kubernetes and HBN DPUServices can be upgraded to 4.22.Z",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/openshift",
         "type/functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-027",
       "requirement": "The cluster can recover without manual intervention from a worker node warm reboot",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/resilience",
         "type/functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-028",
       "requirement": "The cluster can recover without manual intervention from a worker node cold reboot",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/resilience",
         "type/functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-029",
       "requirement": "The cluster can recover without manual intervention from a worker node unexpected power off (e.g. through IPMI)",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/resilience",
         "type/functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-030",
       "requirement": "The cluster can recover without manual intervention from all nodes powered off",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/resilience",
         "type/functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-031",
       "requirement": "The cluster can recover without manual intervention from all pods deleted",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/resilience",
         "type/functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-032",
       "requirement": "The cluster can recover without manual intervention from a DPU reboot",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/resilience",
         "type/functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-033",
       "requirement": "The cluster can recover without manual intervention from a DPU unexpected power off",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/resilience",
         "type/functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-034",
       "requirement": "DPF on OCP can manage 1 DPF managed DPU per worker node",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/scale-performance",
         "type/functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-035",
       "requirement": "DPF on OCP can manage XXX worker nodes equipped with DPUs",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/scale-performance",
         "type/functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-036",
       "requirement": "DPF on OCP can manage XXX pods per worker node equipped with DPUs",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/scale-performance",
         "type/functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-037",
       "requirement": "Traffic between pods can reach XXXX Gbps",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/scale-performance",
         "type/functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-038",
       "requirement": "Deploys a new DPU with the OVN-Kubernetes and HBN DPUService in XXX minutes",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/scale-performance",
         "type/functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-039",
       "requirement": "The BFB can be provisioned with SecureBoot enabled",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/bfb",
         "type/functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-040",
       "requirement": "The BFB can be provisioned if SRIOV_EN=0 and SRIOV_NUM_VFS=0",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/bfb",
         "type/functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-041",
       "requirement": "The BFB is based on Generic Red Hat CoreOS 4.22.X",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/bfb",
         "type/non-functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-042",
       "requirement": "The BFB installs DOCA components using an OCI os-layer from Red Hat repository",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/bfb",
         "type/non-functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-043",
       "requirement": "The BFB does not require non-supported (e.g. EPEL) repositories",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/bfb",
         "type/non-functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-044",
       "requirement": "Generic base BFB available from Red Hat repository",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/bfb",
         "type/non-functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-045",
       "requirement": "DOCA os-tree layer available from Red Hat repository",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/bfb",
         "type/non-functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-046",
       "requirement": "DPUCluster is a HyperShift cluster based on OpenShift 4.22.X",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/dpucluster",
         "type/non-functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-047",
       "requirement": "DPUCluster does not require direct interaction with HyperShift by the user",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/dpucluster",
         "type/non-functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-048",
       "requirement": "DPUCluster has a documented upgrade process",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/dpucluster",
         "type/non-functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-049",
       "requirement": "OpenShift cluster has 3 control plane nodes",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/openshift",
         "type/non-functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-050",
       "requirement": "DPF on OCP supports amd64 worker and control plane nodes",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/system",
         "type/non-functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-051",
       "requirement": "DPF on OCP reports status and health to the user",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/system",
         "type/non-functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-052",
       "requirement": "DPF on OCP has a documented way to collect full system logs and DPU debugging information",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/system",
         "type/non-functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-053",
       "requirement": "DPF on OCP has a dashboard to monitor overall health",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/system",
         "type/non-functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-054",
       "requirement": "Worker node name validation should not be stricter than OpenShift validation",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/system",
         "type/non-functional"
-      ]
+      ],
+      "subtasks": []
     },
     {
       "id": "REQ-055",
       "requirement": "DPF on OCP reports accurate and actionable conditions when DPU or DPUService provisioning fails",
+      "description": "",
       "test_description": "",
       "test_implementation": "",
       "labels": [
         "area/system",
         "type/non-functional"
-      ]
+      ],
+      "subtasks": []
     }
   ]
 }
