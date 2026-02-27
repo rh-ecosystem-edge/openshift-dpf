@@ -109,6 +109,51 @@ No vendor-specific configuration needed - it just works.
 | `AUTO_APPROVE_WORKER_CSR` | Deploy CronJob to auto-approve host cluster CSRs | `false` |
 | `AUTO_APPROVE_DPUCLUSTER_CSR` | Deploy CronJob to auto-approve DPUCluster CSRs | `false` |
 
+### Workers with static IPs
+
+To assign fixed IPs to worker nodes (e.g. from IPA or pre-provisioned NetworkManager config), set `WORKER_STATIC_IP=true` and define these **per worker** in addition to the required BMC/MAC variables:
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `WORKER_n_INT` | Network interface name on the worker | `eno12399` |
+| `WORKER_n_IPADDR` | Static IP address | `10.6.135.1` |
+| `WORKER_n_GW` | Default gateway | `10.6.135.254` |
+| `WORKER_n_PL` | Prefix length | `24` |
+| `WORKER_n_DNS` | DNS server IP | `8.8.4.4` |
+
+Example for two workers with static IPs:
+
+```bash
+WORKER_STATIC_IP=true
+WORKER_COUNT=2
+
+# Worker 1
+WORKER_1_NAME=worker-01
+WORKER_1_BMC_IP=192.168.1.101
+WORKER_1_BMC_USER=admin
+WORKER_1_BMC_PASSWORD=your_password
+WORKER_1_BOOT_MAC=aa:bb:cc:dd:ee:01
+WORKER_1_INT=eno12399
+WORKER_1_IPADDR=10.6.135.1
+WORKER_1_GW=10.6.135.254
+WORKER_1_PL=24
+WORKER_1_DNS=8.8.4.4
+
+# Worker 2
+WORKER_2_NAME=worker-02
+WORKER_2_BMC_IP=192.168.1.102
+WORKER_2_BMC_USER=admin
+WORKER_2_BMC_PASSWORD=your_password
+WORKER_2_BOOT_MAC=aa:bb:cc:dd:ee:02
+WORKER_2_INT=eno1
+WORKER_2_IPADDR=10.6.135.2
+WORKER_2_GW=10.6.135.254
+WORKER_2_PL=24
+WORKER_2_DNS=8.8.4.4
+```
+
+Deploy as usual with `make add-worker-nodes`. The automation uses NMState to apply the static config to the primary interface. If a worker already has a static `.nmconnection` (e.g. from IPA) in `/etc/NetworkManager/system-connections/`, the `br-dpu` bridge service on that node will reuse the same IP/gateway/DNS for the bridge.
+
 ### Security Settings
 
 ```bash
