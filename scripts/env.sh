@@ -51,199 +51,25 @@ if [ -z "${MAKELEVEL:-}" ]; then
     validate_mtu
 fi
 
-# Directory Configuration
-MANIFESTS_DIR=${MANIFESTS_DIR:-"manifests"}
-GENERATED_DIR=${GENERATED_DIR:-"$MANIFESTS_DIR/generated"}
-POST_INSTALL_DIR="${MANIFESTS_DIR}/post-installation"
-GENERATED_POST_INSTALL_DIR="${GENERATED_DIR}/post-install"
+# Computed / conditional variables — derived from .env values at runtime.
 HELM_CHARTS_DIR=${HELM_CHARTS_DIR:-"$MANIFESTS_DIR/helm-charts-values"}
-
-# BFB Configuration
-BFB_URL=${BFB_URL:-"http://10.8.2.236/bfb/rhcos_4.19.0-ec.4_installer_2025-04-23_07-48-42.bfb"}
-
-# HBN OVN Configuration
-HBN_OVN_NETWORK=${HBN_OVN_NETWORK:-"10.0.120.0/22"}
-
-# HBN Service Template Configuration
-HBN_HELM_REPO_URL=${HBN_HELM_REPO_URL:-"https://helm.ngc.nvidia.com/nvidia/doca"}
-HBN_HELM_CHART_VERSION=${HBN_HELM_CHART_VERSION:-"1.0.3"}
-HBN_IMAGE_REPO=${HBN_IMAGE_REPO:-"nvcr.io/nvidia/doca/doca_hbn"}
-HBN_IMAGE_TAG=${HBN_IMAGE_TAG:-"3.2.0-doca3.2.0"}
-
-# DTS Service Template Configuration
-DTS_HELM_REPO_URL=${DTS_HELM_REPO_URL:-"https://helm.ngc.nvidia.com/nvidia/doca"}
-DTS_HELM_CHART_VERSION=${DTS_HELM_CHART_VERSION:-"1.22.1"}
-
-# Cluster Configuration
-CLUSTER_NAME=${CLUSTER_NAME:-"doca"}
-BASE_DOMAIN=${BASE_DOMAIN:-"lab.nvidia.com"}
-OPENSHIFT_VERSION=${OPENSHIFT_VERSION:-"4.14.0"}
-KUBECONFIG=${KUBECONFIG:-"./${CLUSTER_NAME}-kubeconfig"}
-SSH_KEY=${SSH_KEY:-"$HOME/.ssh/id_rsa.pub"}
-
-# Network Configuration
-POD_CIDR=${POD_CIDR:-"10.128.0.0/14"}
-SERVICE_CIDR=${SERVICE_CIDR:-"172.30.0.0/16"}
-API_VIP=${API_VIP:-"10.8.2.100"}
-INGRESS_VIP=${INGRESS_VIP:-"10.8.2.101"}
-
-# VM Configuration
-VM_COUNT=${VM_COUNT:-"3"}
-RAM=${RAM:-"41984"}
-VCPUS=${VCPUS:-"14"}
-DISK_SIZE1=${DISK_SIZE1:-"120"}
-DISK_SIZE2=${DISK_SIZE2:-"80"}
-VM_PREFIX=${VM_PREFIX:-"vm-dpf"}
-VM_STATIC_IP=${VM_STATIC_IP:-"false"}
-
-# MAC Address Configuration
-MAC_PREFIX=${MAC_PREFIX:-""}  # If set, use custom-prefix method, otherwise use machine-id
-
-# Paths
-DISK_PATH=${DISK_PATH:-"/var/lib/libvirt/images"}
-ISO_FOLDER=${ISO_FOLDER:-${DISK_PATH}}
-ISO_TYPE=${ISO_TYPE:-"minimal"}
-
-BRIDGE_NAME=${BRIDGE_NAME:-br0}
-SKIP_BRIDGE_CONFIG=${SKIP_BRIDGE_CONFIG:-"false"}
-
-# DPF Configuration
-DPF_VERSION=${DPF_VERSION:-"v25.7.1"}
-
-# DMS Hostagent Image Override (for DNS policy workaround)
-# This image is used to patch hostagent pods with the dnsPolicy fix
-DMS_HOSTAGENT_IMAGE=${DMS_HOSTAGENT_IMAGE:-"ghcr.io/killianmuldoon/hostdriver:v25.10.1-patch.1"}
-
-# Helm Chart URLs - OCI registry format for v25.7+
-DPF_HELM_REPO_URL=${DPF_HELM_REPO_URL:-"https://helm.ngc.nvidia.com/nvidia/doca"}
-OVN_CHART_URL=${OVN_CHART_URL:-"oci://ghcr.io/mellanox/charts"}
-OVN_TEMPLATE_CHART_URL=${OVN_TEMPLATE_CHART_URL:-${OVN_CHART_URL}}
-
-# OVN Image Configuration
-OVN_KUBERNETES_IMAGE_REPO=${OVN_KUBERNETES_IMAGE_REPO:-"quay.io/openshift-release-dev/ocp-v4.0-art-dev@sha256"}
-OVN_KUBERNETES_IMAGE_TAG=${OVN_KUBERNETES_IMAGE_TAG:-"780d11fac73412276b312b3f7c879b5e63da9687c7c8e79fc142e9c6e2f7c4cf"}
-
-# OVN-Kubernetes DPF Utils Image Configuration
-# These are optional - if not set in .env, the imagedpf section will be omitted from ovn-template.yaml
-OVN_KUBERNETES_UTILS_IMAGE_REPO=${OVN_KUBERNETES_UTILS_IMAGE_REPO:-""}
-OVN_KUBERNETES_UTILS_IMAGE_TAG=${OVN_KUBERNETES_UTILS_IMAGE_TAG:-""}
-
-OVN_CHART_VERSION=${OVN_CHART_VERSION:-${DPF_VERSION}}
-INJECTOR_CHART_VERSION=${INJECTOR_CHART_VERSION:-${OVN_CHART_VERSION}}
-
-# OVN-Kubernetes Namespace
-OVNK_NAMESPACE=${OVNK_NAMESPACE:-"openshift-ovn-kubernetes"}
-
-NFD_OPERAND_IMAGE=${NFD_OPERAND_IMAGE:-"quay.io/itsoiref/nfd:latest"}
-
 HOST_CLUSTER_API=${HOST_CLUSTER_API:-"api.$CLUSTER_NAME.$BASE_DOMAIN"}
+HOSTED_CONTROL_PLANE_NAMESPACE=${HOSTED_CONTROL_PLANE_NAMESPACE:-"${CLUSTERS_NAMESPACE}-${HOSTED_CLUSTER_NAME}"}
 
-# NFS Configuration
-# NFS_SERVER_NODE_IP: IP address of external NFS server
-#   - For VM_COUNT < 3: Uses internal NFS (HOST_CLUSTER_API), this variable is ignored
-#   - For VM_COUNT >= 3 with BFB_STORAGE_CLASS=nfs-client: MUST be set to external NFS server IP
-# NFS_PATH: Path exported by NFS server. Defaults to "/"
-NFS_SERVER_NODE_IP=${NFS_SERVER_NODE_IP:-""}
-NFS_PATH=${NFS_PATH:-"/"}
-
-# Storage Configuration
-# SKIP_DEPLOY_STORAGE: When true, do not deploy LSO/LVM/ODF; use existing StorageClasses.
-#   You must set ETCD_STORAGE_CLASS to a StorageClass that already exists in the cluster.
-#   Validation runs after cluster install to ensure the StorageClass exists.
-SKIP_DEPLOY_STORAGE=${SKIP_DEPLOY_STORAGE:-"false"}
-
-# STORAGE_TYPE: Choose storage backend for Hypershift etcd (ignored when SKIP_DEPLOY_STORAGE=true)
-#   - lvm: Logical Volume Manager Storage (default, works for SNO and MNO)
-#   - odf: OpenShift Data Foundation (multi-node only, requires 3+ nodes)
-STORAGE_TYPE=${STORAGE_TYPE:-"lvm"}
-
-# Validate ODF requires at least 3 nodes
+# Storage class — conditional on STORAGE_TYPE and SKIP_DEPLOY_STORAGE
 if [ "${STORAGE_TYPE}" == "odf" ] && [ "${VM_COUNT}" -lt 3 ]; then
     echo "Warning: ODF requires at least 3 nodes. Falling back to LVM." >&2
     STORAGE_TYPE="lvm"
 fi
 
-# Set storage class based on STORAGE_TYPE (when not skipping storage deploy).
-# When SKIP_DEPLOY_STORAGE=true: ETCD_STORAGE_CLASS is user-defined only (no default).
-# Existence of the StorageClass in the cluster is validated after install (see cluster.sh validate_storage_classes_available).
 if [ "${SKIP_DEPLOY_STORAGE}" = "true" ]; then
     if [ -z "${ETCD_STORAGE_CLASS}" ]; then
         echo "Error: SKIP_DEPLOY_STORAGE=true requires ETCD_STORAGE_CLASS to be set in .env to your existing StorageClass name." >&2
         echo "Create the StorageClass in the cluster (e.g. via your storage operator), then set ETCD_STORAGE_CLASS in .env." >&2
         exit 1
     fi
-    # Do not assign a default; user must define ETCD_STORAGE_CLASS in .env.
 elif [ "${STORAGE_TYPE}" == "odf" ]; then
     ETCD_STORAGE_CLASS=${ETCD_STORAGE_CLASS:-"ocs-storagecluster-ceph-rbd"}
 else
     ETCD_STORAGE_CLASS=${ETCD_STORAGE_CLASS:-"lvms-vg1"}
 fi
-NUM_VFS=${NUM_VFS:-"46"}
-
-# Feature Configuration
-
-# GitOps Operator Configuration
-GITOPS_OPERATOR_CHANNEL=${GITOPS_OPERATOR_CHANNEL:-"1.16"}
-GITOPS_OPERATOR_VERSION=${GITOPS_OPERATOR_VERSION:-"v1.16.3"}
-
-# Maintenance Operator Configuration
-MAINTENANCE_OPERATOR_VERSION=${MAINTENANCE_OPERATOR_VERSION:-"0.2.0"}
-
-# Hypershift Configuration
-ENABLE_HCP_MULTUS=${ENABLE_HCP_MULTUS:-"true"}
-HYPERSHIFT_IMAGE=${HYPERSHIFT_IMAGE:-"quay.io/hypershift/hypershift-operator:latest"}
-HOSTED_CLUSTER_NAME=${HOSTED_CLUSTER_NAME:-"doca"}
-CLUSTERS_NAMESPACE=${CLUSTERS_NAMESPACE:-"clusters"}
-OCP_RELEASE_IMAGE=${OCP_RELEASE_IMAGE:-"quay.io/openshift-release-dev/ocp-release:4.20.4-x86_64"}
-HOSTED_CONTROL_PLANE_NAMESPACE="${CLUSTERS_NAMESPACE}-${HOSTED_CLUSTER_NAME}"
-
-
-# Wait Configuration
-MAX_RETRIES=${MAX_RETRIES:-"90"}
-SLEEP_TIME=${SLEEP_TIME:-"60"}
-
-# Worker Provisioning Configuration
-# Enable short worker hostnames (sets hostname based on MAC address via MachineConfig)
-ENABLE_SHORT_WORKER_HOSTNAMES=${ENABLE_SHORT_WORKER_HOSTNAMES:-"false"}
-
-# CSR Auto-Approval Configuration
-# AUTO_APPROVE_WORKER_CSR: Deploy CronJob to auto-approve CSRs for host cluster workers
-AUTO_APPROVE_WORKER_CSR=${AUTO_APPROVE_WORKER_CSR:-"false"}
-# AUTO_APPROVE_DPUCLUSTER_CSR: [DEPRECATED] Deploy CronJob to auto-approve CSRs for DPUCluster nodes
-#   NOTE: DPF HCP Provisioner Operator (v0.1.2+) handles CSR approval automatically.
-#   This standalone CronJob approach is deprecated and only needed for legacy deployments.
-AUTO_APPROVE_DPUCLUSTER_CSR=${AUTO_APPROVE_DPUCLUSTER_CSR:-"false"}
-STATIC_NET_FILE=${STATIC_NET_FILE:-"./configuration_templates/static_net.yaml"}
-NODES_MTU=${NODES_MTU:-"1500"}
-PRIMARY_IFACE=${PRIMARY_IFACE:-enp1s0}
-
-# OLM Catalog Source Configuration
-CATALOG_SOURCE_NAME=${CATALOG_SOURCE_NAME:-"redhat-operators"}
-
-USE_V419_WORKAROUND=${USE_V419_WORKAROUND:-"false"}
-
-if [[ "${USE_V419_WORKAROUND}" == "true" ]]; then
-    CATALOG_SOURCE_NAME="redhat-operators-v419"
-else
-    CATALOG_SOURCE_NAME="redhat-operators"
-fi
-
-# MetalLB Configuration (for multi-node clusters)
-# HYPERSHIFT_API_IP: IP address for Hypershift API server LoadBalancer (required for multi-node with Hypershift)
-HYPERSHIFT_API_IP=${HYPERSHIFT_API_IP:-""}
-
-# Default values For DPF sanity tests script
-SANITY_TESTS_PODS_WORKLOAD_FILE=${SANITY_TESTS_PODS_WORKLOAD_FILE:-"manifests/post-installation-manual/workload.yaml"}
-SANITY_TESTS_WORKLOAD_NAMESPACE=${SANITY_TESTS_WORKLOAD_NAMESPACE:-"workload"}
-SANITY_TESTS_PING_COUNT=${SANITY_TESTS_PING_COUNT:-"20"}
-SANITY_TESTS_PING_HBN_TO_HBN_PODS=${SANITY_TESTS_PING_HBN_TO_HBN_PODS:-"false"}
-
-# DPF HCP Provisioner Operator Configuration
-DPF_HCP_PROVISIONER_OPERATOR_CHART_URL=${DPF_HCP_PROVISIONER_OPERATOR_CHART_URL:-"oci://quay.io/lhadad/charts/dpf-hcp-provisioner-operator"}
-DPF_HCP_PROVISIONER_OPERATOR_NAMESPACE=${DPF_HCP_PROVISIONER_OPERATOR_NAMESPACE:-"dpf-hcp-provisioner-system"}
-DPF_HCP_PROVISIONER_OPERATOR_VERSION=${DPF_HCP_PROVISIONER_OPERATOR_VERSION:-"0.1.2"}
-DPF_HCP_PROVISIONER_OPERATOR_IMAGE_REPO=${DPF_HCP_PROVISIONER_OPERATOR_IMAGE_REPO:-"quay.io/lhadad/dpf-hcp-provisioner-operator"}
-DPF_HCP_PROVISIONER_OPERATOR_IMAGE_TAG=${DPF_HCP_PROVISIONER_OPERATOR_IMAGE_TAG:-"v0.1.2"}
-DPFHCPPROVISIONER_PULL_SECRET_NAME=${DPFHCPPROVISIONER_PULL_SECRET_NAME:-"my-pull-secret"}
-DPFHCPPROVISIONER_SSH_SECRET_NAME=${DPFHCPPROVISIONER_SSH_SECRET_NAME:-"my-ssh-key"}
-ENABLE_BLUEFIELD_VALIDATION=${ENABLE_BLUEFIELD_VALIDATION:-"false"}

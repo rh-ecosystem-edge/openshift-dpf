@@ -157,9 +157,8 @@ ip link show | grep ens7f0
 
 # Common fixes:
 # 1. Wait for SR-IOV operator to configure interfaces (10+ minutes)
-# 2. Verify DPU_INTERFACE setting in .env
-# 3. Check DPU hardware is properly installed
-# 4. Verify NUM_VFS configuration
+# 2. Check DPU hardware is properly installed
+# 3. Verify NUM_VFS configuration
 ```
 
 ## Storage Issues

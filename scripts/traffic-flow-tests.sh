@@ -45,11 +45,8 @@ TFT_KUBECONFIG="${TFT_KUBECONFIG:-$(pwd)/kubeconfig.${CLUSTER_NAME}}"
 
 # Node names for TFT (server and client)
 # These are the actual Kubernetes node names, NOT BareMetalHost names
-# Priority: TFT_*_NODE > HBN_HOSTNAME_NODE* (minus wildcard) > WORKER_*_NAME
-_hbn_node1="${HBN_HOSTNAME_NODE1%\*}"
-_hbn_node2="${HBN_HOSTNAME_NODE2%\*}"
-TFT_SERVER_NODE="${TFT_SERVER_NODE:-${_hbn_node1:-${WORKER_1_NAME}}}"
-TFT_CLIENT_NODE="${TFT_CLIENT_NODE:-${_hbn_node2:-${WORKER_2_NAME}}}"
+TFT_SERVER_NODE="${TFT_SERVER_NODE:-${WORKER_1_NAME}}"
+TFT_CLIENT_NODE="${TFT_CLIENT_NODE:-${WORKER_2_NAME}}"
 
 # -----------------------------------------------------------------------------
 # Ensure Python 3.11 is available (install if missing)
@@ -182,7 +179,7 @@ generate_config() {
     # Validate required node names
     if [[ -z "${TFT_SERVER_NODE}" ]] || [[ -z "${TFT_CLIENT_NODE}" ]]; then
         log "ERROR" "TFT_SERVER_NODE and TFT_CLIENT_NODE must be set"
-        log "ERROR" "These are derived from HBN_HOSTNAME_NODE1/NODE2 or can be set directly"
+        log "ERROR" "Set TFT_SERVER_NODE/TFT_CLIENT_NODE or WORKER_1_NAME/WORKER_2_NAME"
         log "ERROR" "They should match actual Kubernetes node names (not BareMetalHost names)"
         return 1
     fi
@@ -399,8 +396,7 @@ show_config() {
     echo ""
     echo "Node name sources (priority order):"
     echo "  1. TFT_SERVER_NODE / TFT_CLIENT_NODE (if set)"
-    echo "  2. HBN_HOSTNAME_NODE1/2 (minus wildcard): ${HBN_HOSTNAME_NODE1:-<not set>} / ${HBN_HOSTNAME_NODE2:-<not set>}"
-    echo "  3. WORKER_1_NAME / WORKER_2_NAME: ${WORKER_1_NAME:-<not set>} / ${WORKER_2_NAME:-<not set>}"
+    echo "  2. WORKER_1_NAME / WORKER_2_NAME: ${WORKER_1_NAME:-<not set>} / ${WORKER_2_NAME:-<not set>}"
     echo ""
     echo "Excluded Test Cases (known failures):"
     echo "  4  - POD_TO_HOST_DIFF_NODE"
@@ -453,14 +449,14 @@ case "${1:-}" in
         echo "  TFT_DURATION        - Duration per test in seconds (default: 10)"
         echo "  TFT_CONNECTION_TYPE - Connection type: iperf-tcp, iperf-udp, etc. (default: iperf-tcp)"
         echo "  TFT_KUBECONFIG      - Path to cluster kubeconfig"
-        echo "  TFT_SERVER_NODE     - Kubernetes node name for server (default: from HBN_HOSTNAME_NODE1)"
-        echo "  TFT_CLIENT_NODE     - Kubernetes node name for client (default: from HBN_HOSTNAME_NODE2)"
+        echo "  TFT_SERVER_NODE     - Kubernetes node name for server (default: from WORKER_1_NAME)"
+        echo "  TFT_CLIENT_NODE     - Kubernetes node name for client (default: from WORKER_2_NAME)"
         echo "  TFT_PYTHON          - Python interpreter (default: python3.11)"
         echo ""
         echo "Note: Python 3.11 is required. If not installed, the script will attempt"
         echo "      to install it automatically using dnf/yum/apt."
         echo ""
-        echo "Node names fallback: TFT_*_NODE > HBN_HOSTNAME_NODE* > WORKER_*_NAME"
+        echo "Node names fallback: TFT_*_NODE > WORKER_*_NAME"
         exit 1
         ;;
 esac
