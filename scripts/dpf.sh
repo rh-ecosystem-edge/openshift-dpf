@@ -170,11 +170,16 @@ function deploy_dpf_hcp_provisioner_operator() {
     log [INFO] "Installing/upgrading DPF HCP Provisioner Operator..."
     log [INFO] "BlueField validation enabled: ${ENABLE_BLUEFIELD_VALIDATION}"
 
+    local version_flag=""
+    if [[ -n "${DPF_HCP_PROVISIONER_OPERATOR_VERSION}" ]]; then
+        version_flag="--version ${DPF_HCP_PROVISIONER_OPERATOR_VERSION}"
+    fi
+
     if helm upgrade --install dpf-hcp-provisioner-operator \
         "${DPF_HCP_PROVISIONER_OPERATOR_CHART_URL}" \
         --namespace ${DPF_HCP_PROVISIONER_OPERATOR_NAMESPACE} \
         --create-namespace \
-        --version ${DPF_HCP_PROVISIONER_OPERATOR_VERSION} \
+        ${version_flag} \
         --set image.repository=${DPF_HCP_PROVISIONER_OPERATOR_IMAGE_REPO} \
         --set image.tag=${DPF_HCP_PROVISIONER_OPERATOR_IMAGE_TAG} \
         --set features.blueFieldValidation.enabled=${ENABLE_BLUEFIELD_VALIDATION}; then
