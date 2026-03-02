@@ -14,6 +14,7 @@ UTILS_SCRIPT := scripts/utils.sh
 POST_INSTALL_SCRIPT := scripts/post-install.sh
 NFS_SERVICE_SCRIPT := scripts/nfs-service.sh
 VERIFY_SCRIPT := scripts/verify.sh
+ENV_SCRIPT := scripts/env.sh
 
 # Sanity tests script:
 SANITY_CHECKS_SCRIPT := scripts/dpf-sanity-checks.sh
@@ -272,54 +273,11 @@ verify-dpudeployment:
 	@$(VERIFY_SCRIPT) verify-dpudeployment
 
 validate-env-files:
-	@bash -c '\
-		set -e; \
-		defaults=$$(grep -oP "^\w+" ci/env.defaults | sort); \
-		template=$$(grep -oP "^\w+" ci/env.template | sort); \
-		required=$$(grep -oP "\w+(?=:)" ci/env.required | sort); \
-		known=$$( echo "$$defaults"; echo "$$required" ); \
-		missing=""; \
-		for var in $$defaults; do \
-			if ! echo "$$template" | grep -qx "$$var"; then \
-				missing="$$missing $$var"; \
-			fi; \
-		done; \
-		extra=""; \
-		for var in $$template; do \
-			if ! echo "$$known" | grep -qx "$$var"; then \
-				extra="$$extra $$var"; \
-			fi; \
-		done; \
-		if [ -n "$$missing" ]; then \
-			echo "ERROR: variables in ci/env.defaults that are missing from ci/env.template:"; \
-			for var in $$missing; do echo "  - $$var"; done; \
-			echo ""; \
-			echo "These variables will be silently dropped from .env."; \
-			echo "Fix: add a line  VAR_NAME=\$${VAR_NAME}  to ci/env.template for each."; \
-			exit 1; \
-		fi; \
-		if [ -n "$$extra" ]; then \
-			count=$$(echo $$extra | wc -w | tr -d " "); \
-			echo "OK  $$count template-only variable(s) have no default (set per-environment):$${extra}"; \
-		fi; \
-		echo "OK  all ci/env.defaults variables are present in ci/env.template"; \
-	'
+	@$(ENV_SCRIPT) validate-env-files
 
 FORCE ?= false
 generate-env: validate-env-files
-	@if [ -f .env ] && [ "$(FORCE)" != "true" ]; then \
-		echo "ERROR: .env already exists. To overwrite, run:  make generate-env FORCE=true"; \
-		exit 1; \
-	fi
-	@echo "Generating .env from ci/env.defaults + ci/env.template..."
-	@bash -c '\
-		set -e; \
-		set -a; \
-		source ci/env.defaults; \
-		set +a; \
-		source ci/env.required; \
-		envsubst < ci/env.template > .env; \
-	'
+	@$(ENV_SCRIPT) generate-env $(FORCE)
 
 help:
 	@echo "Available targets:"
