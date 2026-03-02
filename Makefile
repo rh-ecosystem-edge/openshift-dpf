@@ -360,7 +360,6 @@ help:
 	@echo ""
 	@echo "Feature Configuration:"
 	@echo "  DISABLE_NFD       - Skip NFD deployment (default: $(DISABLE_NFD))"
-	@echo "  NFD_OPERAND_IMAGE - (deprecated - no longer used)"
 	@echo ""
 	@echo "Hypershift Configuration:"
 	@echo "  HYPERSHIFT_IMAGE  - Hypershift operator image (default: $(HYPERSHIFT_IMAGE))"
