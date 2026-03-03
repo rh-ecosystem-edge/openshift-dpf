@@ -9,7 +9,7 @@ spec:
     helmChart:
       values:
         global:
-          enableOvnKubeIdentity: "false"
+          enableOvnKubeIdentity: false
           imagePullSecretName: "dpf-pull-secret"
         ovnDaemonsetVersion: "1.1.0"
         k8sAPIServer: https://<HOST_CLUSTER_API>:6443
