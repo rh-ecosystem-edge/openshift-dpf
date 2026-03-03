@@ -36,7 +36,7 @@ helm pull "${OVN_CHART_URL}/ovn-kubernetes-chart" \
 helm template -n ${OVNK_NAMESPACE} ovn-kubernetes \
     "$GENERATED_DIR/ovn-injector/ovn-kubernetes-chart" \
     --set ovn-kubernetes-resource-injector.enabled=true \
-    --set resourceName="${INJECTOR_RESOURCE_NAME}" \
+    --set ovn-kubernetes-resource-injector.resourceName="${INJECTOR_RESOURCE_NAME}" \
     --set nodeWithDPUManifests.enabled=false \
     --set nodeWithoutDPUManifests.enabled=false \
     --set dpuManifests.enabled=false \
