@@ -1,5 +1,5 @@
 #!/bin/bash
-# enable-ovn-injector.sh - Enable OVN resource injector via MutatingWebhookConfiguration
+# enable-ovn-injector.sh - Enable OVN resource injector via MutatingAdmissionPolicy
 
 # Exit on error
 set -e
@@ -25,9 +25,7 @@ rm -rf "$GENERATED_DIR/ovn-injector" || true
 mkdir -p "$GENERATED_DIR/ovn-injector"
 
 INJECTOR_RESOURCE_NAME="${INJECTOR_RESOURCE_NAME:-openshift.io/bf3-p0-vfs}"
-
-# Escape the resource name for JSON Patch path (/ becomes ~1)
-INJECTOR_RESOURCE_NAME_ESCAPED=$(echo "${INJECTOR_RESOURCE_NAME}" | sed 's/\//~1/g')
+INJECTOR_NODE_LABEL="${INJECTOR_NODE_LABEL:-feature.node.kubernetes.io/dpu-enabled=}"
 
 helm pull "${OVN_CHART_URL}/ovn-kubernetes-chart" \
     --version "${INJECTOR_CHART_VERSION}" \
@@ -37,12 +35,14 @@ helm template -n ${OVNK_NAMESPACE} ovn-kubernetes \
     "$GENERATED_DIR/ovn-injector/ovn-kubernetes-chart" \
     --set ovn-kubernetes-resource-injector.enabled=true \
     --set ovn-kubernetes-resource-injector.resourceName="${INJECTOR_RESOURCE_NAME}" \
+    --set ovn-kubernetes-resource-injector.dpuHostLabel="${INJECTOR_NODE_LABEL}" \
     --set nodeWithDPUManifests.enabled=false \
     --set nodeWithoutDPUManifests.enabled=false \
     --set dpuManifests.enabled=false \
     --set controlPlaneManifests.enabled=false \
-    --set commonManifests.enabled=false \
-    | oc apply -f -
+    --set commonManifests.enabled=false > "$GENERATED_DIR/ovn-injector-output.yaml"
+
+oc apply -f "$GENERATED_DIR/ovn-injector-output.yaml"
 
 rm -rf "$GENERATED_DIR/ovn-injector"
 
