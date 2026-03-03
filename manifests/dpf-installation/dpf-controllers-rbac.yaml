@@ -1,0 +1,58 @@
+# RBAC for DPF controller components on OpenShift
+#
+# 1) Provisioning controller needs pods/finalizers update permission
+#    Upstream fix pending - this is a workaround until the controller chart includes it
+# 2) DPUService controller needs privileged SCC to manage DPU service pods
+# 3) StaticClusterManager controller needs privileged SCC
+
+---
+# Provisioning controller: pods/finalizers
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: dpf-provisioning-pods-finalizers
+rules:
+- apiGroups: [""]
+  resources: ["pods/finalizers"]
+  verbs: ["update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: dpf-provisioning-pods-finalizers
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: dpf-provisioning-pods-finalizers
+subjects:
+- kind: ServiceAccount
+  name: dpf-provisioning-controller-manager
+  namespace: dpf-operator-system
+---
+# DPUService controller: privileged SCC
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: dpuservice-scc-privileged
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:openshift:scc:privileged
+subjects:
+- kind: ServiceAccount
+  name: dpuservice-controller-manager
+  namespace: dpf-operator-system
+---
+# StaticClusterManager controller: privileged SCC
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: static-cm-scc-privileged
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:openshift:scc:privileged
+subjects:
+- kind: ServiceAccount
+  name: static-cm-controller-manager
+  namespace: dpf-operator-system
