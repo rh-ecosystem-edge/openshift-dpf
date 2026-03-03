@@ -48,7 +48,7 @@ rm -rf "$GENERATED_DIR/ovn-injector"
 
 # Wait for the webhook deployment to roll out
 log [INFO] "Waiting for OVN resource injector deployment to roll out..."
-if ! oc rollout status deployment/ovn-kubernetes-resource-injector -n "${OVNK_NAMESPACE}" --timeout=120s; then
+if ! oc rollout status deployment/ovn-kubernetes-ovn-kubernetes-resource-injector -n "${OVNK_NAMESPACE}" --timeout=120s; then
     log [ERROR] "OVN resource injector deployment failed to roll out"
     exit 1
 fi
@@ -56,10 +56,10 @@ log [INFO] "OVN resource injector deployment rolled out successfully"
 
 # Verify MutatingWebhookConfiguration creation
 log [INFO] "Verifying OVN injector MutatingWebhookConfiguration creation..."
-if oc get mutatingwebhookconfiguration ovn-kubernetes-resource-injector &>/dev/null; then
-    log [INFO] "MutatingWebhookConfiguration 'ovn-kubernetes-resource-injector' created successfully"
+if oc get mutatingwebhookconfiguration ovn-kubernetes-ovn-kubernetes-resource-injector &>/dev/null; then
+    log [INFO] "MutatingWebhookConfiguration 'ovn-kubernetes-ovn-kubernetes-resource-injector' created successfully"
 else
-    log [ERROR] "MutatingWebhookConfiguration 'ovn-kubernetes-resource-injector' was not created"
+    log [ERROR] "MutatingWebhookConfiguration 'ovn-kubernetes-ovn-kubernetes-resource-injector' was not created"
     exit 1
 fi
 
