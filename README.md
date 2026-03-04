@@ -83,6 +83,71 @@ make all
 ```
 ⏱️ **Takes 2-3 hours** - fully automated, no user interaction needed
 
+## Environment Configuration (`.env` Generation)
+
+All scripts and Make targets read configuration from a single `.env` file at the
+repo root. This file is generated — never edit the source files in `ci/`
+for your local setup.
+
+### Source files (in `ci/`)
+
+| File | Role |
+|------|------|
+| `ci/env.defaults` | Default values for every optional variable. User environment variables always overwrite these. |
+| `ci/env.required` | Variables that have no default and must be provided. Generation fails immediately if these are not set in user environment. |
+| `ci/env.template` | The canonical set variables used by the scripts `.env` and in what order.|
+
+### How to generate
+
+1. **Export your required variables** (and any optional overrides):
+
+   ```bash
+   export CLUSTER_NAME=my-cluster
+   export BASE_DOMAIN=example.com
+   export API_VIP=10.1.150.100
+   export INGRESS_VIP=10.1.150.101
+   export DPU_HOST_CIDR=10.0.110.0/24
+   export BFB_URL=https://content.mellanox.com/BlueField/...
+   ```
+
+   To keep overrides reusable, put them in a personal file (e.g. `user.env`)
+   and source it first:
+
+   ```bash
+   source user.env
+   make generate-env  
+   ```
+
+2. **Run the generator:**
+
+   ```bash
+   make generate-env                # creates .env (fails if .env already exists)
+   make generate-env FORCE=true     # overwrites an existing .env
+   ```
+
+### What happens under the hood
+
+1. `ci/env.defaults` is sourced — sets defaults for every variable, but
+   does not overwrite anything already exported in your shell.
+2. `ci/env.required` is sourced — aborts with an error if any required
+   variable is still unset.
+3. `envsubst` renders `ci/env.template` into `.env`, substituting every
+   `${VAR}` with its resolved value.
+
+### Result
+
+A flat `KEY=VALUE` file at the repo root (`.env`) containing the merged
+result of your overrides + the defaults. This is consumed by `make` and `scripts/env.sh` at runtime.
+
+### Validation
+
+```bash
+make validate-env-files
+```
+
+Checks that every variable in `ci/env.defaults` has a corresponding entry in
+`ci/env.template` so nothing is silently dropped, and report template-only variables that have no default.
+
 ## 📖 Documentation
 
 | Guide | Purpose |
