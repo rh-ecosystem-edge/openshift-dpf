@@ -33,5 +33,10 @@ spec:
     registry:
       port: 8086
       address: <BFB_REGISTRY_ADDRESS>
+  nodeSRIOVDevicePluginController:
+    devicePlugin:
+      defaultResourcePrefix: openshift.io
+    disable: false
+    replicas: 1
   staticClusterManager:
     disable: false

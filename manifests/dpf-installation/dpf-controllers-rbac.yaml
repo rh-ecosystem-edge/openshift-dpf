@@ -4,6 +4,8 @@
 #    Upstream fix pending - this is a workaround until the controller chart includes it
 # 2) DPUService controller needs privileged SCC to manage DPU service pods
 # 3) StaticClusterManager controller needs privileged SCC
+# 4) NodeSRIOVDevicePlugin controller needs nodes/finalizers and configmaps/finalizers
+#    Upstream fix pending - this is a workaround until the controller chart includes it
 
 ---
 # Provisioning controller: pods/finalizers
@@ -55,4 +57,27 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: static-cm-controller-manager
+  namespace: dpf-operator-system
+---
+# NodeSRIOVDevicePlugin controller: nodes/finalizers and configmaps/finalizers
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: dpf-nodesriovdeviceplugin-node-finalizers
+rules:
+- apiGroups: [""]
+  resources: ["configmaps/finalizers"]
+  verbs: ["update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: dpf-nodesriovdeviceplugin-node-finalizers
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: dpf-nodesriovdeviceplugin-node-finalizers
+subjects:
+- kind: ServiceAccount
+  name: dpf-nodesriovdeviceplugin-controller-manager
   namespace: dpf-operator-system
