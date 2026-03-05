@@ -36,6 +36,7 @@ helm template -n ${OVNK_NAMESPACE} ovn-kubernetes \
     --set ovn-kubernetes-resource-injector.enabled=true \
     --set ovn-kubernetes-resource-injector.resourceName="${INJECTOR_RESOURCE_NAME}" \
     --set ovn-kubernetes-resource-injector.dpuHostLabel="${INJECTOR_NODE_LABEL}" \
+    --set ovn-kubernetes-resource-injector.prioritizeOffloading=false \
     --set nodeWithDPUManifests.enabled=false \
     --set nodeWithoutDPUManifests.enabled=false \
     --set dpuManifests.enabled=false \
