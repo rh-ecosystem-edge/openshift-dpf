@@ -82,9 +82,9 @@ provision_all_workers() {
             "<BMC_IP>" "$bmc_ip" \
             "<ROOT_DEVICE>" "$root_dev"
 
-        # Apply manifests
-        apply_manifest "${WORKER_GENERATED_DIR}/${name}-bmc-secret.yaml" false
-        apply_manifest "${WORKER_GENERATED_DIR}/${name}-bmh.yaml" false
+        # Apply manifests (retry for transient API/controller or network failures)
+        retry 5 10 apply_manifest "${WORKER_GENERATED_DIR}/${name}-bmc-secret.yaml" false
+        retry 5 10 apply_manifest "${WORKER_GENERATED_DIR}/${name}-bmh.yaml" false
         log "INFO" "BMH $name created"
     done
 
