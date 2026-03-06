@@ -418,6 +418,7 @@ help:
 	@echo "  WORKER_n_BMC_PASSWORD - BMC password"
 	@echo "  WORKER_n_BOOT_MAC     - Boot NIC MAC address"
 	@echo "  WORKER_n_ROOT_DEVICE  - Target installation disk (e.g., /dev/sda)"
+	@echo "  WORKER_NODE_LABELS    - Comma-separated labels for kubelet --node-labels (e.g., node.openshift.io/dpu-host=true)"
 	@echo ""
 	@echo "CSR Auto-Approval Configuration:"
 	@echo "  AUTO_APPROVE_WORKER_CSR     - Deploy CronJob to auto-approve CSRs for host cluster workers (default: false)"
