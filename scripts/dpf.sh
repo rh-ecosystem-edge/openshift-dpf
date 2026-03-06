@@ -411,32 +411,6 @@ function configure_hypershift() {
     log [INFO] "Kubeconfig secret successfully created by dpf-hcp-provisioner-operator in dpf-operator-system"
 }
 
-# TODO:killianmuldoon - Workaround for BFB registry DNS resolution bug.
-# The hostagent pod uses DNSPolicy:Default and cannot resolve the bfb-registry
-# Kubernetes service name. This injects the node IP + NodePort into the
-# DPFOperatorConfig so the hostagent can reach the registry directly.
-# Remove once the upstream DPF operator fixes this.
-function configure_bfb_registry_address() {
-    local dpfconfig="$GENERATED_DIR/dpfoperatorconfig.yaml"
-    if [ ! -f "$dpfconfig" ]; then
-        log "WARN" "dpfoperatorconfig.yaml not found in $GENERATED_DIR, skipping BFB registry address configuration"
-        return 0
-    fi
-
-    log "INFO" "Configuring BFB registry address with node IP for DNSPolicy:Default workaround..."
-
-    local node_ip
-    node_ip=$(oc get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
-    if [ -z "$node_ip" ]; then
-        log "ERROR" "Failed to get node InternalIP for BFB registry address"
-        return 1
-    fi
-
-    local registry_address="http://${node_ip}:30082"
-    log "INFO" "Setting BFB registry address to ${registry_address}"
-    sed -i "/port: 8086/a\\      address: ${registry_address}" "$dpfconfig"
-}
-
 function apply_remaining() {
     log [INFO] "Applying remaining manifests..."
     for file in "$GENERATED_DIR"/*.yaml; do
@@ -621,7 +595,6 @@ function apply_dpf() {
         return 1
     fi
     
-    configure_bfb_registry_address
     apply_remaining
     apply_scc
     deploy_hosted_cluster

@@ -24,8 +24,6 @@ log [INFO] "Enabling OVN resource injector..."
 rm -rf "$GENERATED_DIR/ovn-injector" || true
 mkdir -p "$GENERATED_DIR/ovn-injector"
 
-INJECTOR_RESOURCE_NAME="${INJECTOR_RESOURCE_NAME:-openshift.io/bf3-p0-vfs}"
-INJECTOR_NODE_LABEL="${INJECTOR_NODE_LABEL:-feature.node.kubernetes.io/dpu-enabled=}"
 
 helm pull "${OVN_CHART_URL}/ovn-kubernetes-chart" \
     --version "${INJECTOR_CHART_VERSION}" \

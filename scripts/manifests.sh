@@ -332,11 +332,22 @@ prepare_dpf_manifests() {
     prepare_nfs
     
     # Process dpfoperatorconfig.yaml
+    # Get node IP for BFB registry address (workaround for hostagent DNSPolicy:Default)
+    local node_ip
+    node_ip=$(oc get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
+    if [ -z "$node_ip" ]; then
+        log "ERROR" "Failed to get node InternalIP for BFB registry address"
+        return 1
+    fi
+    local bfb_registry_address="http://${node_ip}:30082"
+    log "INFO" "Setting BFB registry address to ${bfb_registry_address}"
+
     update_file_multi_replace \
         "$MANIFESTS_DIR/dpf-installation/dpfoperatorconfig.yaml" \
         "$GENERATED_DIR/dpfoperatorconfig.yaml" \
         "<CLUSTER_NAME>" "$CLUSTER_NAME" \
-        "<BASE_DOMAIN>" "$BASE_DOMAIN"
+        "<BASE_DOMAIN>" "$BASE_DOMAIN" \
+        "<BFB_REGISTRY_ADDRESS>" "$bfb_registry_address"
     
     if [ -n "$NODES_MTU" ] && [ "$NODES_MTU" == "9000" ]; then
         log "INFO" "Appending networking configuration with MTU: $NODES_MTU"

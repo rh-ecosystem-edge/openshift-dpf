@@ -32,5 +32,6 @@ spec:
     dmsTimeout: 900
     registry:
       port: 8086
+      address: <BFB_REGISTRY_ADDRESS>
   staticClusterManager:
     disable: false
