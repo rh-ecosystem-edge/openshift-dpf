@@ -26,10 +26,16 @@ spec:
     # When using OpenShift Multus (default), Flannel needs to install CNI config
     flannelSkipCNIConfigInstallation: false
   provisioningController:
+    hostAgentDNSPolicy: Default
     bfCFGTemplateConfigMap: custom-bfb.cfg
     bfbPVCName: bfb-pvc
     dmsTimeout: 900
     registry:
       port: 8086
+  nodeSRIOVDevicePluginController:
+    devicePlugin:
+      defaultResourcePrefix: openshift.io
+    disable: false
+    replicas: 1
   staticClusterManager:
     disable: false
