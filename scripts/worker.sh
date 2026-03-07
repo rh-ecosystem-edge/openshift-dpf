@@ -24,6 +24,9 @@ provision_all_workers() {
     # Apply short worker hostnames MachineConfig if enabled
     apply_short_worker_hostnames
 
+    # Apply custom node labels MachineConfig if configured
+    apply_worker_node_labels
+
     # BMO is pre-installed in OpenShift - verify it's available
     if ! oc get clusteroperator baremetal &>/dev/null; then
         log "ERROR" "Baremetal cluster operator not found. This should not happen in OpenShift."
@@ -123,6 +126,36 @@ display_manual_csr_instructions() {
     echo "Or: make approve-worker-csrs"
 }
 
+apply_worker_node_labels() {
+    if [[ -z "${WORKER_NODE_LABELS:-}" ]]; then
+        log "INFO" "WORKER_NODE_LABELS not set, skipping custom node labels MachineConfig"
+        return 0
+    fi
+
+    get_kubeconfig
+
+    local template="${WORKER_TEMPLATE_DIR}/99-worker-node-labels.yaml"
+    if [[ ! -f "$template" ]]; then
+        log "ERROR" "Worker node labels manifest template not found: $template"
+        return 1
+    fi
+
+    mkdir -p "${WORKER_GENERATED_DIR}"
+
+    local kubelet_env_base64
+    kubelet_env_base64=$(printf 'CUSTOM_KUBELET_LABELS=%s\n' "$WORKER_NODE_LABELS" | base64 | tr -d '\n')
+
+    local output="${WORKER_GENERATED_DIR}/99-worker-node-labels.yaml"
+    process_template \
+        "$template" \
+        "$output" \
+        "<KUBELET_ENV_BASE64>" "$kubelet_env_base64"
+
+    log "INFO" "Applying worker node labels MachineConfig (labels: $WORKER_NODE_LABELS)..."
+    apply_manifest "$output" false
+    log "INFO" "Worker node labels MachineConfig applied successfully"
+}
+
 apply_short_worker_hostnames() {
     # Apply MachineConfig that sets worker hostnames based on MAC address
     # This is controlled by ENABLE_SHORT_WORKER_HOSTNAMES flag
@@ -185,10 +218,11 @@ case "${1:-}" in
     display-worker-status) display_worker_status ;;
     display-manual-csr-instructions) display_manual_csr_instructions ;;
     apply-short-worker-hostnames) apply_short_worker_hostnames ;;
+    apply-worker-node-labels) apply_worker_node_labels ;;
     deploy-csr-auto-approver) deploy_csr_auto_approver ;;
     delete-csr-auto-approver) delete_csr_auto_approver ;;
     *)
-        echo "Usage: $0 {provision-all-workers|approve-worker-csrs|display-worker-status|display-manual-csr-instructions|apply-short-worker-hostnames|deploy-csr-auto-approver|delete-csr-auto-approver}"
+        echo "Usage: $0 {provision-all-workers|approve-worker-csrs|display-worker-status|display-manual-csr-instructions|apply-short-worker-hostnames|apply-worker-node-labels|deploy-csr-auto-approver|delete-csr-auto-approver}"
         exit 1
         ;;
 esac

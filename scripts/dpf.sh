@@ -524,18 +524,6 @@ function apply_dpf() {
     apply_namespaces
     deploy_cert_manager
     
-    # Apply DMS DNS policy mutation (must be applied before DPF operator creates hostagent pods)
-    # This policy mutates hostagent pods to use dnsPolicy: Default instead of ClusterFirstWithHostNet.
-    # This is required because the hostagent pods are created in the host network namespace and need to use the default DNS resolution mechanism.
-    # This workaround should be removed when the hostagent pods are updated to use dnsPolicy: Default.
-    log "INFO" "Applying DMS DNS policy mutation..."
-    mkdir -p "$GENERATED_DIR"
-    process_template \
-        "$MANIFESTS_DIR/dpf-installation/dms-dns-policy.yaml" \
-        "$GENERATED_DIR/dms-dns-policy.yaml" \
-        "<DMS_HOSTAGENT_IMAGE>" "$DMS_HOSTAGENT_IMAGE"
-    apply_manifest "$GENERATED_DIR/dms-dns-policy.yaml" true
-
     # Install/upgrade DPF Operator using helm (idempotent operation)
     log "INFO" "Installing/upgrading DPF Operator to $DPF_VERSION..."
     
