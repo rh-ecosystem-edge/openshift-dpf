@@ -1,6 +1,6 @@
 # Storage: Use Ours or Your Own
 
-The automation needs storage for **etcd** (hosted cluster) and for an **internal NFS server**. You can either use the storage the automation deploys (default) or provide your own StorageClass.
+The automation needs storage for **etcd** (hosted cluster). You can either use the storage the automation deploys (default) or provide your own StorageClass.
 
 ---
 
@@ -27,21 +27,20 @@ SKIP_DEPLOY_STORAGE=true
 ETCD_STORAGE_CLASS=<your-storage-class-name>
 ```
 
-Replace `<your-storage-class-name>` with the exact name of the StorageClass that already exists in your cluster (e.g. `my-nfs-sc`, `netapp-sc`). The automation will check that this StorageClass exists after the cluster is installed.
+Replace `<your-storage-class-name>` with the exact name of the StorageClass that already exists in your cluster (e.g. `netapp-sc`). The automation will check that this StorageClass exists after the cluster is installed.
 
-### Step 2: Ensure enough storage for 4 volumes
+### Step 2: Ensure enough storage for 3 volumes
 
-The automation will create **4** PVCs that all use your StorageClass:
+The automation will create **3** PVCs that all use your StorageClass:
 
 | What for        | How many | Notes |
 |-----------------|----------|--------|
 | etcd (replicas) | 3        | One per etcd pod; each etcd runs on a different node. |
-| NFS server      | 1        | Used by the internal NFS server. |
 
-You must provide **4 volumes** in one of these ways:
+You must provide **3 volumes** in one of these ways:
 
-- **Dynamic provisioning:** Your StorageClass has a provisioner (e.g. CSI, NFS provisioner). When each PVC is created, the provisioner creates a PV automatically. No manual PVs needed.
-- **Static PVs:** You create **4** PersistentVolumes (or more) that use your StorageClass. Each should have at least **10Gi** capacity (50Gi recommended for etcd) and **ReadWriteOnce** access. If your PVs use `nodeAffinity`, you need **3 PVs on 3 different nodes** for etcd, and **1 more PV** (can be on any of those nodes) for the NFS server.
+- **Dynamic provisioning:** Your StorageClass has a provisioner (e.g. CSI). When each PVC is created, the provisioner creates a PV automatically. No manual PVs needed.
+- **Static PVs:** You create **3** PersistentVolumes (or more) that use your StorageClass. Each should have at least **10Gi** capacity (50Gi recommended for etcd) and **ReadWriteOnce** access. If your PVs use `nodeAffinity`, you need **3 PVs on 3 different nodes** for etcd.
 
 ### Step 3: Run the automation
 
@@ -51,20 +50,20 @@ Run your usual flow (e.g. `make prepare-manifests`, `make cluster-install`, then
 
 - [ ] `.env` has `SKIP_DEPLOY_STORAGE=true` and `ETCD_STORAGE_CLASS=<name>`.
 - [ ] A StorageClass with that name exists in the cluster (before or right after install).
-- [ ] Either your StorageClass uses dynamic provisioning, or you created at least 4 static PVs with that StorageClass (3 for etcd on 3 nodes + 1 for NFS).
+- [ ] Either your StorageClass uses dynamic provisioning, or you created at least 3 static PVs with that StorageClass (one per etcd replica on 3 nodes).
 
 ---
 
 ## Mock storage for testing
 
-If you want to test “use your own storage” without real external storage, create a StorageClass and 4 hostPath PVs as below.
+If you want to test “use your own storage” without real external storage, create a StorageClass and 3 hostPath PVs as below.
 
 ### Steps
 
 1. **Get your three master node names:** run `oc get nodes` and note the exact **NAME** of each master.
 
 2. **Create directories on each node:**
-   - On **NODE1:** `sudo mkdir -p /mnt/mock-storage/pv1 /mnt/mock-storage/pv4`
+   - On **NODE1:** `sudo mkdir -p /mnt/mock-storage/pv1`
    - On **NODE2:** `sudo mkdir -p /mnt/mock-storage/pv2`
    - On **NODE3:** `sudo mkdir -p /mnt/mock-storage/pv3`  
    On each node, set permissions so pods can write:  
@@ -77,13 +76,13 @@ If you want to test “use your own storage” without real external storage, cr
 5. **Configure .env:**  
    `SKIP_DEPLOY_STORAGE=true` and `ETCD_STORAGE_CLASS=mock-sc`
 
-6. **Run your flow** (e.g. `make cluster-install`, `make deploy-dpf`, `make prepare-nfs`).
+6. **Run your flow** (e.g. `make cluster-install`, `make deploy-dpf`).
 
-**Verify:** `oc get pv | grep mock-sc` and `oc get pvc -n clusters-doca` / `oc get pvc -n nfs-server` — you should see 4 PVs and 4 PVCs bound.
+**Verify:** `oc get pv | grep mock-sc` and `oc get pvc -n clusters-doca` — you should see 3 PVs and 3 PVCs bound.
 
-*Alternative:* create only the StorageClass with `provisioner: kubernetes.io/no-provisioner`, then create 4 PVs yourself (3 on 3 different nodes for etcd, 1 more for NFS); see Step 2 under Option 2 for layout.
+*Alternative:* create only the StorageClass with `provisioner: kubernetes.io/no-provisioner`, then create 3 PVs yourself (one per node for etcd); see Step 2 under Option 2 for layout.
 
-### Mock storage manifest (StorageClass + 4 PVs)
+### Mock storage manifest (StorageClass + 3 PVs)
 
 Replace `<NODE1>`, `<NODE2>`, `<NODE3>` with your master node names before applying.
 
@@ -168,41 +167,16 @@ spec:
   hostPath:
     path: /mnt/mock-storage/pv3
     type: DirectoryOrCreate
----
-apiVersion: v1
-kind: PersistentVolume
-metadata:
-  name: mock-pv-4
-spec:
-  capacity:
-    storage: 50Gi
-  volumeMode: Filesystem
-  accessModes:
-    - ReadWriteOnce
-  persistentVolumeReclaimPolicy: Retain
-  storageClassName: mock-sc
-  nodeAffinity:
-    required:
-      nodeSelectorTerms:
-        - matchExpressions:
-            - key: kubernetes.io/hostname
-              operator: In
-              values:
-                - <NODE1>
-  hostPath:
-    path: /mnt/mock-storage/pv4
-    type: DirectoryOrCreate
 ```
 
 ---
 
 ## Reference: what uses ETCD_STORAGE_CLASS
 
-| PVC name        | Namespace     | Used by   |
-|-----------------|---------------|-----------|
-| data-etcd-0     | clusters-doca | etcd-0    |
-| data-etcd-1     | clusters-doca | etcd-1    |
-| data-etcd-2     | clusters-doca | etcd-2    |
-| nfs-server-data | nfs-server    | NFS server |
+| PVC name    | Namespace     | Used by |
+|-------------|---------------|---------|
+| data-etcd-0 | clusters-doca | etcd-0  |
+| data-etcd-1 | clusters-doca | etcd-1  |
+| data-etcd-2 | clusters-doca | etcd-2  |
 
-All four use the same StorageClass. With static PVs, binding is per-node and first-come-first-served (e.g. the NFS server can bind to a PV on the same node as one of the etcd PVs).
+All three use the same StorageClass. With static PVs, binding is per-node and first-come-first-served.

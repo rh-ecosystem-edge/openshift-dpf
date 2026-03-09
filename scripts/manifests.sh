@@ -39,87 +39,6 @@ function prepare_manifests() {
 }
 
 
-function prepare_nfs() {
-    local nfs_path="${NFS_PATH:-/}"
-    
-    # Ensure generated directory exists
-    mkdir -p "$GENERATED_DIR"
-
-    if [ "${NFS_SERVER_NODE_IP}" != "" ]; then
-        log "INFO" "Using external NFS server: ${NFS_SERVER_NODE_IP}:${nfs_path}"
-        update_file_multi_replace \
-            "${MANIFESTS_DIR}/nfs/nfs-pv.yaml" \
-            "${GENERATED_DIR}/nfs-pv.yaml" \
-            "<NFS_SERVER_NODE_IP>" "${NFS_SERVER_NODE_IP}" \
-            "<NFS_PATH>" "${nfs_path}"
-        return 0
-    fi
-
-    if [ -z "${ETCD_STORAGE_CLASS}" ]; then
-        log "ERROR" "ETCD_STORAGE_CLASS is not set but required for internal NFS deployment"
-        return 1
-    fi
-
-    if [[ "${VM_COUNT}" -lt 2 ]]; then
-        # For SNO clusters, deploy internal NFS server without specific node affinity
-        log "INFO" "Deploying NFS for SNO cluster"
-        node_affinity=""
-    else
-        # For multi-node clusters, deploy internal NFS server on a specific master
-        log "INFO" "Deploying NFS for multi-node cluster on a specific master"
-
-        # Get a random master node hostname and IP
-        log "INFO" "Selecting a random master node for NFS deployment"
-        selected_master_node=$(oc get nodes -l node-role.kubernetes.io/control-plane -o jsonpath='{.items[0].metadata.name}')
-
-        if [ -z "${selected_master_node}" ]; then
-            log "ERROR" "Failed to retrieve master node hostname"
-            return 1
-        fi
-       
-        log "INFO" "Selected master node: ${selected_master_node}"
-
-        # Get the internal IP of the selected master
-        selected_master_ip=$(oc get node "${selected_master_node}" -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}')
-
-        if [ -z "${selected_master_ip}" ]; then
-            log "ERROR" "Failed to retrieve IP address for master node: ${selected_master_node}"
-            return 1
-        fi
-
-        log "INFO" "Selected master IP: ${selected_master_ip}"
-
-        # Build node affinity YAML block (properly indented with 6 spaces)
-        node_affinity="affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-            - matchExpressions:
-              - key: kubernetes.io/hostname
-                operator: In
-                values:
-                - ${selected_master_node}"
-
-        # Set HOST_CLUSTER_API to the selected master IP
-        HOST_CLUSTER_API="${selected_master_ip}"
-    fi
-
-
-    update_file_multi_replace \
-        "${MANIFESTS_DIR}/nfs/nfs.yaml" \
-        "${GENERATED_DIR}/nfs.yaml" \
-        "<STORAGECLASS_NAME>" "${ETCD_STORAGE_CLASS}" \
-        "<NODE_AFFINITY>" "${node_affinity}"
-
-
-    update_file_multi_replace \
-        "${MANIFESTS_DIR}/nfs/nfs-pv.yaml" \
-        "${GENERATED_DIR}/nfs-pv.yaml" \
-        "<NFS_SERVER_NODE_IP>" "${HOST_CLUSTER_API}" \
-        "<NFS_PATH>" "${nfs_path}"
-}
-
-
 function prepare_cluster_manifests() {
     log [INFO] "Preparing cluster installation manifests..."
     
@@ -276,27 +195,6 @@ prepare_dpf_manifests() {
     log "INFO" "Copying Cert-Manager manifest (required for DPF operator)..."
     cp "$MANIFESTS_DIR/cluster-installation/openshift-cert-manager.yaml" "$GENERATED_DIR/"
 
-    # Update manifests with configuration
-    # Check if bfb-pvc.yaml exists before modifying
-    if [ ! -f "$GENERATED_DIR/bfb-pvc.yaml" ]; then
-        log "ERROR" "bfb-pvc.yaml not found in $GENERATED_DIR"
-        return 1
-    fi
-    
-    # For single-node clusters (VM_COUNT < 2), we use direct NFS PV binding, so remove storageClassName
-    if [ "${VM_COUNT}" -lt 2 ]; then
-        if ! grep -v 'storageClassName: ""' "$GENERATED_DIR/bfb-pvc.yaml" > "$GENERATED_DIR/bfb-pvc.yaml.tmp"; then
-            log "ERROR" "Failed to process bfb-pvc.yaml for single-node cluster"
-            return 1
-        fi
-        mv "$GENERATED_DIR/bfb-pvc.yaml.tmp" "$GENERATED_DIR/bfb-pvc.yaml"
-    else
-        update_file_multi_replace \
-            "$GENERATED_DIR/bfb-pvc.yaml" \
-            "$GENERATED_DIR/bfb-pvc.yaml" \
-            "<BFB_STORAGE_CLASS>" "$BFB_STORAGE_CLASS"
-    fi
-    
     update_file_multi_replace \
         "$GENERATED_DIR/static-dpucluster-template.yaml" \
         "$GENERATED_DIR/static-dpucluster-template.yaml" \
@@ -329,8 +227,6 @@ prepare_dpf_manifests() {
         "$GENERATED_DIR/dpf-pull-secret.yaml" \
         "<PULL_SECRET_BASE64>" "$escaped_secret"
 
-    prepare_nfs
-    
     # Process dpfoperatorconfig.yaml
     # Get node IP for BFB registry address (workaround for hostagent DNSPolicy:Default)
     local node_ip
@@ -360,7 +256,6 @@ EOF
     else
        log "INFO" "NODES_MTU is not set. Skipping networking configuration."
     fi
-
 
     # Final verification: ensure no Helm values files are in the generated directory
     if find "$GENERATED_DIR" -maxdepth 1 -type f -name "*-values.yaml" | grep -q .; then
@@ -512,12 +407,9 @@ function main() {
         apply-lso)
             deploy_lso
             ;;
-        prepare-nfs)
-            prepare_nfs
-            ;;
         *)
             log [INFO] "Unknown command: $command"
-            log [INFO] "Available commands: prepare-manifests, prepare-dpf-manifests, apply-lso, deploy-core-operator-sources, generate-ovn-manifests, prepare-nfs"
+            log [INFO] "Available commands: prepare-manifests, prepare-dpf-manifests, apply-lso, deploy-core-operator-sources, generate-ovn-manifests"
             exit 1
             ;;
     esac
