@@ -35,7 +35,7 @@ spec:
       address: <BFB_REGISTRY_ADDRESS>
   nodeSRIOVDevicePluginController:
     devicePlugin:
-      defaultResourcePrefix: openshift.io
+      defaultResourcePrefix: <SRIOV_DP_RESOURCE_PREFIX>
     disable: false
     replicas: 1
   staticClusterManager:

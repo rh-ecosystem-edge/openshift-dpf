@@ -10,7 +10,7 @@ spec:
     dpuSets:
     - nameSuffix: "dpuset1"
       dpuAnnotations:
-        noderesources.dpu.nvidia.com/nodesriovdevicepluginconfig: bf3-p0-vfs
+        noderesources.dpu.nvidia.com/nodesriovdevicepluginconfig: <SRIOV_DP_CONFIG_NAME>
       nodeSelector:
         matchLabels:
           feature.node.kubernetes.io/dpu-enabled: ""

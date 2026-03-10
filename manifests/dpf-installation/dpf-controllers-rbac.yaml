@@ -66,6 +66,9 @@ metadata:
   name: dpf-nodesriovdeviceplugin-node-finalizers
 rules:
 - apiGroups: [""]
+  resources: ["nodes/finalizers"]
+  verbs: ["update"]
+- apiGroups: [""]
   resources: ["configmaps/finalizers"]
   verbs: ["update"]
 ---
