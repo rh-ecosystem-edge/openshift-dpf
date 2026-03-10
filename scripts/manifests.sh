@@ -347,7 +347,8 @@ prepare_dpf_manifests() {
         "$GENERATED_DIR/dpfoperatorconfig.yaml" \
         "<CLUSTER_NAME>" "$CLUSTER_NAME" \
         "<BASE_DOMAIN>" "$BASE_DOMAIN" \
-        "<BFB_REGISTRY_ADDRESS>" "$bfb_registry_address"
+        "<BFB_REGISTRY_ADDRESS>" "$bfb_registry_address" \
+        "<SRIOV_DP_RESOURCE_PREFIX>" "$SRIOV_DP_RESOURCE_PREFIX"
     
     if [ -n "$NODES_MTU" ] && [ "$NODES_MTU" == "9000" ]; then
         log "INFO" "Appending networking configuration with MTU: $NODES_MTU"

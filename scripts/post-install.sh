@@ -41,6 +41,7 @@ SPECIAL_FILES=(
     "blueman-template.yaml"
     "dpu-node-ipam-controller.yaml"
     "dpudeployment.yaml"
+    "nodesriovdevicepluginconfig.yaml"
 )
 
 # Function to update BFB manifest
@@ -244,9 +245,22 @@ function prepare_post_installation() {
     update_service_templates
     update_dpu_service_nad
     
-    # Copy DPUDeployment
+    # Process DPUDeployment template
     if [ -f "${POST_INSTALL_DIR}/dpudeployment.yaml" ]; then
-        cp "${POST_INSTALL_DIR}/dpudeployment.yaml" "${GENERATED_POST_INSTALL_DIR}/dpudeployment.yaml"
+        update_file_multi_replace \
+            "${POST_INSTALL_DIR}/dpudeployment.yaml" \
+            "${GENERATED_POST_INSTALL_DIR}/dpudeployment.yaml" \
+            "<SRIOV_DP_CONFIG_NAME>" "${SRIOV_DP_CONFIG_NAME}"
+    fi
+
+    # Process NodeSRIOVDevicePluginConfig template
+    if [ -f "${POST_INSTALL_DIR}/nodesriovdevicepluginconfig.yaml" ]; then
+        local vf_range_end=$((NUM_VFS - 1))
+        update_file_multi_replace \
+            "${POST_INSTALL_DIR}/nodesriovdevicepluginconfig.yaml" \
+            "${GENERATED_POST_INSTALL_DIR}/nodesriovdevicepluginconfig.yaml" \
+            "<SRIOV_DP_CONFIG_NAME>" "${SRIOV_DP_CONFIG_NAME}" \
+            "<NUM_VFS_END>" "${vf_range_end}"
     fi
 
     # Copy remaining manifests using utility function (exclude special files)
