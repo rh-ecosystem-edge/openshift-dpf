@@ -254,14 +254,16 @@ function prepare_post_installation() {
     fi
 
     # Process NodeSRIOVDevicePluginConfig template
-    if [ -f "${POST_INSTALL_DIR}/nodesriovdevicepluginconfig.yaml" ]; then
-        local vf_range_end=$((NUM_VFS - 1))
-        update_file_multi_replace \
-            "${POST_INSTALL_DIR}/nodesriovdevicepluginconfig.yaml" \
-            "${GENERATED_POST_INSTALL_DIR}/nodesriovdevicepluginconfig.yaml" \
-            "<SRIOV_DP_CONFIG_NAME>" "${SRIOV_DP_CONFIG_NAME}" \
-            "<NUM_VFS_END>" "${vf_range_end}"
+    if [ ! -f "${POST_INSTALL_DIR}/nodesriovdevicepluginconfig.yaml" ]; then
+        log [ERROR] "nodesriovdevicepluginconfig.yaml not found in ${POST_INSTALL_DIR}"
+        return 1
     fi
+    local vf_range_end=$((NUM_VFS - 1))
+    update_file_multi_replace \
+        "${POST_INSTALL_DIR}/nodesriovdevicepluginconfig.yaml" \
+        "${GENERATED_POST_INSTALL_DIR}/nodesriovdevicepluginconfig.yaml" \
+        "<SRIOV_DP_CONFIG_NAME>" "${SRIOV_DP_CONFIG_NAME}" \
+        "<NUM_VFS_END>" "${vf_range_end}"
 
     # Copy remaining manifests using utility function (exclude special files)
     copy_manifests_with_exclusions "${POST_INSTALL_DIR}" "${GENERATED_POST_INSTALL_DIR}" "${SPECIAL_FILES[@]}"
