@@ -97,6 +97,28 @@ function deploy_metallb() {
     log [INFO] "Note: IPAddressPool and L2Advertisement will be managed by dpf-hcp-provisioner-operator"
 }
 
+function patch_provisioning_init_container() {
+    # Workaround: The dpf-provisioning-controller-manager deployment sets runAsNonRoot: true
+    # at the pod level but the prepare-local-storage init container needs runAsUser: 0.
+    # On OpenShift the pod-level runAsNonRoot: true conflicts with the container-level
+    # runAsUser: 0, and SELinux blocks chown on HostPath volumes without privileged: true.
+    log [INFO] "Waiting for dpf-provisioning-controller-manager deployment..."
+    if ! retry 30 10 oc get deployment -n dpf-operator-system dpf-provisioning-controller-manager &>/dev/null; then
+        log [WARN] "dpf-provisioning-controller-manager deployment not found, skipping init container patch"
+        return 0
+    fi
+
+    log [INFO] "Patching dpf-provisioning-controller-manager init container for OpenShift compatibility..."
+    if ! retry 5 10 oc patch deployment dpf-provisioning-controller-manager -n dpf-operator-system --type=json -p '[
+        {"op": "add", "path": "/spec/template/spec/initContainers/0/securityContext/runAsNonRoot", "value": false},
+        {"op": "add", "path": "/spec/template/spec/initContainers/0/securityContext/privileged", "value": true}
+    ]'; then
+        log [ERROR] "Failed to patch dpf-provisioning-controller-manager init container"
+        return 1
+    fi
+    log [INFO] "dpf-provisioning-controller-manager init container patched successfully"
+}
+
 function apply_scc() {
     local scc_file="$GENERATED_DIR/scc.yaml"
     if [ -f "$scc_file" ]; then
@@ -599,6 +621,8 @@ function apply_dpf() {
     deploy_hosted_cluster
 
     wait_for_pods "dpf-operator-system" "dpu.nvidia.com/component=dpf-operator-controller-manager" 30 5
+
+    patch_provisioning_init_container
 
     log [INFO] "DPF deployment complete"
 }

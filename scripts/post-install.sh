@@ -347,6 +347,36 @@ function apply_post_installation() {
     fi
     
     log [INFO] "Post-installation manifest application completed successfully"
+
+    patch_bfb_registry
+}
+
+function patch_bfb_registry() {
+    # The bfb-registry is a standalone pod (not a Deployment) that serves BFB files via nginx.
+    # On OpenShift, SELinux blocks non-privileged containers from reading HostPath files written
+    # by other pods. The bfb-registry needs privileged: true to read files in /bfb/bfcfg/.
+    # Since standalone pod securityContext is immutable, we must replace the pod.
+    log [INFO] "Waiting for bfb-registry pod..."
+    if ! retry 30 10 oc get pod -n dpf-operator-system bfb-registry &>/dev/null; then
+        log [WARN] "bfb-registry pod not found, skipping SELinux privilege patch"
+        return 0
+    fi
+
+    log [INFO] "Replacing bfb-registry pod with privileged securityContext for OpenShift SELinux compatibility..."
+    if ! oc get pod bfb-registry -n dpf-operator-system -o json | \
+        python3 -c "
+import json, sys
+pod = json.load(sys.stdin)
+for key in ['resourceVersion','uid','creationTimestamp','managedFields']:
+    pod['metadata'].pop(key, None)
+pod.pop('status', None)
+pod['spec']['containers'][0]['securityContext']['privileged'] = True
+json.dump(pod, sys.stdout)
+" | oc replace --force -f -; then
+        log [ERROR] "Failed to replace bfb-registry pod with privileged securityContext"
+        return 1
+    fi
+    log [INFO] "bfb-registry pod replaced successfully"
 }
 
 function redeploy() {
