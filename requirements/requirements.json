@@ -6,8 +6,8 @@
       "id": "REQ-001",
       "requirement": "DPF on OCP supports amd64 worker and control plane nodes",
       "description": "",
-      "test_description": "",
-      "test_implementation": "",
+      "test_description": "Verify all cluster nodes report amd64 architecture via node status",
+      "test_implementation": "test/req-001-amd64-nodes.sh",
       "labels": [
         "area/system",
         "type/functional"
@@ -66,8 +66,8 @@
       "id": "REQ-006",
       "requirement": "DPF 26.4.X detects DPUs on worker nodes automatically",
       "description": "",
-      "test_description": "",
-      "test_implementation": "",
+      "test_description": "Verify that DPU custom resources are automatically created for worker nodes with DPUs",
+      "test_implementation": "test/req-006-dpu-detection.sh",
       "labels": [
         "area/installation",
         "type/functional"
@@ -78,8 +78,8 @@
       "id": "REQ-007",
       "requirement": "DPF 26.4.X operates a cluster with a mix of DPU workers and non-DPU workers",
       "description": "",
-      "test_description": "",
-      "test_implementation": "",
+      "test_description": "Verify the cluster has both DPU-equipped and non-DPU worker nodes",
+      "test_implementation": "test/req-007-mixed-workers.sh",
       "labels": [
         "area/installation",
         "type/functional"
@@ -582,8 +582,8 @@
       "id": "REQ-049",
       "requirement": "OpenShift cluster has 3 control plane nodes",
       "description": "",
-      "test_description": "",
-      "test_implementation": "",
+      "test_description": "Verify exactly 3 control plane nodes exist and are in Ready state",
+      "test_implementation": "test/req-049-control-plane-count.sh",
       "labels": [
         "area/openshift",
         "type/non-functional"
@@ -594,8 +594,8 @@
       "id": "REQ-050",
       "requirement": "DPF on OCP supports amd64 worker and control plane nodes",
       "description": "",
-      "test_description": "",
-      "test_implementation": "",
+      "test_description": "Verify all cluster nodes report amd64 architecture via node status",
+      "test_implementation": "test/req-001-amd64-nodes.sh",
       "labels": [
         "area/system",
         "type/non-functional"
