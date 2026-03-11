@@ -150,8 +150,8 @@
       "id": "REQ-013",
       "requirement": "A DPUDeployment can deploy DPUServices",
       "description": "",
-      "test_description": "",
-      "test_implementation": "",
+      "test_description": "Verify at least one DPUService exists in dpf-operator-system and is in Ready state",
+      "test_implementation": "test/req-013-dpuservices-deployed.sh",
       "labels": [
         "area/dpudeployment",
         "type/functional"
@@ -222,8 +222,8 @@
       "id": "REQ-019",
       "requirement": "The DTS DPUService can be installed",
       "description": "",
-      "test_description": "",
-      "test_implementation": "",
+      "test_description": "Verify a DTS DPUService exists in dpf-operator-system and is in Ready state",
+      "test_implementation": "test/req-019-dts-installed.sh",
       "labels": [
         "area/dts",
         "type/functional"
@@ -258,8 +258,8 @@
       "id": "REQ-022",
       "requirement": "The DTS DPUService reports metrics to a Prometheus endpoint available on the DPU",
       "description": "",
-      "test_description": "",
-      "test_implementation": "",
+      "test_description": "Find the doca-telemetry-service in dpf-operator-system and verify /metrics returns Prometheus-format data",
+      "test_implementation": "test/req-022-dts-metrics-endpoint.sh",
       "labels": [
         "area/dts",
         "type/functional"
@@ -270,8 +270,8 @@
       "id": "REQ-023",
       "requirement": "The DTS DPUService exposes metrics to the end user through Prometheus",
       "description": "",
-      "test_description": "",
-      "test_implementation": "",
+      "test_description": "Verify a DTS ServiceMonitor exists and the doca-telemetry-service has a metrics port for Prometheus scraping",
+      "test_implementation": "test/req-023-dts-metrics-prometheus.sh",
       "labels": [
         "area/dts",
         "type/functional"
@@ -402,8 +402,8 @@
       "id": "REQ-034",
       "requirement": "DPF on OCP can manage 1 DPF managed DPU per worker node",
       "description": "",
-      "test_description": "",
-      "test_implementation": "",
+      "test_description": "Verify every DPU-labeled worker node has a corresponding DPU object in dpf-operator-system",
+      "test_implementation": "test/req-034-dpu-per-worker.sh",
       "labels": [
         "area/scale-performance",
         "type/functional"
@@ -546,8 +546,8 @@
       "id": "REQ-046",
       "requirement": "DPUCluster is a HyperShift cluster based on OpenShift 4.22.X",
       "description": "",
-      "test_description": "",
-      "test_implementation": "",
+      "test_description": "Verify the HostedCluster exists and its clusterversion reports 4.22.X",
+      "test_implementation": "test/req-046-dpucluster-version.sh",
       "labels": [
         "area/dpucluster",
         "type/non-functional"
@@ -558,8 +558,8 @@
       "id": "REQ-047",
       "requirement": "DPUCluster does not require direct interaction with HyperShift by the user",
       "description": "",
-      "test_description": "",
-      "test_implementation": "",
+      "test_description": "Verify the HostedCluster managedFields include hypershift-controlplane-manager, confirming DPF manages it",
+      "test_implementation": "test/req-047-dpucluster-managed.sh",
       "labels": [
         "area/dpucluster",
         "type/non-functional"
