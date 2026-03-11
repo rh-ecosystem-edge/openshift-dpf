@@ -32,7 +32,7 @@ WORKER_SCRIPT := scripts/worker.sh
         redeploy-dpu enable-ovn-injector deploy-argocd deploy-maintenance-operator configure-flannel \
         deploy-core-operator-sources setup-nfs-server deploy-metallb deploy-lso deploy-odf deploy-lvms prepare-nfs run-dpf-sanity \
         add-worker-nodes worker-status approve-worker-csrs \
-        deploy-csr-approver delete-csr-approver deploy-dpucluster-csr-approver delete-dpucluster-csr-approver \
+        deploy-csr-approver delete-csr-approver \
         delete-dpf-hcp-provisioner-operator \
         verify-deployment verify-workers verify-dpu-nodes verify-dpudeployment \
         run-traffic-flow-tests tft-setup tft-cleanup tft-show-config tft-results aicli-list \
@@ -248,13 +248,6 @@ deploy-csr-approver:
 delete-csr-approver:
 	@$(WORKER_SCRIPT) delete-csr-auto-approver
 
-deploy-dpucluster-csr-approver:
-	@echo "Deploying CSR auto-approver for DPUCluster..."
-	@$(DPF_SCRIPT) deploy-dpucluster-csr-approver
-
-delete-dpucluster-csr-approver:
-	@$(DPF_SCRIPT) delete-dpucluster-csr-approver
-
 delete-dpf-hcp-provisioner-operator:
 	@echo "Deleting DPF HCP Provisioner Operator..."
 	@$(DPF_SCRIPT) delete-dpf-hcp-provisioner-operator
@@ -329,8 +322,6 @@ help:
 	@echo "  approve-worker-csrs - Approve pending CSRs (one-time, for manual use)"
 	@echo "  deploy-csr-approver - Deploy CSR auto-approver CronJob for host cluster workers"
 	@echo "  delete-csr-approver - Remove CSR auto-approver from host cluster"
-	@echo "  deploy-dpucluster-csr-approver - Deploy CSR auto-approver for DPUCluster (runs on host)"
-	@echo "  delete-dpucluster-csr-approver - Remove CSR auto-approver for DPUCluster"
 	@echo "  delete-dpf-hcp-provisioner-operator - Remove DPF HCP Provisioner Operator and related resources"
 	@echo ""
 	@echo "Verification:"
@@ -422,7 +413,6 @@ help:
 	@echo ""
 	@echo "CSR Auto-Approval Configuration:"
 	@echo "  AUTO_APPROVE_WORKER_CSR     - Deploy CronJob to auto-approve CSRs for host cluster workers (default: false)"
-	@echo "  AUTO_APPROVE_DPUCLUSTER_CSR - Deploy CronJob to auto-approve CSRs for DPUCluster nodes (default: false)"
 	@echo ""
 	@echo "Verification Configuration:"
 	@echo "  VERIFY_DEPLOYMENT    - Run verification after 'make all' completes (default: false)"

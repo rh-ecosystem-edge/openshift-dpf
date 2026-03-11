@@ -97,7 +97,6 @@ WORKER_1_ROOT_DEVICE=/dev/sda         # Installation disk (optional)
 
 # CSR Auto-Approval (deploy CronJobs to approve certificates)
 AUTO_APPROVE_WORKER_CSR=false         # Host cluster workers (recommended: false)
-AUTO_APPROVE_DPUCLUSTER_CSR=false     # DPUCluster nodes (recommended: false)
 ```
 
 ## Deployment Scenarios

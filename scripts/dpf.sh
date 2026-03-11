@@ -423,8 +423,7 @@ function apply_remaining() {
         if [[ ! "$file" =~ .*(-ns)\.yaml$ && \
               ! "$file" =~ .*(-crd)\.yaml$ && \
               "$file" != "$GENERATED_DIR/cert-manager-manifests.yaml" && \
-              "$file" != "$GENERATED_DIR/scc.yaml" && \
-              "$file" != "$GENERATED_DIR/dpucluster-csr-auto-approver.yaml" ]]; then
+              "$file" != "$GENERATED_DIR/scc.yaml" ]]; then
             retry 5 30 apply_manifest "$file" true
             if [[ "$file" =~ .*operator.*\.yaml$ ]]; then
                 log [INFO] "Waiting for operator resources..."
@@ -601,66 +600,7 @@ function apply_dpf() {
 
     wait_for_pods "dpf-operator-system" "dpu.nvidia.com/component=dpf-operator-controller-manager" 30 5
 
-    # Deploy DPUCluster CSR auto-approver if enabled
-    if [[ "${AUTO_APPROVE_DPUCLUSTER_CSR}" == "true" ]]; then
-        log "WARN" "[DEPRECATED] AUTO_APPROVE_DPUCLUSTER_CSR is deprecated. DPF HCP Provisioner Operator (v0.1.2+) handles CSR approval automatically."
-        log "WARN" "The standalone CronJob approach is only needed for legacy deployments not using the provisioner operator."
-        log "INFO" "Deploying CSR auto-approver for DPUCluster..."
-        deploy_dpucluster_csr_approver
-    fi
-
     log [INFO] "DPF deployment complete"
-}
-
-function deploy_dpucluster_csr_approver() {
-    # [DEPRECATED] Deploy CSR auto-approver for DPUCluster
-    # NOTE: DPF HCP Provisioner Operator (v0.1.2+) handles CSR approval automatically.
-    # This standalone CronJob approach is only needed for legacy deployments.
-    # Runs on host cluster, uses HyperShift kubeconfig to approve CSRs on DPUCluster
-    log "INFO" "Deploying CSR auto-approver for DPUCluster..."
-
-    get_kubeconfig
-
-    # Check if HCP exists
-    if ! oc get hostedcluster -n "${CLUSTERS_NAMESPACE}" "${HOSTED_CLUSTER_NAME}" &>/dev/null; then
-        log "ERROR" "HostedCluster ${HOSTED_CLUSTER_NAME} not found in namespace ${CLUSTERS_NAMESPACE}"
-        return 1
-    fi
-
-    # Check if kubeconfig secret exists
-    if ! oc get secret -n "${HOSTED_CONTROL_PLANE_NAMESPACE}" admin-kubeconfig &>/dev/null; then
-        log "ERROR" "admin-kubeconfig secret not found in namespace ${HOSTED_CONTROL_PLANE_NAMESPACE}"
-        return 1
-    fi
-
-    # Check if already deployed
-    if oc get cronjob -n "${HOSTED_CONTROL_PLANE_NAMESPACE}" dpucluster-csr-auto-approver &>/dev/null; then
-        log "INFO" "DPUCluster CSR auto-approver already deployed, skipping"
-        return 0
-    fi
-
-    # Process template and apply
-    mkdir -p "${GENERATED_DIR}"
-    process_template \
-        "${MANIFESTS_DIR}/dpf-installation/dpucluster-csr-auto-approver.yaml" \
-        "${GENERATED_DIR}/dpucluster-csr-auto-approver.yaml" \
-        "<HOSTED_CONTROL_PLANE_NAMESPACE>" "${HOSTED_CONTROL_PLANE_NAMESPACE}"
-
-    apply_manifest "${GENERATED_DIR}/dpucluster-csr-auto-approver.yaml" false
-    log "INFO" "DPUCluster CSR auto-approver deployed successfully"
-}
-
-function delete_dpucluster_csr_approver() {
-    # Remove CSR auto-approver from DPUCluster namespace
-    log "INFO" "Removing DPUCluster CSR auto-approver..."
-
-    get_kubeconfig
-
-    oc delete cronjob -n "${HOSTED_CONTROL_PLANE_NAMESPACE}" dpucluster-csr-auto-approver --ignore-not-found
-    oc delete rolebinding -n "${HOSTED_CONTROL_PLANE_NAMESPACE}" dpucluster-csr-approver --ignore-not-found
-    oc delete role -n "${HOSTED_CONTROL_PLANE_NAMESPACE}" dpucluster-csr-approver --ignore-not-found
-    oc delete serviceaccount -n "${HOSTED_CONTROL_PLANE_NAMESPACE}" dpucluster-csr-approver --ignore-not-found
-    log "INFO" "DPUCluster CSR auto-approver removed"
 }
 
 function delete_dpf_hcp_provisioner_operator() {
@@ -765,15 +705,9 @@ function main() {
             create-ignition-template)
                 create_ignition_template
                 ;;
-            deploy-dpucluster-csr-approver)
-                deploy_dpucluster_csr_approver
-                ;;
-            delete-dpucluster-csr-approver)
-                delete_dpucluster_csr_approver
-                ;;
             *)
                 log [INFO] "Unknown command: $command"
-                log [INFO] "Available commands: deploy-nfd, deploy-metallb, deploy-argocd, deploy-maintenance-operator, apply-dpf, deploy-hypershift, deploy-dpucluster-csr-approver, delete-dpucluster-csr-approver, deploy-dpf-hcp-provisioner-operator, delete-dpf-hcp-provisioner-operator, create-dpfhcpprovisioner-secrets, create-dpfhcpprovisioner-cr"
+                log [INFO] "Available commands: deploy-nfd, deploy-metallb, deploy-argocd, deploy-maintenance-operator, apply-dpf, deploy-hypershift, deploy-dpf-hcp-provisioner-operator, delete-dpf-hcp-provisioner-operator, create-dpfhcpprovisioner-secrets, create-dpfhcpprovisioner-cr"
                 exit 1
                 ;;
         esac

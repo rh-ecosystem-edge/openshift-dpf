@@ -107,7 +107,6 @@ No vendor-specific configuration needed - it just works.
 |----------|-------------|---------|
 | `WORKER_n_ROOT_DEVICE` | Installation disk | `/dev/sda` |
 | `AUTO_APPROVE_WORKER_CSR` | Deploy CronJob to auto-approve host cluster CSRs | `false` |
-| `AUTO_APPROVE_DPUCLUSTER_CSR` | Deploy CronJob to auto-approve DPUCluster CSRs | `false` |
 
 ### Security Settings
 
@@ -215,21 +214,14 @@ make add-worker-nodes
 ```bash
 # Host cluster workers (BMH-provisioned)
 AUTO_APPROVE_WORKER_CSR=true
-
-# DPUCluster nodes (via HyperShift)
-AUTO_APPROVE_DPUCLUSTER_CSR=true
 ```
 
 When enabled, a CronJob is deployed that automatically approves pending CSRs every minute. Workers join the cluster without manual intervention.
 
-You can also deploy the auto-approvers manually at any time:
+You can also deploy the auto-approver manually at any time:
 
 ```bash
-# Host cluster
 make deploy-csr-approver
-
-# DPUCluster
-make deploy-dpucluster-csr-approver
 ```
 
 ## Next Steps
