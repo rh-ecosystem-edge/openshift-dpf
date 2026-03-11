@@ -288,69 +288,11 @@ else
             gh project field-create "${PROJECT_NUM}" --owner "${OWNER}" \
                 --name "Requirement Status" --data-type "SINGLE_SELECT" \
                 --single-select-options "Untested,Passing,Failing" 2>/dev/null || echo "  -> WARNING: failed to create field" >&2
-            FIELD_JSON=$(gh project field-list "${PROJECT_NUM}" --owner "${OWNER}" --format json 2>/dev/null || echo '{"fields":[]}')
-            STATUS_FIELD_ID=$(echo "${FIELD_JSON}" | jq -r '.fields[] | select(.name == "Requirement Status") | .id' 2>/dev/null || true)
         else
             echo "    -> [dry-run] Would create 'Requirement Status' field"
         fi
     else
         echo "  Found 'Requirement Status' field: ${STATUS_FIELD_ID}"
-    fi
-
-    # ── Extract option IDs for the status field ──────────────────────
-    declare -A STATUS_OPTION_IDS
-    if [[ -n "${STATUS_FIELD_ID}" ]]; then
-        for opt_name in Untested Passing Failing; do
-            opt_id=$(echo "${FIELD_JSON}" | jq -r ".fields[] | select(.name == \"Requirement Status\") | .options[] | select(.name == \"${opt_name}\") | .id" 2>/dev/null || true)
-            if [[ -n "${opt_id}" ]]; then
-                STATUS_OPTION_IDS["${opt_name}"]="${opt_id}"
-            fi
-        done
-        echo "  Option IDs: Untested=${STATUS_OPTION_IDS[Untested]:-?} Passing=${STATUS_OPTION_IDS[Passing]:-?} Failing=${STATUS_OPTION_IDS[Failing]:-?}"
-    fi
-
-    # ── Set project item status based on issue labels ────────────────
-    if [[ -n "${STATUS_FIELD_ID}" && -n "${PROJECT_ID}" ]]; then
-        echo ""
-        echo "=== Syncing Project Item Status ==="
-
-        ITEM_JSON=$(gh project item-list "${PROJECT_NUM}" --owner "${OWNER}" --format json --limit 500 2>/dev/null || echo '{"items":[]}')
-
-        for REQ_ID in "${!SYNCED_ISSUES[@]}"; do
-            ISSUE_NUM="${SYNCED_ISSUES[${REQ_ID}]}"
-
-            ISSUE_LABELS=$(gh issue view "${ISSUE_NUM}" ${REPO_FLAG} --json labels --jq '[.labels[].name] | join(",")' 2>/dev/null || true)
-
-            STATUS_NAME="Untested"
-            if echo "${ISSUE_LABELS}" | grep -q "status/passing"; then
-                STATUS_NAME="Passing"
-            elif echo "${ISSUE_LABELS}" | grep -q "status/failing"; then
-                STATUS_NAME="Failing"
-            fi
-
-            OPTION_ID="${STATUS_OPTION_IDS[${STATUS_NAME}]:-}"
-            if [[ -z "${OPTION_ID}" ]]; then
-                echo "  [${REQ_ID}] WARNING: no option ID for status '${STATUS_NAME}'" >&2
-                continue
-            fi
-
-            ITEM_ID=$(echo "${ITEM_JSON}" | jq -r ".items[] | select(.content.number == ${ISSUE_NUM} and .content.type == \"Issue\") | .id" 2>/dev/null || true)
-            if [[ -z "${ITEM_ID}" ]]; then
-                echo "  [${REQ_ID}] WARNING: issue #${ISSUE_NUM} not found in project items" >&2
-                continue
-            fi
-
-            echo "  [${REQ_ID}] Setting #${ISSUE_NUM} status to '${STATUS_NAME}'"
-            if [[ "${DRY_RUN}" == "false" ]]; then
-                gh project item-edit \
-                    --id "${ITEM_ID}" \
-                    --project-id "${PROJECT_ID}" \
-                    --field-id "${STATUS_FIELD_ID}" \
-                    --single-select-option-id "${OPTION_ID}" 2>/dev/null || echo "    -> WARNING: failed to set status" >&2
-            else
-                echo "    -> [dry-run] Would set status to '${STATUS_NAME}'"
-            fi
-        done
     fi
 fi
 
