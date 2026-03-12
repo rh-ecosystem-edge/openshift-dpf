@@ -1,0 +1,29 @@
+name: Sync Requirements to GitHub Issues
+
+on:
+  push:
+    branches: [main, public-main]
+    paths:
+      - 'requirements/requirements.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: requirements-sync
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Sync issues and project
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_TOKEN || secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: ./requirements/sync-issues.sh
