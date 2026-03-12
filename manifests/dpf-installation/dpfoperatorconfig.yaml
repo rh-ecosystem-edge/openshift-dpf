@@ -28,7 +28,6 @@ spec:
   provisioningController:
     hostAgentDNSPolicy: Default
     bfCFGTemplateConfigMap: custom-bfb.cfg
-    bfbPVCName: bfb-pvc
     dmsTimeout: 900
     registry:
       port: 8086

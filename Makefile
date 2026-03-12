@@ -12,7 +12,6 @@ DPF_SCRIPT := scripts/dpf.sh
 VM_SCRIPT := scripts/vm.sh
 UTILS_SCRIPT := scripts/utils.sh
 POST_INSTALL_SCRIPT := scripts/post-install.sh
-NFS_SERVICE_SCRIPT := scripts/nfs-service.sh
 VERIFY_SCRIPT := scripts/verify.sh
 ENV_SCRIPT := scripts/env.sh
 
@@ -30,7 +29,7 @@ WORKER_SCRIPT := scripts/worker.sh
         wait-for-installed wait-for-status cluster-start clean-all deploy-dpf kubeconfig kubeadmin-password deploy-nfd \
         install-hypershift install-helm deploy-dpu-services prepare-dpu-files upgrade-dpf create-day2-cluster get-day2-iso \
         redeploy-dpu enable-ovn-injector deploy-argocd deploy-maintenance-operator configure-flannel \
-        deploy-core-operator-sources setup-nfs-server deploy-metallb deploy-lso deploy-odf deploy-lvms prepare-nfs run-dpf-sanity \
+        deploy-core-operator-sources deploy-metallb deploy-lso deploy-odf deploy-lvms run-dpf-sanity \
         add-worker-nodes worker-status approve-worker-csrs \
         deploy-csr-approver delete-csr-approver \
         delete-dpf-hcp-provisioner-operator \
@@ -176,17 +175,11 @@ deploy-odf:
 deploy-lvms:
 	@echo "INFO: LVMS is configured automatically when STORAGE_TYPE=lvm (default)"
 
-prepare-nfs:
-	@$(MANIFESTS_SCRIPT) prepare-nfs
-
 install-hypershift:
 	@$(TOOLS_SCRIPT) install-hypershift
 
 install-helm:
 	@$(TOOLS_SCRIPT) install-helm
-
-setup-nfs-server:
-	@$(NFS_SERVICE_SCRIPT)
 
 run-dpf-sanity:
 	@echo "Running $(SANITY_CHECKS_SCRIPT) ..."
@@ -312,7 +305,6 @@ help:
 	@echo "  deploy-lvms      - Deploy LVMS (Logical Volume Manager Storage) for etcd storage (default with STORAGE_TYPE=lvm)"
 	@echo "  deploy-odf       - Deploy OpenShift Data Foundation for distributed storage (multi-node only, requires STORAGE_TYPE=odf)"
 	@echo "  SKIP_DEPLOY_STORAGE=true - Use existing StorageClasses; set ETCD_STORAGE_CLASS to your StorageClass name"
-	@echo "  prepare-nfs      - Prepare NFS manifests (internal or external NFS based on configuration)"
 	@echo "  upgrade-dpf       - Interactive DPF operator upgrade (user-friendly wrapper for prepare-dpf-manifests)"
 	@echo "  prepare-dpu-files - Prepare post-installation manifests with custom values"
 	@echo "  deploy-dpu-services - Deploy DPU services to the cluster"
@@ -375,27 +367,15 @@ help:
 	@echo "  DPF_VERSION      - DPF operator version (default: $(DPF_VERSION))"
 	@echo "  SKIP_DEPLOY_STORAGE - If true, skip LSO/LVM/ODF deployment; ETCD_STORAGE_CLASS must point to existing StorageClass (default: false)"
 	@echo "  ETCD_STORAGE_CLASS - StorageClass for hosted cluster etcd (default: $(ETCD_STORAGE_CLASS)); required when SKIP_DEPLOY_STORAGE=true"
-	@echo "  BFB_STORAGE_CLASS - StorageClass for BFB PVC (default: $(BFB_STORAGE_CLASS))"
 	@echo ""
 	@echo "MetalLB Configuration:"
 	@echo "  HYPERSHIFT_API_IP     - IP address for Hypershift API server LoadBalancer"
 	@echo "                          If set: Deploys MetalLB and uses LoadBalancer for Hypershift API (dpf-hcp-provisioner-operator manages IPAddressPool/L2Advertisement)"
 	@echo "                          If not set: Uses NodePort for Hypershift API (multi-node) or default (single-node)"
 	@echo ""
-	@echo "NFS Configuration:"
-	@echo "  NFS_SERVER_NODE_IP    - External NFS server IP (if set, uses external NFS; otherwise internal)"
-	@echo "  NFS_PATH              - NFS export path (default: /)"
-	@echo ""
 	@echo "Post-installation Configuration:"
 	@echo "  BFB_URL          - URL for BFB file (default: http://10.8.2.236/bfb/rhcos_4.19.0-ec.4_installer_2025-04-23_07-48-42.bfb)"
 	@echo "  HBN_OVN_NETWORK  - Network for HBN OVN IPAM (default: 10.0.120.0/22)"
-	@echo ""
-	@echo "NFS Server Setup:"
-	@echo "  setup-nfs-server - Setup NFS server with systemd service and firewall configuration"
-	@echo "                     Environment variables:"
-	@echo "                       NFS_EXPORT_DIR     - Export directory path (default: /nfs/exports)"
-	@echo "                       NFS_EXPORT_OPTIONS - Export options (default: rw,sync,no_root_squash,no_subtree_check)"
-	@echo "                       NFS_ALLOWED_NETWORK - Allowed network/host (default: *)"
 	@echo ""
 	@echo "Wait Configuration:"
 	@echo "  MAX_RETRIES      - Maximum number of retries for status checks (default: $(MAX_RETRIES))"
