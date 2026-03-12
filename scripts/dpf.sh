@@ -258,7 +258,8 @@ function create_dpfhcpprovisioner_cr() {
         "<OCP_RELEASE_IMAGE>" "${OCP_RELEASE_IMAGE}" \
         "<DPFHCPPROVISIONER_PULL_SECRET_NAME>" "${DPFHCPPROVISIONER_PULL_SECRET_NAME}" \
         "<DPFHCPPROVISIONER_SSH_SECRET_NAME>" "${DPFHCPPROVISIONER_SSH_SECRET_NAME}" \
-        "<CONTROL_PLANE_POLICY>" "${control_plane_policy}"
+        "<CONTROL_PLANE_POLICY>" "${control_plane_policy}" \
+        "<BLUEFIELD_OCP_IMAGE>" "${BLUEFIELD_OCP_IMAGE}"
 
     # Add virtualIP if HYPERSHIFT_API_IP is set
     if [ -n "${HYPERSHIFT_API_IP}" ]; then
