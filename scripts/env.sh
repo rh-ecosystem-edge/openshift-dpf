@@ -140,11 +140,10 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     fi
 
     # Auto-resolve OVN-Kubernetes image from the aarch64 OCP release payload
-    _ocp_version="${OCP_RELEASE_IMAGE##*:}"    # e.g. 4.21.0-multi
-    _ocp_version="${_ocp_version%%-*}"          # e.g. 4.21.0
-    if command -v oc &>/dev/null; then
+    # Skip if the user already set OVN_KUBERNETES_IMAGE_TAG in .env
+    if [ -z "${OVN_KUBERNETES_IMAGE_TAG:-}" ] && command -v oc &>/dev/null; then
         _ovnk_full=$(oc adm release info --image-for=ovn-kubernetes \
-            "quay.io/openshift-release-dev/ocp-release:${_ocp_version}-aarch64" 2>/dev/null || true)
+            "quay.io/openshift-release-dev/ocp-release:${OPENSHIFT_VERSION}-aarch64" 2>/dev/null || true)
         if [ -n "$_ovnk_full" ]; then
             OVN_KUBERNETES_IMAGE_REPO="${_ovnk_full%@*}@sha256"
             OVN_KUBERNETES_IMAGE_TAG="${_ovnk_full##*sha256:}"
