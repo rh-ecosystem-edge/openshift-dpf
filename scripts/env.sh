@@ -139,6 +139,18 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
         CATALOG_SOURCE_NAME="redhat-operators-v419"
     fi
 
+    # Auto-resolve OVN-Kubernetes image from the aarch64 OCP release payload
+    _ocp_version="${OCP_RELEASE_IMAGE##*:}"    # e.g. 4.21.0-multi
+    _ocp_version="${_ocp_version%%-*}"          # e.g. 4.21.0
+    if command -v oc &>/dev/null; then
+        _ovnk_full=$(oc adm release info --image-for=ovn-kubernetes \
+            "quay.io/openshift-release-dev/ocp-release:${_ocp_version}-aarch64" 2>/dev/null || true)
+        if [ -n "$_ovnk_full" ]; then
+            OVN_KUBERNETES_IMAGE_REPO="${_ovnk_full%@*}@sha256"
+            OVN_KUBERNETES_IMAGE_TAG="${_ovnk_full##*sha256:}"
+        fi
+    fi
+
     # Storage class — conditional on STORAGE_TYPE and SKIP_DEPLOY_STORAGE
     if [ "${STORAGE_TYPE}" == "odf" ] && [ "${VM_COUNT}" -lt 3 ]; then
         echo "Warning: ODF requires at least 3 nodes. Falling back to LVM." >&2
