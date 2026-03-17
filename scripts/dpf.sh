@@ -190,7 +190,6 @@ function deploy_dpf_hcp_provisioner_operator() {
     ensure_helm_installed
 
     log [INFO] "Installing/upgrading DPF HCP Provisioner Operator..."
-    log [INFO] "BlueField validation enabled: ${ENABLE_BLUEFIELD_VALIDATION}"
 
     local version_flag=""
     if [[ -n "${DPF_HCP_PROVISIONER_OPERATOR_VERSION}" ]]; then
@@ -203,8 +202,7 @@ function deploy_dpf_hcp_provisioner_operator() {
         --create-namespace \
         ${version_flag} \
         --set image.repository=${DPF_HCP_PROVISIONER_OPERATOR_IMAGE_REPO} \
-        --set image.tag=${DPF_HCP_PROVISIONER_OPERATOR_IMAGE_TAG} \
-        --set features.blueFieldValidation.enabled=${ENABLE_BLUEFIELD_VALIDATION}; then
+        --set image.tag=${DPF_HCP_PROVISIONER_OPERATOR_IMAGE_TAG}; then
 
         log [INFO] "Helm release 'dpf-hcp-provisioner-operator' deployed successfully"
         log [INFO] "DPF HCP Provisioner Operator deployment initiated. Use 'oc get pods -n ${DPF_HCP_PROVISIONER_OPERATOR_NAMESPACE}' to monitor progress."
@@ -638,6 +636,17 @@ function delete_dpf_hcp_provisioner_operator() {
         log "INFO" "No DPFHCPProvisioner CRs found in ${CLUSTERS_NAMESPACE}"
     fi
 
+    # Delete DPFHCPProvisionerConfig CR (after provisioner CRs, before CRD)
+    log "INFO" "Deleting DPFHCPProvisionerConfig CR..."
+    if oc get dpfhcpprovisionerconfig default &>/dev/null 2>&1; then
+        if ! oc delete dpfhcpprovisionerconfig default --ignore-not-found --timeout=60s; then
+            log "ERROR" "Failed to delete DPFHCPProvisionerConfig CR. Exiting..."
+            return 1
+        fi
+    else
+        log "INFO" "No DPFHCPProvisionerConfig CR found"
+    fi
+
     # Delete secrets created for DPFHCPProvisioner in clusters namespace
     log "INFO" "Deleting DPFHCPProvisioner secrets from ${CLUSTERS_NAMESPACE}..."
     oc delete secret -n "${CLUSTERS_NAMESPACE}" "${DPFHCPPROVISIONER_PULL_SECRET_NAME}" --ignore-not-found || {
@@ -658,7 +667,11 @@ function delete_dpf_hcp_provisioner_operator() {
         log "INFO" "Helm release dpf-hcp-provisioner-operator not found"
     fi
 
-    # Delete the CRD
+    # Delete the CRDs
+    log "INFO" "Deleting DPFHCPProvisionerConfig CRD..."
+    oc delete crd dpfhcpprovisionerconfigs.provisioning.dpu.hcp.io --ignore-not-found --timeout=600s || {
+        log "WARN" "Failed to delete DPFHCPProvisionerConfig CRD, it may have finalizers or dependent resources"
+    }
     log "INFO" "Deleting DPFHCPProvisioner CRD..."
     oc delete crd dpfhcpprovisioners.provisioning.dpu.hcp.io --ignore-not-found --timeout=600s || {
         log "WARN" "Failed to delete DPFHCPProvisioner CRD, it may have finalizers or dependent resources"
