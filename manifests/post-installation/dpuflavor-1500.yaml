@@ -37,4 +37,51 @@ spec:
         - NUM_OF_VFS=<NUM_VFS>
         - LAG_RESOURCE_ALLOCATION=1
   ovs:
-    rawConfigScript: IyEvYmluL2Jhc2gKCl9vdnMtdnNjdGwoKSB7CiAgb3ZzLXZzY3RsIC0tbm8td2FpdCAtLXRpbWVvdXQgMTUgIiRAIgp9Cgpfb3ZzLXZzY3RsIHNldCBPcGVuX3ZTd2l0Y2ggLiBvdGhlcl9jb25maWc6ZG9jYS1pbml0PXRydWUKX292cy12c2N0bCBzZXQgT3Blbl92U3dpdGNoIC4gb3RoZXJfY29uZmlnOmRwZGstbWF4LW1lbXpvbmVzPTUwMDAwCl9vdnMtdnNjdGwgc2V0IE9wZW5fdlN3aXRjaCAuIG90aGVyX2NvbmZpZzpody1vZmZsb2FkPXRydWUKX292cy12c2N0bCBzZXQgT3Blbl92U3dpdGNoIC4gb3RoZXJfY29uZmlnOnBtZC1xdWlldC1pZGxlPXRydWUKX292cy12c2N0bCBzZXQgT3Blbl92U3dpdGNoIC4gb3RoZXJfY29uZmlnOm1heC1pZGxlPTIwMDAwCl9vdnMtdnNjdGwgc2V0IE9wZW5fdlN3aXRjaCAuIG90aGVyX2NvbmZpZzptYXgtcmV2YWxpZGF0b3I9NTAwMApfb3ZzLXZzY3RsIC0taWYtZXhpc3RzIGRlbC1iciBvdnNicjEKX292cy12c2N0bCAtLWlmLWV4aXN0cyBkZWwtYnIgb3ZzYnIyCl9vdnMtdnNjdGwgLS1tYXktZXhpc3QgYWRkLWJyIGJyLXNmYwpfb3ZzLXZzY3RsIHNldCBicmlkZ2UgYnItc2ZjIGRhdGFwYXRoX3R5cGU9bmV0ZGV2Cl9vdnMtdnNjdGwgc2V0IGJyaWRnZSBici1zZmMgZmFpbF9tb2RlPXNlY3VyZQpfb3ZzLXZzY3RsIC0tbWF5LWV4aXN0IGFkZC1wb3J0IGJyLXNmYyBwMApfb3ZzLXZzY3RsIHNldCBJbnRlcmZhY2UgcDAgdHlwZT1kcGRrCl9vdnMtdnNjdGwgc2V0IEludGVyZmFjZSBwMCBtdHVfcmVxdWVzdD05MjE2Cl9vdnMtdnNjdGwgc2V0IFBvcnQgcDAgZXh0ZXJuYWxfaWRzOmRwZi10eXBlPXBoeXNpY2FsCl9vdnMtdnNjdGwgLS1tYXktZXhpc3QgYWRkLXBvcnQgYnItc2ZjIHAxCl9vdnMtdnNjdGwgc2V0IEludGVyZmFjZSBwMSB0eXBlPWRwZGsKX292cy12c2N0bCBzZXQgSW50ZXJmYWNlIHAxIG10dV9yZXF1ZXN0PTkyMTYKX292cy12c2N0bCBzZXQgUG9ydCBwMSBleHRlcm5hbF9pZHM6ZHBmLXR5cGU9cGh5c2ljYWwKCiMgQWN0aXZhdGUgRE9DQSBmb3IgT1ZOSwpfb3ZzLXZzY3RsIHNldCBPcGVuX3ZTd2l0Y2ggLiBleHRlcm5hbC1pZHM6b3ZuLWJyaWRnZS1kYXRhcGF0aC10eXBlPW5ldGRldgpfb3ZzLXZzY3RsIHNldCBPcGVuX3ZTd2l0Y2ggLiBvdGhlcl9jb25maWc6aHctb2ZmbG9hZC1jdC11bmlkaXItdWRwLWVuYWJsZWQ9dHJ1ZQoKIyBzZXR1cCBvdm5rdWJlIG1hbmFnZWQgYnJpZGdlLCBici1kcHUgKHRoaXMgY29ycmVzcG9uZHMgdG8gYnItZXggb24gb3ZuayBkb2NzKQpfb3ZzLXZzY3RsIC0tbWF5LWV4aXN0IGFkZC1iciBici1kcHUKX292cy12c2N0bCBici1zZXQtZXh0ZXJuYWwtaWQgYnItZHB1IGJyaWRnZS1pZCBici1kcHUKX292cy12c2N0bCBici1zZXQtZXh0ZXJuYWwtaWQgYnItZHB1IGJyaWRnZS11cGxpbmsgcGJyZHB1dG9icm92bgpfb3ZzLXZzY3RsIHNldCBicmlkZ2UgYnItZHB1IGRhdGFwYXRoX3R5cGU9bmV0ZGV2Cl9vdnMtdnNjdGwgLS1tYXktZXhpc3QgYWRkLXBvcnQgYnItZHB1IHBmMGhwZgpfb3ZzLXZzY3RsIHNldCBJbnRlcmZhY2UgcGYwaHBmIG10dV9yZXF1ZXN0PTkyMTYKX292cy12c2N0bCBzZXQgSW50ZXJmYWNlIHBmMGhwZiB0eXBlPWRwZGsKCiMgQ3JlYXRlIHN3aXRjaGluZyBPVlMgYnJpZGdlIGluIGJldHdlZW4gdGhlIFNDIG1hbmFnZWQgYnJpZGdlIGFuZCBPVk5LCl9vdnMtdnNjdGwgLS1tYXktZXhpc3QgYWRkLWJyIGJyLW92bgpfb3ZzLXZzY3RsIHNldCBicmlkZ2UgYnItb3ZuIGRhdGFwYXRoX3R5cGU9bmV0ZGV2Cl9vdnMtdnNjdGwgLS1tYXktZXhpc3QgYWRkLXBvcnQgYnItb3ZuIHBicm92bnRvYnJkcHUKX292cy12c2N0bCAtLW1heS1leGlzdCBhZGQtcG9ydCBici1kcHUgcGJyZHB1dG9icm92bgoKIyBQYXRjaCBici1vdm4gYW5kIGJyLWRwdSB0b2dldGhlcgpfb3ZzLXZzY3RsIHNldCBpbnRlcmZhY2UgcGJyb3ZudG9icmRwdSB0eXBlPXBhdGNoIG9wdGlvbnM6cGVlcj1wYnJkcHV0b2Jyb3ZuCl9vdnMtdnNjdGwgc2V0IGludGVyZmFjZSBwYnJkcHV0b2Jyb3ZuIHR5cGU9cGF0Y2ggb3B0aW9uczpwZWVyPXBicm92bnRvYnJkcHUKCg==
+    rawConfigScript: |
+      #!/bin/bash
+      _ovs-vsctl() {
+        ovs-vsctl --no-wait --timeout 15 "$@"
+      }
+      _ovs-vsctl set Open_vSwitch . other_config:doca-init=true
+      _ovs-vsctl set Open_vSwitch . other_config:dpdk-max-memzones=50000
+      _ovs-vsctl set Open_vSwitch . other_config:hw-offload=true
+      _ovs-vsctl set Open_vSwitch . other_config:pmd-quiet-idle=true
+      _ovs-vsctl set Open_vSwitch . other_config:max-idle=20000
+      _ovs-vsctl set Open_vSwitch . other_config:max-revalidator=5000
+      _ovs-vsctl --if-exists del-br ovsbr1
+      _ovs-vsctl --if-exists del-br ovsbr2
+      _ovs-vsctl --may-exist add-br br-sfc
+      _ovs-vsctl set bridge br-sfc datapath_type=netdev
+      _ovs-vsctl set bridge br-sfc fail_mode=secure
+      _ovs-vsctl --may-exist add-port br-sfc p0
+      _ovs-vsctl set Interface p0 type=dpdk
+      _ovs-vsctl set Interface p0 mtu_request=9216
+      _ovs-vsctl set Port p0 external_ids:dpf-type=physical
+      _ovs-vsctl --may-exist add-port br-sfc p1
+      _ovs-vsctl set Interface p1 type=dpdk
+      _ovs-vsctl set Interface p1 mtu_request=9216
+      _ovs-vsctl set Port p1 external_ids:dpf-type=physical
+
+      # Activate DOCA for OVNK
+      _ovs-vsctl set Open_vSwitch . external-ids:ovn-bridge-datapath-type=netdev
+      _ovs-vsctl set Open_vSwitch . other_config:hw-offload-ct-unidir-udp-enabled=true
+
+      # setup ovnkube managed bridge, br-dpu (this corresponds to br-ex on ovnk docs)
+      _ovs-vsctl --may-exist add-br br-dpu
+      _ovs-vsctl br-set-external-id br-dpu bridge-id br-dpu
+      _ovs-vsctl br-set-external-id br-dpu bridge-uplink pbrdputobrovn
+      _ovs-vsctl set bridge br-dpu datapath_type=netdev
+      _ovs-vsctl --may-exist add-port br-dpu pf0hpf
+      _ovs-vsctl set Interface pf0hpf mtu_request=9216
+      _ovs-vsctl set Interface pf0hpf type=dpdk
+
+      # Create switching OVS bridge in between the SC managed bridge and OVNK
+      _ovs-vsctl --may-exist add-br br-ovn
+      _ovs-vsctl set bridge br-ovn datapath_type=netdev
+      _ovs-vsctl --may-exist add-port br-ovn pbrovntobrdpu
+      _ovs-vsctl --may-exist add-port br-dpu pbrdputobrovn
+
+      # Patch br-ovn and br-dpu together
+      _ovs-vsctl set interface pbrovntobrdpu type=patch options:peer=pbrdputobrovn
+      _ovs-vsctl set interface pbrdputobrovn type=patch options:peer=pbrovntobrdpu
+
