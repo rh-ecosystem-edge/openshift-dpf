@@ -3,6 +3,8 @@ kind: DPUFlavor
 metadata:
   name: flavor
   namespace: dpf-operator-system
+  annotations:
+    provisioning.dpu.nvidia.com/skip-bfcfg-size-check: ""
 spec:
   bfcfgParameters:
     - UPDATE_ATF_UEFI=yes
