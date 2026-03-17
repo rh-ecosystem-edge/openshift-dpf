@@ -12,6 +12,14 @@ spec:
     name: <HOSTED_CLUSTER_NAME>
     namespace: dpf-operator-system
 
+  # Reference to DPUDeployment CR (created by DPF operator)
+  dpuDeploymentRef:
+    name: dpudeployment
+    namespace: dpf-operator-system
+
+  # BlueField ocp image layer
+  machineOSURL: <BLUEFIELD_OCP_IMAGE>
+
   # Storage class for etcd
   etcdStorageClass: <ETCD_STORAGE_CLASS>
 
