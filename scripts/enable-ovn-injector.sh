@@ -35,6 +35,7 @@ helm template -n ${OVNK_NAMESPACE} ovn-kubernetes \
     --set ovn-kubernetes-resource-injector.resourceName="${INJECTOR_RESOURCE_NAME}" \
     --set ovn-kubernetes-resource-injector.prioritizeOffloading=false \
     --set ovn-kubernetes-resource-injector.controllerManager.hostNetwork=true \
+    --set "ovn-kubernetes-resource-injector.controllerManager.webhook.args={--leader-elect,--metrics-bind-address=:29091}" \
     --set nodeWithDPUManifests.enabled=false \
     --set nodeWithoutDPUManifests.enabled=false \
     --set dpuManifests.enabled=false \
