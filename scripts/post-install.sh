@@ -328,11 +328,11 @@ function apply_post_installation() {
                     log [INFO] "Applying SCC to hosted cluster: ${filename}"
                     local saved_kubeconfig="${KUBECONFIG}"
                     export KUBECONFIG="${HOSTED_CLUSTER_NAME}.kubeconfig"
-                    apply_manifest "$file" "true"
+                    retry 5 30  apply_manifest "$file" "true"
                     export KUBECONFIG="${saved_kubeconfig}"
                 else
                     log [INFO] "Applying post-installation manifest: ${filename}"
-                    apply_manifest "$file" "true"
+                    retry 5 30  apply_manifest "$file" "true"
                 fi
             fi
         fi
