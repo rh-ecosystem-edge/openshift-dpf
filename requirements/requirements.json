@@ -673,6 +673,30 @@
         "type/functional"
       ],
       "subtasks": []
+    },
+    {
+      "id": "REQ-057",
+      "requirement": "DPF on OCP provisions DPUs with DOCA 3.4.0",
+      "description": "",
+      "test_description": "",
+      "test_implementation": "",
+      "labels": [
+        "area/bfb",
+        "type/functional"
+      ],
+      "subtasks": []
+    },
+    {
+      "id": "REQ-058",
+      "requirement": "DPF on OCP provisions DPUs with a 64k page kernel",
+      "description": "",
+      "test_description": "",
+      "test_implementation": "",
+      "labels": [
+        "area/bfb",
+        "type/functional"
+      ],
+      "subtasks": []
     }
   ]
 }
