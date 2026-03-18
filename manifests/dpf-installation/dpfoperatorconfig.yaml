@@ -27,7 +27,6 @@ spec:
     flannelSkipCNIConfigInstallation: false
   provisioningController:
     hostAgentDNSPolicy: Default
-    bfCFGTemplateConfigMap: custom-bfb.cfg
     dmsTimeout: 900
     registry:
       port: 8086
