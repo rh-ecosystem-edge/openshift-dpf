@@ -263,7 +263,8 @@ function prepare_post_installation() {
         "${POST_INSTALL_DIR}/nodesriovdevicepluginconfig.yaml" \
         "${GENERATED_POST_INSTALL_DIR}/nodesriovdevicepluginconfig.yaml" \
         "<SRIOV_DP_CONFIG_NAME>" "${SRIOV_DP_CONFIG_NAME}" \
-        "<NUM_VFS_END>" "${vf_range_end}"
+        "<NUM_VFS_END>" "${vf_range_end}" \
+        "<SRIOV_DP_RESOURCE_PREFIX>" "${SRIOV_DP_RESOURCE_PREFIX}"
 
     # Copy remaining manifests using utility function (exclude special files)
     copy_manifests_with_exclusions "${POST_INSTALL_DIR}" "${GENERATED_POST_INSTALL_DIR}" "${SPECIAL_FILES[@]}"

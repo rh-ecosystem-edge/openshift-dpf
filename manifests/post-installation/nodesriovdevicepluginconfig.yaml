@@ -7,12 +7,14 @@ spec:
   devicePluginResources:
     - name: <SRIOV_DP_CONFIG_NAME>-mgmt
       type: vf
+      resourcePrefix: <SRIOV_DP_RESOURCE_PREFIX>
       ranges:
         - pfIndex: 0
           start: 1
           end: 1
     - name: <SRIOV_DP_CONFIG_NAME>
       type: vf
+      resourcePrefix: <SRIOV_DP_RESOURCE_PREFIX>
       options:
         isRdma: true
       ranges:
