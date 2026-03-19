@@ -1,0 +1,160 @@
+#
+# Copyright 2024 NVIDIA
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Release
+
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref to build (branch, tag, or commit SHA)"
+        required: false
+        default: "public-main"
+        type: string
+      tag:
+        description: "Version tag for images and charts (e.g. 25.4.0-abc1234). Defaults to 25.4.0-<short-sha>."
+        required: false
+        default: ""
+        type: string
+      dry_run:
+        description: "Dry run — build only, skip push"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  SOURCE_REPO: https://github.com/NVIDIA/doca-platform.git
+  REGISTRY: ghcr.io/rh-ecosystem-edge/openshift-dpf
+  HELM_REGISTRY: oci://ghcr.io/rh-ecosystem-edge/openshift-dpf/charts
+  CONTAINER_TOOL: docker
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      UPSTREAM_REGISTRY: ghcr.io/rh-ecosystem-edge/openshift-dpf
+    defaults:
+      run:
+        working-directory: source
+    steps:
+      # -----------------------------------------------------------------
+      # Clone the public source repository at the requested tag
+      # -----------------------------------------------------------------
+      - name: Clone source repository
+        run: |
+          git clone "${{ env.SOURCE_REPO }}" "$GITHUB_WORKSPACE/source"
+          cd "$GITHUB_WORKSPACE/source"
+          git checkout "${{ inputs.ref || 'public-main' }}"
+        working-directory: ${{ github.workspace }}
+
+      - name: Resolve tag
+        run: |
+          INPUT_TAG="${{ inputs.tag }}"
+          if [[ -n "${INPUT_TAG}" ]]; then
+            echo "TAG=${INPUT_TAG}" >> "$GITHUB_ENV"
+          else
+            SHORT_SHA=$(git rev-parse --short HEAD)
+            echo "TAG=26.4.0-${SHORT_SHA}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Verify checkout
+        run: |
+          echo "Repository : ${{ env.SOURCE_REPO }}"
+          echo "Ref        : ${{ inputs.ref || 'public-main' }}"
+          echo "Tag        : ${{ env.TAG }}"
+          echo "Commit     : $(git rev-parse HEAD)"
+
+      # -----------------------------------------------------------------
+      # Toolchain
+      # -----------------------------------------------------------------
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: source/go.mod
+          cache-dependency-path: source/go.sum
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64,amd64
+          image: tonistiigi/binfmt:qemu-v9.2.2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: |
+            image=moby/buildkit:latest
+            network=host
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Makefile installs tools into hack/tools/bin via tools.mk;
+      # caching avoids re-downloading on every run.
+      - name: Cache build tools and cloned repos
+        uses: actions/cache@v4
+        with:
+          path: |
+            source/hack/tools/bin
+            source/hack/repos
+          key: release-tools-${{ runner.os }}-${{ hashFiles('source/hack/tools/tools.mk') }}
+          restore-keys: |
+            release-tools-${{ runner.os }}-
+
+      # -----------------------------------------------------------------
+      # Build and push
+      # -----------------------------------------------------------------
+      - name: Build and push release
+        if: ${{ !inputs.dry_run }}
+        run: make release
+
+      - name: Build only (dry run)
+        if: ${{ inputs.dry_run }}
+        run: make release-build
+
+      # -----------------------------------------------------------------
+      # Summary
+      # -----------------------------------------------------------------
+      - name: Summary
+        if: always()
+        run: |
+          DRY="${{ inputs.dry_run }}"
+          echo "## Release ${{ env.TAG }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Source: \`${{ env.SOURCE_REPO }}\` @ \`${{ inputs.ref || 'public-main' }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Commit: \`$(git rev-parse HEAD)\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [[ "$DRY" == "true" ]]; then
+            echo "> **Dry run** — images and charts were built but NOT pushed." >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "### Container images" >> "$GITHUB_STEP_SUMMARY"
+          echo "All images pushed to \`${{ env.REGISTRY }}\` with tag \`${{ env.TAG }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Helm charts" >> "$GITHUB_STEP_SUMMARY"
+          echo "Pushed to \`${{ env.HELM_REGISTRY }}\`" >> "$GITHUB_STEP_SUMMARY"
+          ls -1 hack/charts/*.tgz 2>/dev/null | while read f; do
+            echo "- \`$(basename "$f")\`" >> "$GITHUB_STEP_SUMMARY"
+          done
