@@ -26,6 +26,7 @@ spec:
     # When using OpenShift Multus (default), Flannel needs to install CNI config
     flannelSkipCNIConfigInstallation: false
   provisioningController:
+    enableDynamicBFCFGTemplates: true
     hostAgentDNSPolicy: Default
     dmsTimeout: 900
     registry:
