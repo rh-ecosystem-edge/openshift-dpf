@@ -33,7 +33,7 @@ WORKER_SCRIPT := scripts/worker.sh
         add-worker-nodes worker-status approve-worker-csrs \
         deploy-csr-approver delete-csr-approver \
         delete-dpf-hcp-provisioner-operator \
-        verify-deployment verify-workers verify-dpu-nodes verify-dpudeployment \
+        verify-deployment verify-workers verify-dpu-nodes verify-dpudeployment verify-requirements \
         run-traffic-flow-tests tft-setup tft-cleanup tft-show-config tft-results aicli-list \
         validate-env-files generate-env
 
@@ -258,6 +258,12 @@ verify-dpu-nodes:
 verify-dpudeployment:
 	@$(VERIFY_SCRIPT) verify-dpudeployment
 
+verify-requirements:
+	@echo "================================================================================"
+	@echo "Running Requirements Verification..."
+	@echo "================================================================================"
+	@./requirements/verify-requirements.sh $(VERIFY_REQ_ARGS)
+
 validate-env-files:
 	@$(ENV_SCRIPT) validate-env-files
 
@@ -321,6 +327,12 @@ help:
 	@echo "  verify-workers        - Wait for worker nodes to be Ready in host cluster"
 	@echo "  verify-dpu-nodes      - Wait for DPU nodes to be Ready in DPUCluster"
 	@echo "  verify-dpudeployment  - Wait for DPUDeployment to be Ready"
+	@echo "  verify-requirements   - Run requirement tests and produce a report"
+	@echo "                          Use VERIFY_REQ_ARGS to pass options, e.g.:"
+	@echo "                            make verify-requirements VERIFY_REQ_ARGS='--verbose'"
+	@echo "                            make verify-requirements VERIFY_REQ_ARGS='REQ-001 REQ-049'"
+	@echo "                            make verify-requirements VERIFY_REQ_ARGS='--output report.md'"
+	@echo "                            make verify-requirements VERIFY_REQ_ARGS='--json'"
 	@echo ""
 	@echo "Traffic Flow Tests:"
 	@echo "  run-traffic-flow-tests - Run kubernetes-traffic-flow-tests for network validation"
