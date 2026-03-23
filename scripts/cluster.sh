@@ -263,32 +263,36 @@ function check_create_cluster() {
         
         ensure_ssh_key_in_home || return 1
         
+        local aicli_args=()
         if [ "$VM_COUNT" -eq 1 ]; then
             log "INFO" "Creating single-node cluster..."
-            aicli create cluster \
-                -P openshift_version="${OPENSHIFT_VERSION}" \
-                -P base_dns_domain="${BASE_DOMAIN}" \
-                -P pull_secret="${OPENSHIFT_PULL_SECRET}" \
-                -P high_availability_mode=None \
-		-P public_key="${SSH_KEY}" \
-                -P user_managed_networking=True \
-		--paramfile "${STATIC_NET_FILE}" \
-                "${CLUSTER_NAME}"
+            aicli_args=(
+                -P openshift_version="${OPENSHIFT_VERSION}"
+                -P base_dns_domain="${BASE_DOMAIN}"
+                -P pull_secret="${OPENSHIFT_PULL_SECRET}"
+                -P high_availability_mode=None
+                -P public_key="${SSH_KEY}"
+                -P user_managed_networking=True
+            )
         else
             log "INFO" "Creating multi-node cluster..."
             validate_vips
             echo "API_VIPS: ${API_VIPS}"
             echo "INGRESS_VIPS: ${INGRESS_VIPS}"
-            aicli create cluster \
-                -P openshift_version="${OPENSHIFT_VERSION}" \
-                -P base_dns_domain="${BASE_DOMAIN}" \
-                -P api_vips="${API_VIPS}" \
-                -P pull_secret="${OPENSHIFT_PULL_SECRET}" \
-                -P public_key="${SSH_KEY}" \
-                -P ingress_vips="${INGRESS_VIPS}" \
-                --paramfile "${STATIC_NET_FILE}" \
-                "${CLUSTER_NAME}"
+            aicli_args=(
+                -P openshift_version="${OPENSHIFT_VERSION}"
+                -P base_dns_domain="${BASE_DOMAIN}"
+                -P api_vips="${API_VIPS}"
+                -P pull_secret="${OPENSHIFT_PULL_SECRET}"
+                -P public_key="${SSH_KEY}"
+                -P ingress_vips="${INGRESS_VIPS}"
+            )
         fi
+        if [[ "${VM_STATIC_IP}" == "true" ]]; then
+            aicli_args+=(--paramfile "${STATIC_NET_FILE}")
+        fi
+        aicli_args+=("${CLUSTER_NAME}")
+        aicli create cluster "${aicli_args[@]}"
         
         log "INFO" "Cluster ${CLUSTER_NAME} created successfully"
     else
