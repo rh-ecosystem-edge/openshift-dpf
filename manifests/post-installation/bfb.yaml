@@ -8,7 +8,7 @@ spec:
   fileName: <BFB_FILENAME>
   url: <BFB_URL>
   versions:
-    atf: 4.12.0-27-gd9bafc95f
-    bsp: 4.12.0.13754
-    doca: 3.1.0
-    uefi: 4.12.0-19-gdd4c9d8a10
+    atf: 4.13.1-0-g5fcb148df
+    bsp: 4.13.1.13827
+    doca: 3.2.0
+    uefi: 4.13.1-14-g8a01157b7f
