@@ -5,6 +5,14 @@ metadata:
   name: argocd
   namespace: dpf-operator-system
 spec:
+  resourceExclusions: |
+    - apiGroups:
+      - packages.operators.coreos.com
+      kinds:
+      - PackageManifest
+      clusters:
+      - "*"
+
   nodePlacement:
     nodeSelector:
       node-role.kubernetes.io/control-plane: ""

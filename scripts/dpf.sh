@@ -200,6 +200,7 @@ function deploy_dpf_hcp_provisioner_operator() {
         "${DPF_HCP_PROVISIONER_OPERATOR_CHART_URL}" \
         --namespace ${DPF_HCP_PROVISIONER_OPERATOR_NAMESPACE} \
         --create-namespace \
+        --disable-openapi-validation \
         ${version_flag} \
         --set image.repository=${DPF_HCP_PROVISIONER_OPERATOR_IMAGE_REPO} \
         --set image.tag=${DPF_HCP_PROVISIONER_OPERATOR_IMAGE_TAG}; then
@@ -498,6 +499,7 @@ function deploy_maintenance_operator() {
     helm upgrade --install maintenance-operator oci://ghcr.io/mellanox/maintenance-operator-chart \
         --namespace dpf-operator-system \
         --create-namespace \
+        --disable-openapi-validation \
         --version ${MAINTENANCE_OPERATOR_VERSION} \
         --values "${HELM_CHARTS_DIR}/maintenance-operator-values.yaml" \
         --wait
@@ -596,6 +598,7 @@ function apply_dpf() {
         ${HELM_ARGS} \
         --namespace dpf-operator-system \
         --create-namespace \
+        --disable-openapi-validation \
         --values "${HELM_CHARTS_DIR}/dpf-operator-values.yaml"; then
         
         log "INFO" "Helm release 'dpf-operator' deployed successfully"
