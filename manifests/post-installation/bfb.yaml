@@ -7,3 +7,8 @@ metadata:
 spec:
   fileName: <BFB_FILENAME>
   url: <BFB_URL>
+  versions:
+    atf: 4.13.1-0-g5fcb148df
+    bsp: 4.13.1.13827
+    doca: 3.2.0
+    uefi: 4.13.1-14-g8a01157b7f

@@ -169,6 +169,12 @@ function set_node_nmstate() {
     if [ -f "$STATIC_NET_FILE" ]; then
         rm "$STATIC_NET_FILE"
     fi
+
+    if [[ "${VM_STATIC_IP}" != "true" ]] && [[ "${NODES_MTU}" == "1500" || -z "${NODES_MTU}" ]]; then
+        log "INFO" "MTU is 1500 and no static IP configured, skipping NMState configuration"
+        return 0
+    fi
+
     echo "static_network_config:" >> "$STATIC_NET_FILE"
 
     if [[ "${VM_STATIC_IP}" == "true" ]]; then
@@ -258,6 +264,11 @@ function check_create_cluster() {
 
     set_node_nmstate
 
+    local paramfile_args=()
+    if [ -f "$STATIC_NET_FILE" ]; then
+        paramfile_args=(--paramfile "${STATIC_NET_FILE}")
+    fi
+
     if ! aicli info cluster ${CLUSTER_NAME} >/dev/null 2>&1; then
         log "INFO" "Cluster ${CLUSTER_NAME} not found, creating..."
         
@@ -272,7 +283,7 @@ function check_create_cluster() {
                 -P high_availability_mode=None \
 		-P public_key="${SSH_KEY}" \
                 -P user_managed_networking=True \
-		--paramfile "${STATIC_NET_FILE}" \
+		"${paramfile_args[@]}" \
                 "${CLUSTER_NAME}"
         else
             log "INFO" "Creating multi-node cluster..."
@@ -286,7 +297,7 @@ function check_create_cluster() {
                 -P pull_secret="${OPENSHIFT_PULL_SECRET}" \
                 -P public_key="${SSH_KEY}" \
                 -P ingress_vips="${INGRESS_VIPS}" \
-                --paramfile "${STATIC_NET_FILE}" \
+                "${paramfile_args[@]}" \
                 "${CLUSTER_NAME}"
         fi
         
