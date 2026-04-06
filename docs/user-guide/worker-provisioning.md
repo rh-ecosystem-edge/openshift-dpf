@@ -224,6 +224,84 @@ You can also deploy the auto-approver manually at any time:
 make deploy-csr-approver
 ```
 
+## VM-Based Workers (Assisted Installer Day2 Flow)
+
+For lab and development environments without physical BMC-managed servers, you can add worker nodes as libvirt VMs using the Assisted Installer day2 flow.
+
+### How It Works
+
+1. The existing cluster is moved to "day2" mode in Assisted Installer
+2. A day2 ISO is downloaded that contains the worker discovery agent
+3. A libvirt VM is created and booted from this ISO
+4. The VM registers with Assisted Installer as a new host
+5. Installation is started on the host and it joins the cluster as a worker
+6. CSRs are approved (manually or automatically) to complete the join
+
+### Quick Start
+
+Add to your `.env` file:
+
+```bash
+# Number of worker VMs to create
+VM_WORKER_COUNT=1
+
+# Optional: customize worker VM resources
+VM_WORKER_RAM=16384
+VM_WORKER_VCPUS=8
+VM_WORKER_DISK_SIZE1=120
+VM_WORKER_DISK_SIZE2=80
+
+# Auto-approve CSRs (recommended for lab use)
+AUTO_APPROVE_WORKER_CSR=true
+```
+
+Run the full workflow:
+
+```bash
+make add-vm-workers
+```
+
+This single command handles the entire lifecycle: creates the day2 cluster, downloads the day2 ISO, creates the VM(s), waits for host registration, starts the installation, and handles CSR approval.
+
+### Step-by-Step (Manual)
+
+If you prefer to run each step individually:
+
+```bash
+# 1. Move cluster to day2 mode
+make create-day2-cluster
+
+# 2. Download the day2 ISO
+make download-day2-iso
+
+# 3. Create worker VM(s) from the day2 ISO
+make create-worker-vms
+
+# 4. Wait for hosts to register and install (monitor in another terminal)
+make worker-status
+```
+
+### Configuration Reference
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `VM_WORKER_COUNT` | Number of worker VMs to create | `0` |
+| `VM_WORKER_PREFIX` | VM name prefix for workers | `VM_PREFIX-worker` |
+| `VM_WORKER_RAM` | RAM in MB for worker VMs | Same as `RAM` |
+| `VM_WORKER_VCPUS` | vCPUs for worker VMs | Same as `VCPUS` |
+| `VM_WORKER_DISK_SIZE1` | Primary disk size in GB | Same as `DISK_SIZE1` |
+| `VM_WORKER_DISK_SIZE2` | Secondary disk size in GB | Same as `DISK_SIZE2` |
+
+### Cleanup
+
+```bash
+# Delete worker VMs only
+make delete-worker-vms
+
+# Or delete everything (includes worker VMs)
+make clean-all
+```
+
 ## Next Steps
 
 - **Complete Deployment**: See [Getting Started](getting-started.md) for full cluster setup

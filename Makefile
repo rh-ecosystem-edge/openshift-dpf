@@ -28,6 +28,7 @@ WORKER_SCRIPT := scripts/worker.sh
         download-iso fix-yaml-spacing create-vms delete-vms enable-storage cluster-install wait-for-ready \
         wait-for-installed wait-for-status cluster-start clean-all deploy-dpf kubeconfig kubeadmin-password deploy-nfd \
         install-hypershift install-helm deploy-dpu-services prepare-dpu-files upgrade-dpf create-day2-cluster get-day2-iso \
+        download-day2-iso create-worker-vms delete-worker-vms add-vm-workers install-day2-hosts \
         redeploy-dpu enable-ovn-injector deploy-argocd deploy-maintenance-operator configure-flannel \
         deploy-core-operator-sources deploy-metallb deploy-lso deploy-odf deploy-lvms run-dpf-sanity \
         add-worker-nodes worker-status approve-worker-csrs \
@@ -89,6 +90,43 @@ create-vms: download-iso
 
 delete-vms:
 	@$(VM_SCRIPT) delete
+
+
+download-day2-iso: create-day2-cluster
+	@$(CLUSTER_SCRIPT) download-day2-iso
+
+create-worker-vms: download-day2-iso
+	@$(VM_SCRIPT) create-worker-vms
+
+delete-worker-vms:
+	@$(VM_SCRIPT) delete-worker-vms
+
+add-vm-workers:
+	@if [ "$(VM_WORKER_COUNT)" = "0" ] || [ -z "$(VM_WORKER_COUNT)" ]; then \
+		echo "VM_WORKER_COUNT=0, skipping VM worker provisioning"; \
+	else \
+		$(MAKE) create-worker-vms; \
+		echo "================================================================================"; \
+		echo "Adding VM worker nodes via Assisted Installer day2 flow..."; \
+		echo "================================================================================"; \
+		$(CLUSTER_SCRIPT) install-day2-hosts; \
+		if [ "$(AUTO_APPROVE_WORKER_CSR)" = "true" ]; then \
+			echo ""; \
+			echo "AUTO_APPROVE_WORKER_CSR=true - Deploying CSR auto-approver CronJob..."; \
+			$(WORKER_SCRIPT) deploy-csr-auto-approver; \
+		else \
+			echo ""; \
+			$(WORKER_SCRIPT) display-manual-csr-instructions; \
+		fi; \
+		echo ""; \
+		echo "================================================================================"; \
+		echo "VM worker node provisioning complete!"; \
+		echo "Run 'make worker-status' to verify nodes joined the cluster."; \
+		echo "================================================================================"; \
+	fi
+
+install-day2-hosts:
+	@$(CLUSTER_SCRIPT) install-day2-hosts
 
 cluster-start:
 	@$(CLUSTER_SCRIPT) start-cluster-installation
@@ -282,6 +320,11 @@ help:
 	@echo "VM Management:"
 	@echo "  create-vms        - Create virtual machines for the cluster"
 	@echo "  delete-vms        - Delete virtual machines"
+	@echo "  add-vm-workers    - Add VM worker nodes via Assisted Installer day2 flow (full lifecycle)"
+	@echo "  create-worker-vms - Create worker VMs from day2 ISO (idempotent, skips existing VMs)"
+	@echo "  delete-worker-vms - Delete worker VMs"
+	@echo "  download-day2-iso - Download day2 ISO for worker VMs (depends on create-day2-cluster)"
+	@echo "  install-day2-hosts - Bind and start installation for discovered day2 hosts"
 	@echo ""
 	@echo "Installation and Status:"
 	@echo "  cluster-install   - Start cluster installation (includes waiting for ready and installed status)"
@@ -362,6 +405,14 @@ help:
 	@echo "  VCPUS            - Number of vCPUs for VMs (default: $(VCPUS))"
 	@echo "  DISK_SIZE1       - Primary disk size in GB (default: $(DISK_SIZE1))"
 	@echo "  DISK_SIZE2       - Secondary disk size in GB (default: $(DISK_SIZE2))"
+	@echo ""
+	@echo "VM Worker Configuration (day2 Assisted Installer flow):"
+	@echo "  VM_WORKER_COUNT      - Number of worker VMs to create (default: 0)"
+	@echo "  VM_WORKER_PREFIX     - VM name prefix for workers (default: VM_PREFIX-worker)"
+	@echo "  VM_WORKER_RAM        - RAM in MB for worker VMs (default: same as RAM)"
+	@echo "  VM_WORKER_VCPUS      - Number of vCPUs for worker VMs (default: same as VCPUS)"
+	@echo "  VM_WORKER_DISK_SIZE1 - Primary disk size in GB for worker VMs (default: same as DISK_SIZE1)"
+	@echo "  VM_WORKER_DISK_SIZE2 - Secondary disk size in GB for worker VMs (default: same as DISK_SIZE2)"
 	@echo ""
 	@echo "DPF Configuration:"
 	@echo "  DPF_VERSION      - DPF operator version (default: $(DPF_VERSION))"

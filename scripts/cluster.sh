@@ -164,6 +164,42 @@ function build_dns_yaml() {
     done
 }
 
+# Shared helper: appends DHCP NMState entries for a set of VMs.
+# Args: output_file vm_count vm_prefix mac_offset
+_generate_nmstate_dhcp_entries() {
+    local output_file="$1"
+    local count="$2"
+    local vm_prefix="$3"
+    local mac_offset="${4:-0}"
+
+    for i in $(seq 1 "$count"); do
+        local vm_name="${vm_prefix}${i}"
+        local mac_index=$(( mac_offset + i ))
+        local unique_mac
+
+        if [ -n "$MAC_PREFIX" ]; then
+            unique_mac="52:54:00:${MAC_PREFIX}:$(printf '%02x' "$mac_index")"
+        elif ! unique_mac=$(generate_mac_from_machine_id "$vm_name"); then
+            log "ERROR" "Failed to generate MAC for $vm_name"
+            return 1
+        fi
+
+        log "INFO" "$vm_name: MAC=$unique_mac, MTU=${NODES_MTU}"
+
+        cat << EOF >> "$output_file"
+        - interfaces:
+           - name: ${PRIMARY_IFACE}
+             type: ethernet
+             state: up
+             mtu: ${NODES_MTU}
+             mac-address: '${unique_mac}'
+             ipv4:
+               dhcp: true
+               enabled: true
+EOF
+    done
+}
+
 function set_node_nmstate() {
 
     if [ -f "$STATIC_NET_FILE" ]; then
@@ -227,30 +263,7 @@ EOF
     fi
 
     # Default: DHCP mode
-    for i in $(seq 1 "$VM_COUNT"); do
-        VM_NAME="${VM_PREFIX}${i}"
-
-        if [ -n "$MAC_PREFIX" ]; then
-            UNIQUE_MAC="52:54:00:${MAC_PREFIX}:$(printf '%02x' "$i")"
-        elif ! UNIQUE_MAC=$(generate_mac_from_machine_id "$VM_NAME"); then
-            log "ERROR" "Failed to generate MAC for $VM_NAME"
-            return 1
-        fi
-
-        log "INFO" "Set MAC: $UNIQUE_MAC ,Will be set on VM: $VM_NAME"
-
-        cat << EOF >> "$STATIC_NET_FILE"
-        - interfaces: 
-           - name: ${PRIMARY_IFACE}
-             type: ethernet
-             state: up
-             mtu: ${NODES_MTU}
-             mac-address: '${UNIQUE_MAC}'
-             ipv4:
-               dhcp: true
-               enabled: true
-EOF
-    done
+    _generate_nmstate_dhcp_entries "$STATIC_NET_FILE" "$VM_COUNT" "$VM_PREFIX" 0
 }
 
 function check_create_cluster() {
@@ -663,6 +676,104 @@ function get_iso() {
 }
 
 # -----------------------------------------------------------------------------
+# Day2 VM worker host lifecycle functions
+# -----------------------------------------------------------------------------
+
+function get_day2_cluster_id() {
+    local cluster_id
+    cluster_id=$(aicli -o json list clusters 2>/dev/null \
+        | jq -r --arg name "${CLUSTER_NAME}" '.[] | select(.name == $name and .status == "adding-hosts") | .id' \
+        | head -1)
+
+    if [ -z "${cluster_id}" ]; then
+        log "ERROR" "No day2 cluster found for ${CLUSTER_NAME} (status: adding-hosts)"
+        return 1
+    fi
+    echo "${cluster_id}"
+}
+
+function get_day2_infra_env_id() {
+    local infra_env_id
+    infra_env_id=$(aicli -o json list infraenvs 2>/dev/null \
+        | jq -r --arg name "${CLUSTER_NAME}" \
+          '.[] | select(.name == ($name + "_infra-env") or .name == $name) | .id' \
+        | head -1)
+
+    if [ -z "${infra_env_id}" ]; then
+        log "ERROR" "No InfraEnv found for cluster ${CLUSTER_NAME}"
+        return 1
+    fi
+    echo "${infra_env_id}"
+}
+
+function install_day2_hosts() {
+    local expected_count="${VM_WORKER_COUNT:-0}"
+    if [ "${expected_count}" -eq 0 ]; then
+        log "INFO" "VM_WORKER_COUNT=0, skipping day2 host installation"
+        return 0
+    fi
+
+    local cluster_id infra_env_id
+    cluster_id=$(get_day2_cluster_id) || return 1
+    infra_env_id=$(get_day2_infra_env_id) || return 1
+
+    # Wait for hosts to register via InfraEnv
+    log "INFO" "Waiting for ${expected_count} day2 host(s) to register..."
+    _check_hosts_registered() {
+        local count
+        count=$(aicli -o json list hosts 2>/dev/null \
+            | jq -r --arg ieid "${infra_env_id}" \
+              '[.[] | select(.infra_env_id == $ieid and .status == "known")] | length') || count=0
+        log "INFO" "Day2 hosts registered: ${count}/${expected_count}"
+        [ "${count}" -ge "${expected_count}" ]
+    }
+    if ! retry 60 30 _check_hosts_registered; then
+        log "ERROR" "Timeout waiting for day2 host(s) to register"
+        return 1
+    fi
+
+    # Bind unbound hosts to the cluster, then start installation
+    _bind_and_start_hosts() {
+        local host_ids
+        host_ids=$(aicli -o json list hosts 2>/dev/null \
+            | jq -r --arg ieid "${infra_env_id}" \
+              '.[] | select(.infra_env_id == $ieid and .status == "known" and (.cluster_id == null or .cluster_id == "")) | .id')
+        for host_id in ${host_ids}; do
+            log "INFO" "Binding host ${host_id} to cluster ${CLUSTER_NAME}..."
+            aicli bind host "${host_id}" --cluster "${CLUSTER_NAME}" || true
+        done
+
+        host_ids=$(aicli -o json list hosts 2>/dev/null \
+            | jq -r --arg cid "${cluster_id}" \
+              '.[] | select(.cluster_id == $cid and .status == "known") | .id')
+        for host_id in ${host_ids}; do
+            log "INFO" "Starting installation for host ${host_id}..."
+            aicli start host "${host_id}" || true
+        done
+    }
+
+    log "INFO" "Binding and installing day2 hosts..."
+    _bind_and_start_hosts
+
+    log "INFO" "Waiting for ${expected_count} day2 host(s) to complete installation..."
+    _check_hosts_installed() {
+        _bind_and_start_hosts
+        local installed_count
+        installed_count=$(aicli -o json list hosts 2>/dev/null \
+            | jq -r --arg cid "${cluster_id}" \
+              '[.[] | select(.cluster_id == $cid and (.status == "installed" or .status == "added-to-existing-cluster"))] | length') || installed_count=0
+        log "INFO" "Day2 hosts installed: ${installed_count}/${expected_count}"
+        [ "${installed_count}" -ge "${expected_count}" ]
+    }
+    if ! retry 120 60 _check_hosts_installed; then
+        log "ERROR" "Timeout waiting for day2 hosts to complete installation"
+        return 1
+    fi
+
+    log "INFO" "All ${expected_count} day2 host(s) installed successfully"
+}
+
+# -----------------------------------------------------------------------------
 # Command dispatcher
 # -----------------------------------------------------------------------------
 function main() {
@@ -692,15 +803,29 @@ function main() {
             clean_all
             ;;
         download-iso)
-            # Download ISO for master nodes
             get_iso "${CLUSTER_NAME}" "day1" "download"
             ;;
         get-day2-iso)
-            # Get worker ISO URL
             get_iso "${CLUSTER_NAME}" "day2" "url"
+            ;;
+        download-day2-iso)
+            # Apply worker NMState (MTU) to InfraEnv before downloading the ISO
+            if [ "${VM_WORKER_COUNT:-0}" -gt 0 ] && [ "${NODES_MTU}" != "1500" ]; then
+                log "INFO" "Generating worker NMState config (MTU=${NODES_MTU})..."
+                rm -f "$WORKER_STATIC_NET_FILE"
+                echo "static_network_config:" >> "$WORKER_STATIC_NET_FILE"
+                _generate_nmstate_dhcp_entries "$WORKER_STATIC_NET_FILE" "$VM_WORKER_COUNT" "$VM_WORKER_PREFIX" "$VM_COUNT"
+                local infra_env_id
+                infra_env_id=$(get_day2_infra_env_id) || exit 1
+                aicli update infraenv "${infra_env_id}" --paramfile "${WORKER_STATIC_NET_FILE}"
+            fi
+            get_iso "${CLUSTER_NAME}" "day2" "download"
             ;;
         create-day2-cluster)
             create_day2_cluster
+            ;;
+        install-day2-hosts)
+            install_day2_hosts
             ;;
         deploy-lso)
             deploy_lso
@@ -711,7 +836,10 @@ function main() {
         *)
             log "Unknown command: $command"
             log "Available commands: check-create-cluster, delete-cluster, cluster-install,"
-            log "  wait-for-status, get-kubeconfig, get-kubeadmin-password, clean-all, download-iso, create-day2-cluster, get-day2-iso, deploy-lso, deploy-odf"
+            log "  wait-for-status, get-kubeconfig, get-kubeadmin-password, clean-all,"
+            log "  download-iso, download-day2-iso, create-day2-cluster, get-day2-iso,"
+            log "  install-day2-hosts,"
+            log "  deploy-lso, deploy-odf"
             exit 1
             ;;
     esac
