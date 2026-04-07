@@ -1,11 +1,11 @@
 apiVersion: operators.coreos.com/v1alpha1
 kind: CatalogSource
 metadata:
-  name: redhat-operators-v419
+  name: redhat-operators-v<OLM_VERSION>
   namespace: openshift-marketplace
 spec:
-  displayName: Red Hat Operators v4.19
-  image: registry.redhat.io/redhat/redhat-operator-index:v4.19
+  displayName: Red Hat Operators v<OLM_VERSION>
+  image: registry.redhat.io/redhat/redhat-operator-index:v<OLM_VERSION>
   priority: -100
   publisher: Red Hat
   sourceType: grpc

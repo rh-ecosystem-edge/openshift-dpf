@@ -368,6 +368,12 @@ function start_cluster_installation() {
     aicli start cluster ${CLUSTER_NAME}
     log "INFO" "Waiting for cluster to be finalizing..."
     wait_for_cluster_status "finalizing"
+
+    if [[ "${OLM_WORKAROUND}" == "true" ]] && [[ "${STORAGE_TYPE}" != "odf" ]] && [[ "${SKIP_DEPLOY_STORAGE}" != "true" ]]; then
+        log "INFO" "OLM_WORKAROUND=true: deploying LVM via subscription (using catalog ${CATALOG_SOURCE_NAME})"
+        deploy_lvm
+    fi
+
     log "INFO" "Waiting for installation to complete..."
     wait_for_cluster_status "installed"
     log "INFO" "Cluster installation completed successfully"
@@ -473,6 +479,47 @@ function validate_storage_classes_available() {
     fi
     log "INFO" "Required StorageClass(es) present: ETCD_STORAGE_CLASS=${ETCD_STORAGE_CLASS}"
     return 0
+}
+
+function deploy_lvm() {
+    log "INFO" "Deploying LVM Storage operator with catalog source ${CATALOG_SOURCE_NAME}..."
+    get_kubeconfig
+
+    if oc get subscription -n openshift-storage lvms-operator &>/dev/null; then
+        log "INFO" "LVMS subscription already exists. Skipping subscription deployment."
+    else
+        mkdir -p "$GENERATED_DIR"
+
+        process_template \
+            "${MANIFESTS_DIR}/cluster-installation/lvm/lvm-subscription.yaml" \
+            "${GENERATED_DIR}/lvm-subscription.yaml" \
+            "<CATALOG_SOURCE_NAME>" "${CATALOG_SOURCE_NAME}"
+
+        apply_manifest "${GENERATED_DIR}/lvm-subscription.yaml" true
+    fi
+
+    log "INFO" "Waiting for LVMS operator to be ready..."
+    wait_for_pods "openshift-storage" "app.kubernetes.io/name=lvms-operator" 60 10
+
+    log "INFO" "Waiting for LVMCluster CRD to be available..."
+    local retries=30
+    while ! oc get crd lvmclusters.lvm.topolvm.io &>/dev/null; do
+        retries=$((retries - 1))
+        if [ "$retries" -le 0 ]; then
+            log "ERROR" "LVMCluster CRD not available after waiting"
+            return 1
+        fi
+        sleep 10
+    done
+
+    if oc get lvmcluster -n openshift-storage my-lvmcluster &>/dev/null; then
+        log "INFO" "LVMCluster already exists. Skipping creation."
+    else
+        log "INFO" "Creating LVMCluster..."
+        apply_manifest "${MANIFESTS_DIR}/cluster-installation/lvm/lvmcluster.yaml" false
+    fi
+
+    log "INFO" "LVM Storage operator deployment completed."
 }
 
 function deploy_lso() {
@@ -705,13 +752,16 @@ function main() {
         deploy-lso)
             deploy_lso
             ;;
+        deploy-lvm)
+            deploy_lvm
+            ;;
         deploy-odf)
             deploy_odf
             ;;
         *)
             log "Unknown command: $command"
             log "Available commands: check-create-cluster, delete-cluster, cluster-install,"
-            log "  wait-for-status, get-kubeconfig, get-kubeadmin-password, clean-all, download-iso, create-day2-cluster, get-day2-iso, deploy-lso, deploy-odf"
+            log "  wait-for-status, get-kubeconfig, get-kubeadmin-password, clean-all, download-iso, create-day2-cluster, get-day2-iso, deploy-lso, deploy-lvm, deploy-odf"
             exit 1
             ;;
     esac
