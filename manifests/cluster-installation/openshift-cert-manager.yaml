@@ -23,5 +23,5 @@ spec:
   channel: stable-v1
   installPlanApproval: Automatic
   name: openshift-cert-manager-operator
-  source: redhat-operators
+  source: <CATALOG_SOURCE_NAME>
   sourceNamespace: openshift-marketplace

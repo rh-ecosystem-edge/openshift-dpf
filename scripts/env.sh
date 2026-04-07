@@ -133,10 +133,15 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     HOST_CLUSTER_API=${HOST_CLUSTER_API:-"api.$CLUSTER_NAME.$BASE_DOMAIN"}
     HOSTED_CONTROL_PLANE_NAMESPACE=${HOSTED_CONTROL_PLANE_NAMESPACE:-"${CLUSTERS_NAMESPACE}-${HOSTED_CLUSTER_NAME}"}
 
-    # OLM Catalog Source — conditional on USE_V419_WORKAROUND
+    # OLM Catalog Source — when OLM_WORKAROUND=true, use the previous OCP
+    # minor version's catalog (e.g. 4.20→4.19, 4.22→4.21).
     CATALOG_SOURCE_NAME=${CATALOG_SOURCE_NAME:-"redhat-operators"}
-    if [[ "${USE_V419_WORKAROUND}" == "true" ]]; then
-        CATALOG_SOURCE_NAME="redhat-operators-v419"
+    if [[ "${OLM_WORKAROUND}" == "true" ]]; then
+        _ocp_minor="${OPENSHIFT_VERSION#*.}"
+        _ocp_minor="${_ocp_minor%%.*}"
+        OLM_WORKAROUND_VERSION="${OPENSHIFT_VERSION%%.*}.$(( _ocp_minor - 1 ))"
+        CATALOG_SOURCE_NAME="redhat-operators-v${OLM_WORKAROUND_VERSION}"
+        unset _ocp_minor
     fi
 
     # Auto-resolve OVN-Kubernetes image from the aarch64 OCP release payload

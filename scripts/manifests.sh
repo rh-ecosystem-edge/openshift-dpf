@@ -50,11 +50,18 @@ function prepare_cluster_manifests() {
         "ovn-values.yaml"
         "ovn-values-with-injector.yaml"
         "nfd-subscription.yaml"
+        "openshift-cert-manager.yaml"
         "99-worker-bridge.yaml"
     )
 
-    if [ "${USE_V419_WORKAROUND}" != "true" ]; then
-        excluded_files+=("4.19-cataloguesource.yaml")
+    excluded_files+=("olm-catalogsource-template.yaml")
+
+    if [[ "${OLM_WORKAROUND}" == "true" ]]; then
+        log [INFO] "OLM_WORKAROUND enabled: generating catalog source for v${OLM_WORKAROUND_VERSION}"
+        update_file_multi_replace \
+            "$MANIFESTS_DIR/cluster-installation/olm-catalogsource-template.yaml" \
+            "$GENERATED_DIR/olm-catalogsource.yaml" \
+            "<OLM_VERSION>" "$OLM_WORKAROUND_VERSION"
     fi
 
     # Copy all manifests except excluded files using utility function
@@ -74,7 +81,10 @@ function prepare_cluster_manifests() {
 
     # Always copy Cert-Manager manifest (required for DPF operator)
     log [INFO] "Copying Cert-Manager manifest (required for DPF operator)..."
-    cp "$MANIFESTS_DIR/cluster-installation/openshift-cert-manager.yaml" "$GENERATED_DIR/"
+    update_file_multi_replace \
+        "$MANIFESTS_DIR/cluster-installation/openshift-cert-manager.yaml" \
+        "$GENERATED_DIR/openshift-cert-manager.yaml" \
+        "<CATALOG_SOURCE_NAME>" "$CATALOG_SOURCE_NAME"
 
     # Verify no Helm values files are in the generated directory before proceeding
     if find "$GENERATED_DIR" -maxdepth 1 -type f -name "*-values.yaml" | grep -q .; then
@@ -125,7 +135,7 @@ update_worker_manifest() {
 function deploy_core_operator_sources() {
     log [INFO] "Deploying NFD and SR-IOV subscriptions..."
     log [INFO] "Using catalog source: ${CATALOG_SOURCE_NAME}"
-    log [INFO] "Using v4.19 workaround: ${USE_V419_WORKAROUND}"
+    log [INFO] "OLM workaround: ${OLM_WORKAROUND}"
 
     mkdir -p "$GENERATED_DIR"
 
@@ -135,14 +145,15 @@ function deploy_core_operator_sources() {
         "<CATALOG_SOURCE_NAME>" "$CATALOG_SOURCE_NAME"
     apply_manifest "$GENERATED_DIR/nfd-subscription.yaml" true
 
-    if [[ "${USE_V419_WORKAROUND}" == "true" ]]; then
-        log [INFO] "Deploying v4.19 catalog source (workaround enabled)"
-        local catalog_file="$MANIFESTS_DIR/cluster-installation/4.19-cataloguesource.yaml"
-        if [ -f "$catalog_file" ]; then
-            apply_manifest "$catalog_file" true
-        fi
+    if [[ "${OLM_WORKAROUND}" == "true" ]]; then
+        log [INFO] "Deploying catalog source for v${OLM_WORKAROUND_VERSION} (OLM workaround enabled)"
+        update_file_multi_replace \
+            "$MANIFESTS_DIR/cluster-installation/olm-catalogsource-template.yaml" \
+            "$GENERATED_DIR/olm-catalogsource.yaml" \
+            "<OLM_VERSION>" "$OLM_WORKAROUND_VERSION"
+        apply_manifest "$GENERATED_DIR/olm-catalogsource.yaml" true
     else
-        log [INFO] "Skipping v4.19 catalog source deployment (using standard OLM)"
+        log [INFO] "Skipping OLM workaround catalog source (using standard OLM)"
     fi
 
     log [INFO] "Core operator sources deployed."
@@ -193,7 +204,10 @@ prepare_dpf_manifests() {
 
     # Copy cert-manager manifest (required for DPF deployment)
     log "INFO" "Copying Cert-Manager manifest (required for DPF operator)..."
-    cp "$MANIFESTS_DIR/cluster-installation/openshift-cert-manager.yaml" "$GENERATED_DIR/"
+    update_file_multi_replace \
+        "$MANIFESTS_DIR/cluster-installation/openshift-cert-manager.yaml" \
+        "$GENERATED_DIR/openshift-cert-manager.yaml" \
+        "<CATALOG_SOURCE_NAME>" "$CATALOG_SOURCE_NAME"
 
     update_file_multi_replace \
         "$GENERATED_DIR/static-dpucluster-template.yaml" \
