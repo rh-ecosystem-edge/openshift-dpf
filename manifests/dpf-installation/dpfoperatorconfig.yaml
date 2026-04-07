@@ -39,3 +39,4 @@ spec:
     replicas: 1
   staticClusterManager:
     disable: false
+  <FLANNEL_CONFIG>

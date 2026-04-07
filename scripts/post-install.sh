@@ -201,8 +201,10 @@ function update_service_templates() {
         fi
     done
     
-    # Update IPAM controller manifest
-    if [ -f "${POST_INSTALL_DIR}/dpu-node-ipam-controller.yaml" ]; then
+    # Update IPAM controller manifest (skip for OCP >= 4.22 where Hypershift handles node CIDR allocation natively)
+    if ocp_version_gte "${OPENSHIFT_VERSION}" "4.22"; then
+        log [INFO] "OCP ${OPENSHIFT_VERSION} >= 4.22: skipping dpu-node-ipam-controller (node CIDR allocation handled by Hypershift)"
+    elif [ -f "${POST_INSTALL_DIR}/dpu-node-ipam-controller.yaml" ]; then
         update_file_multi_replace \
             "${POST_INSTALL_DIR}/dpu-node-ipam-controller.yaml" \
             "${GENERATED_POST_INSTALL_DIR}/dpu-node-ipam-controller.yaml" \

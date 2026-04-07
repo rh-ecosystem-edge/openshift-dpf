@@ -246,6 +246,21 @@ prepare_dpf_manifests() {
         "<BFB_REGISTRY_ADDRESS>" "$bfb_registry_address" \
         "<SRIOV_DP_RESOURCE_PREFIX>" "$SRIOV_DP_RESOURCE_PREFIX"
     
+    # For OCP >= 4.22, Hypershift handles node CIDR allocation natively so
+    # the dpu-node-ipam-controller is not deployed.  Instead, tell DPF's
+    # Flannel the cluster CIDR that the provisioner operator configures on
+    # the HostedCluster.
+    local flannel_config=""
+    if ocp_version_gte "${OPENSHIFT_VERSION}" "4.22"; then
+        log "INFO" "OCP ${OPENSHIFT_VERSION} >= 4.22: setting flannel podCIDR to ${FLANNEL_POD_CIDR}"
+        flannel_config="flannel:
+    podCIDR: ${FLANNEL_POD_CIDR}"
+    fi
+    update_file_multi_replace \
+        "$GENERATED_DIR/dpfoperatorconfig.yaml" \
+        "$GENERATED_DIR/dpfoperatorconfig.yaml" \
+        "<FLANNEL_CONFIG>" "$flannel_config"
+
     if [ -n "$NODES_MTU" ] && [ "$NODES_MTU" == "9000" ]; then
         log "INFO" "Appending networking configuration with MTU: $NODES_MTU"
         cat >> "$GENERATED_DIR/dpfoperatorconfig.yaml" <<-EOF
