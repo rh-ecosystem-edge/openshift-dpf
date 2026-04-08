@@ -1,86 +1,112 @@
 #!/bin/bash
+set -e
 
-DEFAULT_MTU=1500
-NODES_MTU=${1:-$DEFAULT_MTU}
+BRIDGE_NAME="br-dpu"
+IP_HINT_FILE="/run/nodeip-configuration/primary-ip"
+TARGET_MTU="${1:-1500}"
 
-# Wait indefinitely for an interface to get an IP address and default route
-WAIT_INTERVAL=5  # Check interval in seconds
-ATTEMPT=1
-
-echo "Waiting for network configuration..."
-while true; do
-    # Check if we have an interface with a default route
-    DEFAULT_INTERFACE=$(ip route | grep default | awk '{print $5}' | head -n 1)
-
-    if [ -n "$DEFAULT_INTERFACE" ]; then
-        # Check if that interface has an IP address
-        IP_ADDR=$(ip addr show dev "$DEFAULT_INTERFACE" | grep -w "inet" | awk '{print $2}')
-
-        if [ -n "$IP_ADDR" ]; then
-            echo "Network is ready. Interface $DEFAULT_INTERFACE has IP address $IP_ADDR"
-            break
-        fi
-    fi
-
-    echo "Waiting for network configuration... (Attempt $ATTEMPT)"
-    sleep $WAIT_INTERVAL
-    ATTEMPT=$((ATTEMPT + 1))
-done
-
-# Check if the bridge already exists
-if ip link show br-dpu &>/dev/null; then
-    echo "Bridge br-dpu already exists. No need to configure it."
+validate_bridge_exists() {
+  if ip link show "$BRIDGE_NAME" &> /dev/null; then
+    echo "INFO: Bridge '$BRIDGE_NAME' already exists. Configuration assumed complete."
     exit 0
-fi
+  fi
+}
 
-# Find the interface that has the default route
-DEFAULT_INTERFACE=$(ip route | grep default | awk '{print $5}' | head -n 1)
+get_ip_from_ip_hint_file() {
+  local ip_hint_file="$1"
+  if [[ ! -f "${ip_hint_file}" ]]; then
+    echo "ERROR: IP Hint file not found at $ip_hint_file" >&2
+    exit 1
+  fi
+  cat "${ip_hint_file}"
+}
 
-if [ -z "$DEFAULT_INTERFACE" ]; then
-    echo "Error: Could not find interface with default route" >&2
+validate_bridge_exists
+
+IP_ADDR=$(get_ip_from_ip_hint_file "$IP_HINT_FILE")
+
+echo "INFO: Discovering interface data for IP: $IP_ADDR..."
+
+IFACE_DATA=$(ip -j addr show | jq -c ".[] | select(.ifname != \"$BRIDGE_NAME\") | select(any(.addr_info[]; .local==\"$IP_ADDR\"))")
+
+if [[ -z "$IFACE_DATA" || "$IFACE_DATA" == "null" ]]; then
+    echo "ERROR: No physical interface found with IP $IP_ADDR (excluding $BRIDGE_NAME)."
     exit 1
 fi
 
-echo "Found default interface: $DEFAULT_INTERFACE"
+IFACE_NAME=$(echo "$IFACE_DATA" | jq -r '.ifname')
+MAC_ADDR=$(echo "$IFACE_DATA" | jq -r '.address')
+PREFIX=$(echo "$IFACE_DATA" | jq -r ".addr_info[] | select(.local==\"$IP_ADDR\") | .prefixlen")
 
-# Create a temporary YAML file with the interface substituted
-TMP_FILE=$(mktemp)
+echo "INFO: Target Physical Interface: $IFACE_NAME"
+echo "INFO: MAC: $MAC_ADDR | IP: $IP_ADDR/$PREFIX"
 
-cat > "$TMP_FILE" << EOF
+if echo "$IFACE_DATA" | grep -q '"dynamic":true'; then
+    echo "INFO: Detected DHCP (dynamic) IP. Generating DHCP bridge config..."
+    cat <<EOF > /tmp/br-dpu-config.yml
 interfaces:
-  - name: br-dpu
+  - name: $BRIDGE_NAME
     type: linux-bridge
     state: up
-    mtu: $NODES_MTU
-    ipv6:
-      enabled: false
+    mac-address: $MAC_ADDR
+    mtu: $TARGET_MTU
     ipv4:
       enabled: true
       dhcp: true
-      auto-dns: true
-      auto-gateway: true
-      auto-routes: true
     bridge:
       options:
-        stp:
-          enabled: false
+        stp: { enabled: false }
       port:
-        - name: $DEFAULT_INTERFACE
-  - name: $DEFAULT_INTERFACE
+        - name: $IFACE_NAME
+  - name: $IFACE_NAME
     type: ethernet
     state: up
-    mtu: $NODES_MTU
+    mtu: $TARGET_MTU
+    ipv4: { enabled: false }
+    ipv6: { enabled: false }
 EOF
+else
+    echo "INFO: Detected STATIC IP. Generating Static bridge config..."
+    GATEWAY=$(ip route show dev "$IFACE_NAME" | awk '/default via/ {print $3}')
 
-echo "Created NMState configuration with interface $DEFAULT_INTERFACE"
-echo "Applying configuration using nmstatectl..."
+    cat <<EOF > /tmp/br-dpu-config.yml
+interfaces:
+  - name: $BRIDGE_NAME
+    type: linux-bridge
+    state: up
+    mac-address: $MAC_ADDR
+    mtu: $TARGET_MTU
+    ipv4:
+      enabled: true
+      dhcp: false
+      address:
+        - ip: $IP_ADDR
+          prefix-length: $PREFIX
+    bridge:
+      options:
+        stp: { enabled: false }
+      port:
+        - name: $IFACE_NAME
+  - name: $IFACE_NAME
+    type: ethernet
+    state: up
+    mtu: $TARGET_MTU
+    ipv4: { enabled: false }
+    ipv6: { enabled: false }
+routes:
+  config:
+    - destination: 0.0.0.0/0
+      next-hop-address: "$GATEWAY"
+      next-hop-interface: "$BRIDGE_NAME"
+EOF
+fi
 
-# Apply the configuration
-nmstatectl apply "$TMP_FILE"
-RESULT=$?
-
-# Clean up
-rm "$TMP_FILE"
-
-# Return the result
-exit $RESULT
+echo "INFO: Applying NMState configuration..."
+if nmstatectl apply /tmp/br-dpu-config.yml; then
+    echo "SUCCESS: Bridge $BRIDGE_NAME created and $IFACE_NAME attached."
+    ip addr show "$BRIDGE_NAME"
+    rm -f /tmp/br-dpu-config.yml
+else
+    echo "ERROR: Failed to apply configuration."
+    exit 1
+fi

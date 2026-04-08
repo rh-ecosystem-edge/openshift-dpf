@@ -185,6 +185,8 @@ WORKER_COUNT=2               # Number of physical worker nodes
 make all
 ```
 
+### Workers with static IPs
+To assign fixed IPs to worker nodes, set `WORKER_STATIC_IP=true` and configure per-worker variables. See [Worker Provisioning – Workers with static IPs](docs/user-guide/worker-provisioning.md#workers-with-static-ips).
 
 ### VMs with static IPs
 To assign fixed IPs to cluster VMs (e.g. for predictable addressing or firewall rules), set `VM_STATIC_IP=true` and provide these **required** variables in `.env`:
