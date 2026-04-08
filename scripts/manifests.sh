@@ -394,6 +394,8 @@ function enable_storage() {
     if [ "${STORAGE_TYPE}" == "odf" ]; then
         log [INFO] "Enable LSO operator via assisted installer OLM (ODF will be deployed post-install)"
         aicli update cluster "$CLUSTER_NAME" -P olm_operators='[{"name": "lso"}]'
+    elif [[ "${OLM_WORKAROUND}" == "true" ]]; then
+        log [INFO] "OLM_WORKAROUND=true: LVM will be deployed at finalizing stage using catalog ${CATALOG_SOURCE_NAME}"
     else
         log [INFO] "Enable LVM operator via assisted installer OLM"
         aicli update cluster "$CLUSTER_NAME" -P olm_operators='[{"name": "lvm"}]'
