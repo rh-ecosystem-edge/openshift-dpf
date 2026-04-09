@@ -19,6 +19,10 @@ get_kubeconfig
 # Ensure helm is installed
 ensure_helm_installed
 
+INJECTOR_WEBHOOK_PORT=19443
+INJECTOR_HEALTH_PROBE_PORT=18081
+INJECTOR_METRICS_PORT=29091
+
 log [INFO] "Enabling OVN resource injector..."
 
 rm -rf "$GENERATED_DIR/ovn-injector" || true
@@ -35,7 +39,10 @@ helm template -n ${OVNK_NAMESPACE} ovn-kubernetes \
     --set ovn-kubernetes-resource-injector.resourceName="${INJECTOR_RESOURCE_NAME}" \
     --set ovn-kubernetes-resource-injector.prioritizeOffloading=false \
     --set ovn-kubernetes-resource-injector.controllerManager.hostNetwork=true \
-    --set "ovn-kubernetes-resource-injector.controllerManager.webhook.args={--leader-elect,--metrics-bind-address=:29091}" \
+    --set ovn-kubernetes-resource-injector.controllerManager.webhookPort="${INJECTOR_WEBHOOK_PORT}" \
+    --set ovn-kubernetes-resource-injector.controllerManager.healthProbeBindAddress=":${INJECTOR_HEALTH_PROBE_PORT}" \
+    --set ovn-kubernetes-resource-injector.controllerManager.webhook.image.pullPolicy=IfNotPresent \
+    --set "ovn-kubernetes-resource-injector.controllerManager.webhook.args={--leader-elect,--metrics-bind-address=:${INJECTOR_METRICS_PORT}}" \
     --set nodeWithDPUManifests.enabled=false \
     --set nodeWithoutDPUManifests.enabled=false \
     --set dpuManifests.enabled=false \
