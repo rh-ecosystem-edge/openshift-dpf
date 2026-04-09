@@ -40,3 +40,6 @@ spec:
   staticClusterManager:
     disable: false
   <FLANNEL_CONFIG>
+  networking:
+    controlPlaneMTU: <NODES_MTU>
+    highSpeedMTU: <NODES_MTU>

@@ -238,14 +238,6 @@ prepare_dpf_manifests() {
     local bfb_registry_address="http://${node_ip}:30082"
     log "INFO" "Setting BFB registry address to ${bfb_registry_address}"
 
-    update_file_multi_replace \
-        "$MANIFESTS_DIR/dpf-installation/dpfoperatorconfig.yaml" \
-        "$GENERATED_DIR/dpfoperatorconfig.yaml" \
-        "<CLUSTER_NAME>" "$CLUSTER_NAME" \
-        "<BASE_DOMAIN>" "$BASE_DOMAIN" \
-        "<BFB_REGISTRY_ADDRESS>" "$bfb_registry_address" \
-        "<SRIOV_DP_RESOURCE_PREFIX>" "$SRIOV_DP_RESOURCE_PREFIX"
-    
     # For OCP >= 4.22, Hypershift handles node CIDR allocation natively so
     # the dpu-node-ipam-controller is not deployed.  Instead, tell DPF's
     # Flannel the cluster CIDR that the provisioner operator configures on
@@ -256,21 +248,16 @@ prepare_dpf_manifests() {
         flannel_config="flannel:
     podCIDR: ${FLANNEL_POD_CIDR}"
     fi
-    update_file_multi_replace \
-        "$GENERATED_DIR/dpfoperatorconfig.yaml" \
-        "$GENERATED_DIR/dpfoperatorconfig.yaml" \
-        "<FLANNEL_CONFIG>" "$flannel_config"
 
-    if [ -n "$NODES_MTU" ] && [ "$NODES_MTU" == "9000" ]; then
-        log "INFO" "Appending networking configuration with MTU: $NODES_MTU"
-        cat >> "$GENERATED_DIR/dpfoperatorconfig.yaml" <<-EOF
-  networking:
-    controlPlaneMTU: $NODES_MTU
-    highSpeedMTU: $NODES_MTU
-EOF
-    else
-       log "INFO" "NODES_MTU is not set. Skipping networking configuration."
-    fi
+    update_file_multi_replace \
+        "$MANIFESTS_DIR/dpf-installation/dpfoperatorconfig.yaml" \
+        "$GENERATED_DIR/dpfoperatorconfig.yaml" \
+        "<CLUSTER_NAME>" "$CLUSTER_NAME" \
+        "<BASE_DOMAIN>" "$BASE_DOMAIN" \
+        "<BFB_REGISTRY_ADDRESS>" "$bfb_registry_address" \
+        "<SRIOV_DP_RESOURCE_PREFIX>" "$SRIOV_DP_RESOURCE_PREFIX" \
+        "<FLANNEL_CONFIG>" "$flannel_config" \
+        "<NODES_MTU>" "$NODES_MTU"
 
     # Final verification: ensure no Helm values files are in the generated directory
     if find "$GENERATED_DIR" -maxdepth 1 -type f -name "*-values.yaml" | grep -q .; then
