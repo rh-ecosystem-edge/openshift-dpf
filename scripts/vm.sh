@@ -46,9 +46,13 @@ _resolve_mac() {
 
 _delete_vms_by_prefix() {
     local prefix="$1"
+    if [ -z "${prefix}" ]; then
+        log "WARN" "No VM prefix provided, skipping deletion"
+        return 0
+    fi
     log "INFO" "Deleting VMs matching prefix ${prefix}..."
     local vms
-    vms=$(virsh list --all | grep "${prefix}" | awk '{print $2}')
+    vms=$(virsh list --all | awk '{print $2}' | grep "^${prefix}" || true)
     for vm in ${vms}; do
         virsh destroy "${vm}" 2>/dev/null || true
         virsh undefine "${vm}" --remove-all-storage 2>/dev/null || true
@@ -159,7 +163,9 @@ function create_vms() {
 }
 
 function delete_vms() {
-    _delete_vms_by_prefix "${VM_WORKER_PREFIX}"
+    if [ -n "${VM_WORKER_PREFIX}" ]; then
+        _delete_vms_by_prefix "${VM_WORKER_PREFIX}"
+    fi
     _delete_vms_by_prefix "${VM_PREFIX}"
 }
 
@@ -211,7 +217,9 @@ function create_worker_vms() {
 }
 
 function delete_worker_vms() {
-    _delete_vms_by_prefix "${VM_WORKER_PREFIX}"
+    if [ -n "${VM_WORKER_PREFIX}" ]; then
+        _delete_vms_by_prefix "${VM_WORKER_PREFIX}"
+    fi
 }
 
 # -----------------------------------------------------------------------------

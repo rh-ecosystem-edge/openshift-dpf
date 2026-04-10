@@ -465,8 +465,12 @@ function clean_all() {
     delete_cluster
     
     # Delete VMs
-    log "INFO" "Deleting VMs with prefix $VM_PREFIX..."
-    scripts/vm.sh delete || true
+    if [ -n "${VM_PREFIX}" ]; then
+        log "INFO" "Deleting VMs with prefix $VM_PREFIX..."
+        scripts/vm.sh delete || true
+    else
+        log "WARN" "VM_PREFIX is empty, skipping VM deletion"
+    fi
     
     # Clean resources
     clean_resources
