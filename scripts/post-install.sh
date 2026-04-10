@@ -19,8 +19,8 @@ GENERATED_POST_INSTALL_DIR="${GENERATED_DIR}/post-install"
 # BFB Configuration with defaults
 BFB_URL=${BFB_URL:-"http://10.8.2.236/bfb/rhcos_4.19.0-ec.4_installer_2025-04-23_07-48-42.bfb"}
 
-# HBN OVN Configuration with defaults
-HBN_OVN_NETWORK=${HBN_OVN_NETWORK:-"10.0.120.0/22"}
+# HBN OVNK configuration with defaults
+HBN_OVNK_NETWORK=${HBN_OVNK_NETWORK:-"10.0.120.0/22"}
 
 # Ensure directories exist
 mkdir -p "${GENERATED_POST_INSTALL_DIR}"
@@ -28,13 +28,13 @@ mkdir -p "${GENERATED_POST_INSTALL_DIR}"
 # List of files that need special processing (excluded from direct copy)
 SPECIAL_FILES=(
     "bfb.yaml"
-    "hbn-ovn-ipam.yaml"
+    "hbn-ovnk-ipam.yaml"
     "dpu-service-nads.yaml"
     "dpuflavor-1500.yaml"
     "dpuflavor-9000.yaml"
     "dpuflavor.yaml"
-    "ovn-template.yaml"
-    "ovn-configuration.yaml"
+    "ovnk-template.yaml"
+    "ovnk-configuration.yaml"
     "hbn-template.yaml"
     "hbn-configuration.yaml"
     "dts-template.yaml"
@@ -58,27 +58,27 @@ function update_bfb_manifest() {
     log [INFO] "BFB manifest updated successfully"
 }
 
-# Function to update HBN OVN manifests
-function update_hbn_ovn_manifests() {
-    log [INFO] "Updating HBN OVN manifests..."
+# Function to update HBN OVNK manifests
+function update_hbn_ovnk_manifests() {
+    log [INFO] "Updating HBN OVNK manifests..."
     
     # DPU_HOST_CIDR must be set by user
     if [ -z "${DPU_HOST_CIDR}" ]; then
         log [ERROR] "DPU_HOST_CIDR environment variable is not set. Please set it to the DPU nodes subnet (e.g., 10.6.135.0/24)"
         return 1
     fi
-    # Update hbn-ovn-ipam.yaml
+    # Update hbn-ovnk-ipam.yaml
     update_file_multi_replace \
-        "${POST_INSTALL_DIR}/hbn-ovn-ipam.yaml" \
-        "${GENERATED_POST_INSTALL_DIR}/hbn-ovn-ipam.yaml" \
-        "<HBN_OVN_NETWORK>" \
-        "${HBN_OVN_NETWORK}"
+        "${POST_INSTALL_DIR}/hbn-ovnk-ipam.yaml" \
+        "${GENERATED_POST_INSTALL_DIR}/hbn-ovnk-ipam.yaml" \
+        "<HBN_OVNK_NETWORK>" \
+        "${HBN_OVNK_NETWORK}"
     
     # Skip ovn-dpuservice.yaml - now handled by DPUDeployment
     # Services are now managed through DPUDeployment with templates and configurations
     
-    # Update ovn-template.yaml for DPUDeployment
-    if [ -f "${POST_INSTALL_DIR}/ovn-template.yaml" ]; then
+    # Update ovnk-template.yaml for DPUDeployment
+    if [ -f "${POST_INSTALL_DIR}/ovnk-template.yaml" ]; then
         # Determine the replacement value for <OVN_KUBERNETES_UTILS_IMAGES>
         local utils_images_replacement=""
         if [ -n "${OVN_KUBERNETES_UTILS_IMAGE_REPO}" ] && [ -n "${OVN_KUBERNETES_UTILS_IMAGE_TAG}" ]; then
@@ -86,32 +86,31 @@ function update_hbn_ovn_manifests() {
             utils_images_replacement="imagedpf:
           repository: ${OVN_KUBERNETES_UTILS_IMAGE_REPO}
           tag: ${OVN_KUBERNETES_UTILS_IMAGE_TAG}"
-            log [INFO] "OVN_KUBERNETES_UTILS_IMAGE_REPO and OVN_KUBERNETES_UTILS_IMAGE_TAG set, including imagedpf section in ovn-template.yaml" 
+            log [INFO] "OVN_KUBERNETES_UTILS_IMAGE_REPO and OVN_KUBERNETES_UTILS_IMAGE_TAG set, including imagedpf section in ovnk-template.yaml" 
         else
-            log [INFO] "OVN_KUBERNETES_UTILS_IMAGE_REPO or OVN_KUBERNETES_UTILS_IMAGE_TAG not set, omitting imagedpf section from ovn-template.yaml"
+            log [INFO] "OVN_KUBERNETES_UTILS_IMAGE_REPO or OVN_KUBERNETES_UTILS_IMAGE_TAG not set, omitting imagedpf section from ovnk-template.yaml"
         fi
         
         # Use update_file_multi_replace for all replacements
         update_file_multi_replace \
-            "${POST_INSTALL_DIR}/ovn-template.yaml" \
-            "${GENERATED_POST_INSTALL_DIR}/ovn-template.yaml" \
+            "${POST_INSTALL_DIR}/ovnk-template.yaml" \
+            "${GENERATED_POST_INSTALL_DIR}/ovnk-template.yaml" \
             "<DPF_VERSION>" "${DPF_VERSION}" \
-            "<OVN_CHART_VERSION>" "${OVN_CHART_VERSION}" \
-            "<OVN_TEMPLATE_CHART_URL>" "${OVN_TEMPLATE_CHART_URL}" \
+            "<OVNK_CHART_VERSION>" "${OVNK_CHART_VERSION}" \
+            "<OVNK_TEMPLATE_CHART_URL>" "${OVNK_TEMPLATE_CHART_URL}" \
             "<OVN_KUBERNETES_IMAGE_REPO>" "${OVN_KUBERNETES_IMAGE_REPO}" \
             "<OVN_KUBERNETES_IMAGE_TAG>" "${OVN_KUBERNETES_IMAGE_TAG}" \
-            "<OVN_KUBERNETES_UTILS_IMAGES>" "${utils_images_replacement}" \
-            "<OVN_CHART_URL>" "${OVN_CHART_URL}"
+            "<OVN_KUBERNETES_UTILS_IMAGES>" "${utils_images_replacement}"
     fi
 
-    # Update ovn-configuration.yaml for DPUDeployment
-    if [ -f "${POST_INSTALL_DIR}/ovn-configuration.yaml" ]; then
-        local ovn_mtu=""
+    # Update ovnk-configuration.yaml for DPUDeployment
+    if [ -f "${POST_INSTALL_DIR}/ovnk-configuration.yaml" ]; then
+        local ovnk_mtu=""
 
         if [ "$NODES_MTU" != "1500" ]; then
-            ovn_mtu=$((NODES_MTU - 60))
+            ovnk_mtu=$((NODES_MTU - 60))
         else
-            ovn_mtu=1400
+            ovnk_mtu=1400
         fi
 
         local ovn_daemonset_version="1.1.0"
@@ -119,14 +118,14 @@ function update_hbn_ovn_manifests() {
             ovn_daemonset_version="1.2.0"
         fi
 
-        log "INFO" "ovn-configuration will be set with MTU:$ovn_mtu ovnDaemonsetVersion:$ovn_daemonset_version"
+        log "INFO" "ovnk-configuration will be set with MTU:${ovnk_mtu} ovnDaemonsetVersion:${ovn_daemonset_version}"
         update_file_multi_replace \
-            "${POST_INSTALL_DIR}/ovn-configuration.yaml" \
-            "${GENERATED_POST_INSTALL_DIR}/ovn-configuration.yaml" \
-            "<HBN_OVN_NETWORK>" "${HBN_OVN_NETWORK}" \
+            "${POST_INSTALL_DIR}/ovnk-configuration.yaml" \
+            "${GENERATED_POST_INSTALL_DIR}/ovnk-configuration.yaml" \
+            "<HBN_OVNK_NETWORK>" "${HBN_OVNK_NETWORK}" \
             "<HOST_CLUSTER_API>" "${HOST_CLUSTER_API}" \
             "<DPU_HOST_CIDR>" "${DPU_HOST_CIDR}" \
-            "<NODES_MTU>" "${ovn_mtu}" \
+            "<NODES_MTU>" "${ovnk_mtu}" \
             "<OVN_DAEMONSET_VERSION>" "${ovn_daemonset_version}"
     fi
     
@@ -137,7 +136,7 @@ function update_hbn_ovn_manifests() {
             "${GENERATED_POST_INSTALL_DIR}/hbn-configuration.yaml"
     fi
 
-    log [INFO] "HBN OVN manifests updated successfully"
+    log [INFO] "HBN OVNK manifests updated successfully"
 }
 
 # Function to update VF configuration
@@ -249,7 +248,7 @@ function prepare_post_installation() {
     fi
     # Update manifests with custom values
     update_bfb_manifest
-    update_hbn_ovn_manifests
+    update_hbn_ovnk_manifests
     update_vf_configuration
     update_service_templates
     update_dpu_service_nad

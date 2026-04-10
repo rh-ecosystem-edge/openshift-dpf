@@ -24,12 +24,12 @@ TFT_SCRIPT := scripts/traffic-flow-tests.sh
 # Worker provisioning script
 WORKER_SCRIPT := scripts/worker.sh
 
-.PHONY: all clean check-cluster create-cluster prepare-manifests generate-ovn update-paths help delete-cluster verify-files \
+.PHONY: all clean check-cluster create-cluster prepare-manifests generate-ovnk update-paths help delete-cluster verify-files \
         download-iso fix-yaml-spacing create-vms delete-vms enable-storage cluster-install wait-for-ready \
         wait-for-installed wait-for-status cluster-start clean-all deploy-dpf kubeconfig kubeadmin-password deploy-nfd \
         install-hypershift install-helm deploy-dpu-services prepare-dpu-files upgrade-dpf create-day2-cluster get-day2-iso \
         download-day2-iso create-worker-vms delete-worker-vms add-vm-workers install-day2-hosts \
-        redeploy-dpu enable-ovn-injector deploy-argocd deploy-maintenance-operator configure-flannel \
+        redeploy-dpu enable-ovnk-injector deploy-argocd deploy-maintenance-operator configure-flannel \
         deploy-core-operator-sources deploy-metallb deploy-lso deploy-odf deploy-lvms run-dpf-sanity \
         add-worker-nodes worker-status approve-worker-csrs \
         deploy-csr-approver delete-csr-approver \
@@ -42,7 +42,7 @@ all:
 	@mkdir -p logs
 	@bash -o pipefail -c '$(MAKE) _all 2>&1 | tee "logs/make_all_$(shell date +%Y%m%d_%H%M%S).log"'
 
-_all: verify-files check-cluster create-vms prepare-manifests cluster-install update-etc-hosts kubeconfig add-worker-nodes deploy-dpf prepare-dpu-files deploy-dpu-services enable-ovn-injector
+_all: verify-files check-cluster create-vms prepare-manifests cluster-install update-etc-hosts kubeconfig add-worker-nodes deploy-dpf prepare-dpu-files deploy-dpu-services enable-ovnk-injector
 	@echo ""
 	@echo "================================================================================"
 	@echo "✅ DPF Installation Complete!"
@@ -76,8 +76,8 @@ get-day2-iso: create-day2-cluster
 prepare-manifests:
 	@$(MANIFESTS_SCRIPT) prepare-manifests
 
-generate-ovn:
-	@$(MANIFESTS_SCRIPT) generate-ovn-manifests
+generate-ovnk:
+	@$(MANIFESTS_SCRIPT) generate-ovnk-manifests
 
 update-paths:
 	@$(MANIFESTS_SCRIPT) prepare-manifests
@@ -179,8 +179,8 @@ redeploy-dpu:
 configure-flannel: deploy-dpu-services
 	@echo "✅ Flannel IPAM controller is deployed as part of DPU services"
 
-enable-ovn-injector: install-helm
-	@scripts/enable-ovn-injector.sh
+enable-ovnk-injector: install-helm
+	@scripts/enable-ovnk-injector.sh
 
 deploy-core-operator-sources:
 	@$(MANIFESTS_SCRIPT) deploy-core-operator-sources
@@ -344,7 +344,6 @@ help:
 	@echo "  deploy-nfd       - Deploy NFD operator directly from source"
 	@echo "  deploy-metallb   - Deploy MetalLB operator for LoadBalancer support (only if HYPERSHIFT_API_IP is set; IPAddressPool/L2Advertisement managed by dpf-hcp-provisioner-operator)"
 	@echo "  deploy-lso       - Deploy Local Storage Operator for block storage (multi-node only; skipped if SKIP_DEPLOY_STORAGE=true)"
-	@echo "  deploy-lso       - Deploy Local Storage Operator for block storage (multi-node only; skipped if SKIP_DEPLOY_STORAGE=true)"
 	@echo "  deploy-lvms      - Deploy LVMS (Logical Volume Manager Storage) for etcd storage (default with STORAGE_TYPE=lvm)"
 	@echo "  deploy-odf       - Deploy OpenShift Data Foundation for distributed storage (multi-node only, requires STORAGE_TYPE=odf)"
 	@echo "  SKIP_DEPLOY_STORAGE=true - Use existing StorageClasses; set ETCD_STORAGE_CLASS to your StorageClass name"
@@ -372,7 +371,7 @@ help:
 	@echo "  tft-show-config        - Display current TFT configuration"
 	@echo "  tft-results            - Show results from the most recent test run"
 	@echo ""
-	@echo "Hypershift Management:
+	@echo "Hypershift Management:"
 	@echo "  install-hypershift - Install Hypershift binary and operator"
 	@echo "  create-hypershift-cluster - Create a new Hypershift hosted cluster"
 	@echo "  configure-hypershift-dpucluster - Configure DPF to use Hypershift hosted cluster"
@@ -426,7 +425,7 @@ help:
 	@echo ""
 	@echo "Post-installation Configuration:"
 	@echo "  BFB_URL          - URL for BFB file (default: http://10.8.2.236/bfb/rhcos_4.19.0-ec.4_installer_2025-04-23_07-48-42.bfb)"
-	@echo "  HBN_OVN_NETWORK  - Network for HBN OVN IPAM (default: 10.0.120.0/22)"
+	@echo "  HBN_OVNK_NETWORK  - Network for HBN OVNK IPAM (default: 10.0.120.0/22)"
 	@echo ""
 	@echo "Wait Configuration:"
 	@echo "  MAX_RETRIES      - Maximum number of retries for status checks (default: $(MAX_RETRIES))"

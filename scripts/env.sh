@@ -144,7 +144,7 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
         unset _ocp_minor
     fi
 
-    # Auto-resolve OVN-Kubernetes image from the aarch64 OCP release payload
+    # Auto-resolve OVN_KUBERNETES image from the aarch64 OCP release payload
     # Skip if the user already set OVN_KUBERNETES_IMAGE_TAG in .env
     if [ -z "${OVN_KUBERNETES_IMAGE_TAG:-}" ] && command -v oc &>/dev/null; then
         _ovnk_full=$(oc adm release info --image-for=ovn-kubernetes \

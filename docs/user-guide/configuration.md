@@ -65,8 +65,8 @@ SERVICE_CIDR=172.30.0.0/16   # Service network range
 DPF_VERSION=v25.7.1                    # DPF version
 DPF_HELM_REPO_URL=https://helm.ngc.nvidia.com/nvidia/doca/dpf-operator
 
-# OVN Chart (auto-configured)
-OVN_CHART_VERSION=v25.7.1-f073927     # Matches DPF version
+# OVNK chart (auto-configured)
+OVNK_CHART_VERSION=v25.7.1-f073927     # Matches DPF version
 ```
 
 ### DPU Network Configuration
@@ -76,7 +76,7 @@ OVN_CHART_VERSION=v25.7.1-f073927     # Matches DPF version
 DPU_INTERFACE=ens7f0np0               # Physical DPU interface
 NUM_VFS=46                            # Number of SR-IOV VFs
 DPU_HOST_CIDR=10.6.130.0/24          # DPU host network
-HBN_OVN_NETWORK=10.6.150.0/27        # HBN network range
+HBN_OVNK_NETWORK=10.6.150.0/27        # HBN network range
 ```
 
 ## Worker Provisioning

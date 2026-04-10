@@ -6,6 +6,6 @@ metadata:
   namespace: dpf-operator-system
 spec:
   ipv4Network:
-    network: "<HBN_OVN_NETWORK>"
+    network: "<HBN_OVNK_NETWORK>"
     gatewayIndex: 3
     prefixSize: 29

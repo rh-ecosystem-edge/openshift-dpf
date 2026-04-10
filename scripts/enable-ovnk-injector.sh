@@ -1,5 +1,5 @@
 #!/bin/bash
-# enable-ovn-injector.sh - Enable OVN resource injector via MutatingAdmissionPolicy
+# enable-ovnk-injector.sh - Enable ovn-kubernetes resource injector (OVNK) via MutatingWebhookConfiguration
 
 # Exit on error
 set -e
@@ -23,18 +23,18 @@ INJECTOR_WEBHOOK_PORT=19443
 INJECTOR_HEALTH_PROBE_PORT=18081
 INJECTOR_METRICS_PORT=29091
 
-log [INFO] "Enabling OVN resource injector..."
+log [INFO] "Enabling OVNK resource injector..."
 
-rm -rf "$GENERATED_DIR/ovn-injector" || true
-mkdir -p "$GENERATED_DIR/ovn-injector"
+rm -rf "$GENERATED_DIR/ovnk-injector" || true
+mkdir -p "$GENERATED_DIR/ovnk-injector"
 
 
-helm pull "${OVN_CHART_URL}/ovn-kubernetes-chart" \
+helm pull "${OVNK_CHART_URL}/ovn-kubernetes-chart" \
     --version "${INJECTOR_CHART_VERSION}" \
-    --untar -d "$GENERATED_DIR/ovn-injector"
+    --untar -d "$GENERATED_DIR/ovnk-injector"
 
 helm template -n ${OVNK_NAMESPACE} ovn-kubernetes \
-    "$GENERATED_DIR/ovn-injector/ovn-kubernetes-chart" \
+    "$GENERATED_DIR/ovnk-injector/ovn-kubernetes-chart" \
     --set ovn-kubernetes-resource-injector.enabled=true \
     --set ovn-kubernetes-resource-injector.resourceName="${INJECTOR_RESOURCE_NAME}" \
     --set ovn-kubernetes-resource-injector.prioritizeOffloading=false \
@@ -47,22 +47,22 @@ helm template -n ${OVNK_NAMESPACE} ovn-kubernetes \
     --set nodeWithoutDPUManifests.enabled=false \
     --set dpuManifests.enabled=false \
     --set controlPlaneManifests.enabled=false \
-    --set commonManifests.enabled=false > "$GENERATED_DIR/ovn-injector-output.yaml"
+    --set commonManifests.enabled=false > "$GENERATED_DIR/ovnk-injector-output.yaml"
 
-oc apply -f "$GENERATED_DIR/ovn-injector-output.yaml"
+oc apply -f "$GENERATED_DIR/ovnk-injector-output.yaml"
 
-rm -rf "$GENERATED_DIR/ovn-injector"
+rm -rf "$GENERATED_DIR/ovnk-injector"
 
-# Wait for the webhook deployment to roll out
-log [INFO] "Waiting for OVN resource injector deployment to roll out..."
+# Wait for the webhook deployment to roll out (chart-created resource names)
+log [INFO] "Waiting for OVNK resource injector deployment to roll out..."
 if ! oc rollout status deployment/ovn-kubernetes-ovn-kubernetes-resource-injector -n "${OVNK_NAMESPACE}" --timeout=120s; then
-    log [ERROR] "OVN resource injector deployment failed to roll out"
+    log [ERROR] "OVNK resource injector deployment failed to roll out"
     exit 1
 fi
-log [INFO] "OVN resource injector deployment rolled out successfully"
+log [INFO] "OVNK resource injector deployment rolled out successfully"
 
 # Verify MutatingWebhookConfiguration creation
-log [INFO] "Verifying OVN injector MutatingWebhookConfiguration creation..."
+log [INFO] "Verifying OVNK injector MutatingWebhookConfiguration creation..."
 if oc get mutatingwebhookconfiguration ovn-kubernetes-ovn-kubernetes-resource-injector &>/dev/null; then
     log [INFO] "MutatingWebhookConfiguration 'ovn-kubernetes-ovn-kubernetes-resource-injector' created successfully"
 else
@@ -78,4 +78,4 @@ else
     exit 1
 fi
 
-log [INFO] "OVN resource injector enabled successfully"
+log [INFO] "OVNK resource injector enabled successfully"

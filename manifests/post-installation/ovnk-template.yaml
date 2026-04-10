@@ -7,9 +7,9 @@ spec:
   deploymentServiceName: "ovn"
   helmChart:
     source:
-      repoURL: <OVN_TEMPLATE_CHART_URL>
+      repoURL: <OVNK_TEMPLATE_CHART_URL>
       chart: ovn-kubernetes-chart
-      version: <OVN_CHART_VERSION>
+      version: <OVNK_CHART_VERSION>
     values:
       commonManifests:
         enabled: true
