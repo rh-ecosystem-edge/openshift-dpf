@@ -113,14 +113,21 @@ function update_hbn_ovn_manifests() {
         else
             ovn_mtu=1400
         fi
-        log "INFO" "ovn-configuration will be set with MTU:$ovn_mtu"
+
+        local ovn_daemonset_version="1.1.0"
+        if ocp_version_gte "${OPENSHIFT_VERSION}" "4.22"; then
+            ovn_daemonset_version="1.2.0"
+        fi
+
+        log "INFO" "ovn-configuration will be set with MTU:$ovn_mtu ovnDaemonsetVersion:$ovn_daemonset_version"
         update_file_multi_replace \
             "${POST_INSTALL_DIR}/ovn-configuration.yaml" \
             "${GENERATED_POST_INSTALL_DIR}/ovn-configuration.yaml" \
             "<HBN_OVN_NETWORK>" "${HBN_OVN_NETWORK}" \
             "<HOST_CLUSTER_API>" "${HOST_CLUSTER_API}" \
             "<DPU_HOST_CIDR>" "${DPU_HOST_CIDR}" \
-            "<NODES_MTU>" "${ovn_mtu}"
+            "<NODES_MTU>" "${ovn_mtu}" \
+            "<OVN_DAEMONSET_VERSION>" "${ovn_daemonset_version}"
     fi
     
     # Update hbn-configuration.yaml 
