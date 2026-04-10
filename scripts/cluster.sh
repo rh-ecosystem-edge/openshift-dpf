@@ -382,11 +382,6 @@ function start_cluster_installation() {
     log "INFO" "Waiting for cluster to be finalizing..."
     wait_for_cluster_status "finalizing"
 
-    if [[ "${OLM_WORKAROUND}" == "true" ]] && [[ "${STORAGE_TYPE}" != "odf" ]] && [[ "${SKIP_DEPLOY_STORAGE}" != "true" ]]; then
-        log "INFO" "OLM_WORKAROUND=true: deploying LVM via subscription (using catalog ${CATALOG_SOURCE_NAME})"
-        deploy_lvm
-    fi
-
     log "INFO" "Waiting for installation to complete..."
     wait_for_cluster_status "installed"
     log "INFO" "Cluster installation completed successfully"
@@ -400,6 +395,9 @@ function start_cluster_installation() {
         log "INFO" "STORAGE_TYPE=odf detected. Deploying LSO and ODF..."
         deploy_lso
         deploy_odf
+    elif [[ "${OLM_WORKAROUND}" == "true" ]]; then
+        log "INFO" "OLM_WORKAROUND=true: deploying LVM via subscription (using catalog ${CATALOG_SOURCE_NAME})"
+        deploy_lvm
     fi
 }
 
