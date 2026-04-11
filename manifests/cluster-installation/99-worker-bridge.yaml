@@ -54,17 +54,16 @@ spec:
           enabled: true
           contents: |
             [Unit]
-            Description=Configure p0 interface routing
-            After=kubelet.service network-online.target
+            Description=Configure and maintain p0 interface routing
+            After=kubelet.service network-online.target nmstate-bridge.service
             Wants=network-online.target
             
             [Service]
-            Type=oneshot
+            Type=simple
             ExecStart=/usr/local/bin/configure-p0-routing.sh
-            RemainAfterExit=yes
             StandardOutput=journal
             StandardError=journal
-            Restart=on-failure
+            Restart=always
             RestartSec=10
             
             [Install]
