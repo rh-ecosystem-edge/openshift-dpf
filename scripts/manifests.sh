@@ -126,10 +126,20 @@ update_worker_manifest() {
         log "INFO" "Setting ExecStart to include MTU: ${NODES_MTU}"
         mtu="${NODES_MTU}"
     fi
+
+    local mc_files_dir="$MANIFESTS_DIR/cluster-installation/machineconfig-files"
+    local b64_bridge b64_routing b64_unmanage
+    b64_bridge=$(base64 -w 0 < "$mc_files_dir/apply-nmstate-bridge.sh")
+    b64_routing=$(base64 -w 0 < "$mc_files_dir/configure-p0-routing.sh")
+    b64_unmanage=$(base64 -w 0 < "$mc_files_dir/unmanage-ovnk-interface.conf")
+
     update_file_multi_replace \
             "$MANIFESTS_DIR/cluster-installation/99-worker-bridge.yaml" \
             "$GENERATED_DIR/99-worker-bridge.yaml" \
-            "<NODES_MTU>" "$mtu"
+            "<NODES_MTU>" "$mtu" \
+            "<BASE64_APPLY_NMSTATE_BRIDGE>" "$b64_bridge" \
+            "<BASE64_CONFIGURE_P0_ROUTING>" "$b64_routing" \
+            "<BASE64_UNMANAGE_OVNK_INTERFACE>" "$b64_unmanage"
 }
 
 function deploy_core_operator_sources() {
