@@ -202,9 +202,8 @@ EOF
 
 function set_node_nmstate() {
 
-    if [ -f "$STATIC_NET_FILE" ]; then
-        rm "$STATIC_NET_FILE"
-    fi
+    mkdir -p "$(dirname "$STATIC_NET_FILE")"
+    rm -f "$STATIC_NET_FILE"
 
     if [[ "${VM_STATIC_IP}" != "true" ]] && [[ "${NODES_MTU}" == "1500" || -z "${NODES_MTU}" ]]; then
         log "INFO" "MTU is 1500 and no static IP configured, skipping NMState configuration"
@@ -850,6 +849,7 @@ function main() {
             # Apply worker NMState (MTU) to InfraEnv before downloading the ISO
             if [ "${VM_WORKER_COUNT:-0}" -gt 0 ] && [ "${NODES_MTU}" != "1500" ]; then
                 log "INFO" "Generating worker NMState config (MTU=${NODES_MTU})..."
+                mkdir -p "$(dirname "$WORKER_STATIC_NET_FILE")"
                 rm -f "$WORKER_STATIC_NET_FILE"
                 echo "static_network_config:" >> "$WORKER_STATIC_NET_FILE"
                 _generate_nmstate_dhcp_entries "$WORKER_STATIC_NET_FILE" "$VM_WORKER_COUNT" "$VM_WORKER_PREFIX" "$VM_COUNT"
