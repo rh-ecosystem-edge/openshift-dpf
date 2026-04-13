@@ -35,6 +35,9 @@ SPECIAL_FILES=(
     "dpuflavor.yaml"
     "ovn-template.yaml"
     "ovn-configuration.yaml"
+    "ovn-credentials-identity.yaml"
+    "ovn-credentials-legacy.yaml"
+    "identity-cm.yaml"
     "hbn-template.yaml"
     "hbn-configuration.yaml"
     "dts-template.yaml"
@@ -119,7 +122,12 @@ function update_hbn_ovn_manifests() {
             ovn_daemonset_version="1.2.0"
         fi
 
-        log "INFO" "ovn-configuration will be set with MTU:$ovn_mtu ovnDaemonsetVersion:$ovn_daemonset_version"
+        local enable_ovn_kube_identity="false"
+        if ocp_version_gte "${OPENSHIFT_VERSION}" "4.22" && dpf_version_gte "${DPF_VERSION}" "26.4"; then
+            enable_ovn_kube_identity="true"
+        fi
+
+        log "INFO" "ovn-configuration will be set with MTU:$ovn_mtu ovnDaemonsetVersion:$ovn_daemonset_version enableOvnKubeIdentity:$enable_ovn_kube_identity"
         update_file_multi_replace \
             "${POST_INSTALL_DIR}/ovn-configuration.yaml" \
             "${GENERATED_POST_INSTALL_DIR}/ovn-configuration.yaml" \
@@ -127,7 +135,8 @@ function update_hbn_ovn_manifests() {
             "<HOST_CLUSTER_API>" "${HOST_CLUSTER_API}" \
             "<DPU_HOST_CIDR>" "${DPU_HOST_CIDR}" \
             "<NODES_MTU>" "${ovn_mtu}" \
-            "<OVN_DAEMONSET_VERSION>" "${ovn_daemonset_version}"
+            "<OVN_DAEMONSET_VERSION>" "${ovn_daemonset_version}" \
+            "<ENABLE_OVN_KUBE_IDENTITY>" "${enable_ovn_kube_identity}"
     fi
     
     # Update hbn-configuration.yaml 
@@ -138,6 +147,25 @@ function update_hbn_ovn_manifests() {
     fi
 
     log [INFO] "HBN OVN manifests updated successfully"
+}
+
+# Select the correct OVN credentials manifest based on OCP/DPF version.
+# OCP >= 4.22 and DPF >= 26.4 use node-identity RBAC (impersonation + group subject).
+# Older versions use the legacy ServiceAccount-based ClusterRoleBinding.
+function update_ovn_credentials() {
+    local rbac_file
+    if ocp_version_gte "${OPENSHIFT_VERSION}" "4.22" && dpf_version_gte "${DPF_VERSION}" "26.4"; then
+        log "INFO" "OCP ${OPENSHIFT_VERSION} >= 4.22 and DPF ${DPF_VERSION} >= 26.4: using node-identity RBAC"
+        rbac_file="ovn-credentials-identity.yaml"
+    else
+        log "INFO" "Using legacy OVN credentials RBAC (OCP ${OPENSHIFT_VERSION}, DPF ${DPF_VERSION})"
+        rbac_file="ovn-credentials-legacy.yaml"
+        cp "${POST_INSTALL_DIR}/identity-cm.yaml" "${GENERATED_POST_INSTALL_DIR}/identity-cm.yaml"
+        log "INFO" "Node identity disabled via identity-cm.yaml"
+    fi
+
+    cp "${POST_INSTALL_DIR}/${rbac_file}" "${GENERATED_POST_INSTALL_DIR}/${rbac_file}"
+    log "INFO" "OVN credentials RBAC ready: ${rbac_file}"
 }
 
 # Function to update VF configuration
@@ -250,6 +278,7 @@ function prepare_post_installation() {
     # Update manifests with custom values
     update_bfb_manifest
     update_hbn_ovn_manifests
+    update_ovn_credentials
     update_vf_configuration
     update_service_templates
     update_dpu_service_nad

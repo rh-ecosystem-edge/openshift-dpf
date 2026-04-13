@@ -425,6 +425,25 @@ ocp_version_gte() {
     return 1
 }
 
+# Compare two DPF version strings (major.minor only, YY.M format).
+# Returns 0 (true) if $1 >= $2, 1 (false) otherwise.
+# Usage: dpf_version_gte "26.4.0-47183a84" "26.4" && echo "yes"
+dpf_version_gte() {
+    local ver="$1" threshold="$2"
+    local ver_major ver_minor thr_major thr_minor
+    ver_major="${ver%%.*}"
+    ver_minor="${ver#*.}"; ver_minor="${ver_minor%%.*}"
+    thr_major="${threshold%%.*}"
+    thr_minor="${threshold#*.}"; thr_minor="${thr_minor%%.*}"
+
+    if (( ver_major > thr_major )); then
+        return 0
+    elif (( ver_major == thr_major && ver_minor >= thr_minor )); then
+        return 0
+    fi
+    return 1
+}
+
 function ensure_ssh_key_in_home() {
     if [ ! -f "${SSH_KEY}" ]; then
         log "ERROR" "SSH public key file not found: ${SSH_KEY}. Set SSH_KEY in .env and place your .pub key there."
