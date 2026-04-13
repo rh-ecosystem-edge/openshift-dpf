@@ -496,6 +496,16 @@ function validate_storage_classes_available() {
 }
 
 function deploy_lvm() {
+    if [ "${SKIP_DEPLOY_STORAGE}" = "true" ]; then
+        log "INFO" "SKIP_DEPLOY_STORAGE=true: skipping LVM deployment"
+        return 0
+    fi
+
+    if [ "${STORAGE_TYPE}" != "lvm" ]; then
+        log "INFO" "STORAGE_TYPE=${STORAGE_TYPE}: skipping LVM deployment"
+        return 0
+    fi
+
     log "INFO" "Deploying LVM Storage operator with catalog source ${CATALOG_SOURCE_NAME}..."
     get_kubeconfig
 

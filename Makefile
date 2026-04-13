@@ -211,7 +211,7 @@ deploy-odf:
 	@$(CLUSTER_SCRIPT) deploy-odf
 
 deploy-lvms:
-	@echo "INFO: LVMS is configured automatically when STORAGE_TYPE=lvm (default)"
+	@$(CLUSTER_SCRIPT) deploy-lvm
 
 install-hypershift:
 	@$(TOOLS_SCRIPT) install-hypershift
