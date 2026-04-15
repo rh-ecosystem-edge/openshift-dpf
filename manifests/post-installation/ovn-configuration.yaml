@@ -9,13 +9,15 @@ spec:
     helmChart:
       values:
         global:
-          enableOvnKubeIdentity: false
+          enableOvnKubeIdentity: <ENABLE_OVN_KUBE_IDENTITY>
           imagePullSecretName: "dpf-pull-secret"
         ovnDaemonsetVersion: "<OVN_DAEMONSET_VERSION>"
         k8sAPIServer: https://<HOST_CLUSTER_API>:6443
         podNetwork: 10.128.0.0/14/23
         serviceNetwork: 172.30.0.0/16
         mtu: <NODES_MTU>
+        dpuHealthCheck:
+          renewInterval: 0
         dpuManifests:
           ovnMultiNetworkEnable: "false"
           kubernetesSecretName: "ovn-dpu"
