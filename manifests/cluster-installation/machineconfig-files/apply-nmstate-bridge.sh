@@ -5,8 +5,15 @@ BRIDGE_NAME="br-dpu"
 IP_HINT_FILE="/run/nodeip-configuration/primary-ip"
 TARGET_MTU="$1"
 
+set_bridge_rp_filter_loose() {
+    local bridge="$1"
+    echo "INFO: Setting rp_filter=2 (loose mode) on $bridge"
+    sysctl -w "net.ipv4.conf.${bridge}.rp_filter=2"
+}
+
 validate_bridge_exists() {
     if ip link show "$BRIDGE_NAME" &> /dev/null; then
+        set_bridge_rp_filter_loose "$BRIDGE_NAME"
         echo "INFO: Bridge '$BRIDGE_NAME' already exists. Configuration assumed complete."
         exit 0
     fi
@@ -107,6 +114,8 @@ apply_linux_bridge() {
     if nmstatectl apply /tmp/br-dpu-config.yml; then
         echo "SUCCESS: Bridge $bridge created successfully."
         ip addr show "$bridge"
+
+        set_bridge_rp_filter_loose "$bridge"
     else
         echo "ERROR: Failed to apply NMState configuration." >&2
         rm -f /tmp/br-dpu-config.yml
