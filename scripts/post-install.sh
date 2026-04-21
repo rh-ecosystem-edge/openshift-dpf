@@ -115,7 +115,7 @@ function update_hbn_ovn_manifests() {
         fi
 
         local ovn_daemonset_version="1.1.0"
-        if ocp_version_gte "${OPENSHIFT_VERSION}" "4.22"; then
+        if ocp_version_gte "${OPENSHIFT_VERSION}" "4.21.9"; then
             ovn_daemonset_version="1.2.0"
         fi
 

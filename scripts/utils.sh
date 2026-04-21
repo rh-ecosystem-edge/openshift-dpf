@@ -410,19 +410,7 @@ copy_manifests_with_exclusions() {
 # Returns 0 (true) if $1 >= $2, 1 (false) otherwise.
 # Usage: ocp_version_gte "4.22.1" "4.22" && echo "yes"
 ocp_version_gte() {
-    local ver="$1" threshold="$2"
-    local ver_major ver_minor thr_major thr_minor
-    ver_major="${ver%%.*}"
-    ver_minor="${ver#*.}"; ver_minor="${ver_minor%%.*}"
-    thr_major="${threshold%%.*}"
-    thr_minor="${threshold#*.}"; thr_minor="${thr_minor%%.*}"
-
-    if (( ver_major > thr_major )); then
-        return 0
-    elif (( ver_major == thr_major && ver_minor >= thr_minor )); then
-        return 0
-    fi
-    return 1
+    printf '%s\n%s\n' "$2" "$1" | sort -V -C
 }
 
 function ensure_ssh_key_in_home() {
