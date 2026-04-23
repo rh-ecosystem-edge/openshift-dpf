@@ -5,6 +5,10 @@ metadata:
   namespace: dpf-operator-system
 spec:
   dpus:
+    nodeEffect:
+      drain: true
+    dpuSetStrategy:
+      type: RollingUpdate
     bfb: bf-bundle
     flavor: flavor
     dpuSets:
