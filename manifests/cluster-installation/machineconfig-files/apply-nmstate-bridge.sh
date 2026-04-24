@@ -4,6 +4,44 @@ set -e
 BRIDGE_NAME="br-dpu"
 IP_HINT_FILE="/run/nodeip-configuration/primary-ip"
 TARGET_MTU="$1"
+NODE_IP=""
+
+read_node_ip() {
+    if [[ ! -f "$IP_HINT_FILE" ]]; then
+        echo "ERROR: IP hint file not found: $IP_HINT_FILE" >&2
+        return 1
+    fi
+
+    NODE_IP=$(tr -d '[:space:]' < "$IP_HINT_FILE")
+
+    if [[ -z "$NODE_IP" ]]; then
+        echo "ERROR: IP hint file is empty: $IP_HINT_FILE" >&2
+        return 1
+    fi
+
+    echo "INFO: Node IP from hint file: $NODE_IP"
+}
+
+wait_for_bridge_ip() {
+    local bridge="$1"
+    local timeout=120
+    local interval=2
+    local elapsed=0
+
+    echo "INFO: Waiting up to ${timeout}s for $bridge to acquire $NODE_IP..."
+    while (( elapsed < timeout )); do
+        if ip -o addr show dev "$bridge" | grep -qw "$NODE_IP"; then
+            echo "INFO: $bridge has $NODE_IP."
+            ip addr show dev "$bridge"
+            return 0
+        fi
+        sleep "$interval"
+        elapsed=$(( elapsed + interval ))
+    done
+
+    echo "ERROR: $bridge did not acquire $NODE_IP within ${timeout}s." >&2
+    return 1
+}
 
 set_bridge_rp_filter_loose() {
     local bridge="$1"
@@ -13,36 +51,20 @@ set_bridge_rp_filter_loose() {
 
 validate_bridge_exists() {
     if ip link show "$BRIDGE_NAME" &> /dev/null; then
+        echo "INFO: Bridge '$BRIDGE_NAME' already exists, waiting for IP..."
+        wait_for_bridge_ip "$BRIDGE_NAME"
         set_bridge_rp_filter_loose "$BRIDGE_NAME"
-        echo "INFO: Bridge '$BRIDGE_NAME' already exists. Configuration assumed complete."
         exit 0
     fi
 }
 
 get_nodeip_hint_interface() {
-    local ip_hint_file="$1"
-
-    if [[ ! -f "${ip_hint_file}" ]]; then
-        echo "ERROR: IP hint file not found: $ip_hint_file" >&2
-        return 1
-    fi
-
-    local ip_hint
-    ip_hint=$(tr -d '[:space:]' < "${ip_hint_file}")
-
-    if [[ -z "${ip_hint}" ]]; then
-        echo "ERROR: IP hint file is empty: $ip_hint_file" >&2
-        return 1
-    fi
-
-    echo "INFO: Node IP from hint file: $ip_hint" >&2
-
     local iface
-    iface=$(ip -j addr | jq -r --arg ip "$ip_hint" --arg br "$BRIDGE_NAME" \
+    iface=$(ip -j addr | jq -r --arg ip "$NODE_IP" --arg br "$BRIDGE_NAME" \
         'first(.[] | select(any(.addr_info[]; .local==$ip) and .ifname!=$br)) | .ifname')
 
     if [[ -z "${iface}" || "${iface}" == "null" ]]; then
-        echo "ERROR: No interface found with IP $ip_hint" >&2
+        echo "ERROR: No interface found with IP $NODE_IP" >&2
         return 1
     fi
 
@@ -113,6 +135,7 @@ apply_linux_bridge() {
     echo "INFO: Applying configuration via nmstatectl..."
     if nmstatectl apply /tmp/br-dpu-config.yml; then
         echo "SUCCESS: Bridge $bridge created successfully."
+        wait_for_bridge_ip "$bridge"
         ip addr show "$bridge"
 
         set_bridge_rp_filter_loose "$bridge"
@@ -126,6 +149,7 @@ apply_linux_bridge() {
 }
 
 # --- Main ---
+read_node_ip
 validate_bridge_exists
-SELECTED_IFACE=$(get_nodeip_hint_interface "${IP_HINT_FILE}")
+SELECTED_IFACE=$(get_nodeip_hint_interface)
 apply_linux_bridge "$SELECTED_IFACE" "$TARGET_MTU"
