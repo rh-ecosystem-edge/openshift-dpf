@@ -51,7 +51,7 @@ function prepare_cluster_manifests() {
         "ovn-values-with-injector.yaml"
         "nfd-subscription.yaml"
         "openshift-cert-manager.yaml"
-        "99-worker-bridge.yaml"
+        "99-dpu-worker-configuration.yaml"
     )
 
     excluded_files+=("olm-catalogsource-template.yaml")
@@ -134,8 +134,8 @@ update_worker_manifest() {
     b64_unmanage=$(base64 -w 0 < "$mc_files_dir/unmanage-ovnk-interface.conf")
 
     update_file_multi_replace \
-            "$MANIFESTS_DIR/cluster-installation/99-worker-bridge.yaml" \
-            "$GENERATED_DIR/99-worker-bridge.yaml" \
+            "$MANIFESTS_DIR/cluster-installation/99-dpu-worker-configuration.yaml" \
+            "$GENERATED_DIR/99-dpu-worker-configuration.yaml" \
             "<NODES_MTU>" "$mtu" \
             "<BASE64_APPLY_NMSTATE_BRIDGE>" "$b64_bridge" \
             "<BASE64_CONFIGURE_P0_ROUTING>" "$b64_routing" \
