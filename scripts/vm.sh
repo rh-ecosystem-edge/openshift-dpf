@@ -68,13 +68,14 @@ _create_vm() {
     nohup virt-install --name "$vm_name" --memory "$ram" \
             --vcpus "$vcpus" \
             --os-variant=rhel9.4 \
-            --disk pool=default,size="${disk1}" \
-            --disk pool=default,size="${disk2}" \
+            --disk path="${DISK_PATH}/${vm_name}-disk1.qcow2",size="${disk1}" \
+            --disk path="${DISK_PATH}/${vm_name}-disk2.qcow2",size="${disk2}" \
             --network "${network_arg}" \
             --graphics=vnc \
             --events on_reboot=restart \
             --cdrom "$ISO_PATH" \
             --cpu host-passthrough \
+            --boot uefi \
             --noautoconsole \
             --wait=-1 &
 }
