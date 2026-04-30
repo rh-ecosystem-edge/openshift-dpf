@@ -1,0 +1,180 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: loki
+  namespace: dpf-operator-system
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loki-config
+  namespace: dpf-operator-system
+data:
+  loki.yaml: |
+    auth_enabled: false
+    server:
+      http_listen_port: 3100
+      grpc_listen_port: 9095
+      log_level: info
+    common:
+      path_prefix: /var/loki
+      replication_factor: 1
+      storage:
+        filesystem:
+          chunks_directory: /var/loki/chunks
+          rules_directory: /var/loki/rules
+      ring:
+        kvstore:
+          store: inmemory
+        instance_addr: 127.0.0.1
+    schema_config:
+      configs:
+        - from: "2024-01-01"
+          store: tsdb
+          object_store: filesystem
+          schema: v13
+          index:
+            prefix: loki_index_
+            period: 24h
+    limits_config:
+      retention_period: 24h
+      max_query_series: 10000
+      ingestion_rate_mb: 50
+      ingestion_burst_size_mb: 100
+      allow_structured_metadata: true
+      otlp_config:
+        resource_attributes:
+          attributes_config:
+            - action: index_label
+              attributes:
+                - k8s.namespace.name
+                - k8s.pod.name
+                - k8s.container.name
+                - cluster
+    compactor:
+      working_directory: /var/loki/compactor
+      retention_enabled: true
+      delete_request_store: filesystem
+    ruler:
+      storage:
+        type: local
+        local:
+          directory: /var/loki/rules
+    analytics:
+      reporting_enabled: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loki
+  namespace: dpf-operator-system
+  labels:
+    app.kubernetes.io/name: loki
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: loki
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: loki
+    spec:
+      serviceAccountName: loki
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
+      containers:
+        - name: loki
+          image: grafana/loki:3.3.2
+          imagePullPolicy: IfNotPresent
+          args:
+            - -config.file=/etc/loki/loki.yaml
+          ports:
+            - name: http-metrics
+              containerPort: 3100
+              protocol: TCP
+            - name: grpc
+              containerPort: 9095
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http-metrics
+            initialDelaySeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: http-metrics
+            initialDelaySeconds: 30
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 2Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: config
+              mountPath: /etc/loki
+            - name: storage
+              mountPath: /var/loki
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: loki-config
+        - name: storage
+          emptyDir:
+            sizeLimit: 10Gi
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: loki
+  namespace: dpf-operator-system
+  labels:
+    app.kubernetes.io/name: loki
+spec:
+  type: ClusterIP
+  ports:
+    - name: http-metrics
+      port: 3100
+      targetPort: http-metrics
+      protocol: TCP
+    - name: grpc
+      port: 9095
+      targetPort: grpc
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: loki
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: loki
+  namespace: dpf-operator-system
+  labels:
+    app.kubernetes.io/name: loki
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: loki
+  endpoints:
+    - port: http-metrics
+      interval: 30s
+      path: /metrics

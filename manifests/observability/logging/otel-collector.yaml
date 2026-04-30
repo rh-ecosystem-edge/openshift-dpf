@@ -1,0 +1,55 @@
+---
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  name: dpf-otel
+  namespace: dpf-operator-system
+spec:
+  mode: deployment
+  replicas: 1
+  config:
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+    processors:
+      memory_limiter:
+        check_interval: 5s
+        limit_mib: 1024
+        spike_limit_mib: 256
+      batch:
+        timeout: 10s
+        send_batch_size: 1024
+    exporters:
+      otlphttp/loki:
+        endpoint: http://loki.dpf-operator-system.svc.cluster.local:3100/otlp
+        tls:
+          insecure: true
+    service:
+      pipelines:
+        logs:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [otlphttp/loki]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dpf-otel-collector-nodeport
+  namespace: dpf-operator-system
+spec:
+  type: NodePort
+  selector:
+    app.kubernetes.io/component: opentelemetry-collector
+    app.kubernetes.io/instance: dpf-operator-system.dpf-otel
+    app.kubernetes.io/managed-by: opentelemetry-operator
+    app.kubernetes.io/part-of: opentelemetry
+  ports:
+    - name: otlp-http
+      port: 4318
+      targetPort: 4318
+      nodePort: 30318
+      protocol: TCP

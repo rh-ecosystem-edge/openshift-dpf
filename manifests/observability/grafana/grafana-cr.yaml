@@ -1,0 +1,25 @@
+---
+apiVersion: grafana.integreatly.org/v1beta1
+kind: Grafana
+metadata:
+  name: dpf-grafana
+  namespace: dpf-operator-system
+  labels:
+    dashboards: "dpf-grafana"
+spec:
+  route:
+    spec:
+      port:
+        targetPort: grafana
+      tls:
+        termination: edge
+  config:
+    log:
+      mode: "console"
+      level: "info"
+    auth.anonymous:
+      enabled: "true"
+      org_role: "Viewer"
+    security:
+      admin_user: "admin"
+      admin_password: "admin"

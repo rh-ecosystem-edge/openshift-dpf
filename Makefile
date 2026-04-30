@@ -36,13 +36,13 @@ WORKER_SCRIPT := scripts/worker.sh
         delete-dpf-hcp-provisioner-operator \
         verify-deployment verify-workers verify-dpu-nodes verify-dpudeployment \
         run-traffic-flow-tests tft-setup tft-cleanup tft-show-config tft-results aicli-list \
-        validate-env-files generate-env
+        validate-env-files generate-env deploy-observability
 
 all: 
 	@mkdir -p logs
 	@bash -o pipefail -c '$(MAKE) _all 2>&1 | tee "logs/make_all_$(shell date +%Y%m%d_%H%M%S).log"'
 
-_all: verify-files check-cluster create-vms prepare-manifests cluster-install update-etc-hosts kubeconfig add-worker-nodes deploy-dpf prepare-dpu-files deploy-dpu-services enable-ovn-injector
+_all: verify-files check-cluster create-vms prepare-manifests cluster-install update-etc-hosts kubeconfig add-worker-nodes deploy-dpf prepare-dpu-files deploy-dpu-services enable-ovn-injector deploy-observability
 	@echo ""
 	@echo "================================================================================"
 	@echo "✅ DPF Installation Complete!"
@@ -166,6 +166,9 @@ prepare-dpu-files:
 
 deploy-dpu-services: prepare-dpu-files
 	@$(POST_INSTALL_SCRIPT) apply
+
+deploy-observability:
+	@$(POST_INSTALL_SCRIPT) observability
 
 deploy-hypershift: install-helm
 	@$(DPF_SCRIPT) deploy-hypershift

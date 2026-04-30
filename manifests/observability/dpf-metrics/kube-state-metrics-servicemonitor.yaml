@@ -1,0 +1,19 @@
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: dpf-host-kube-state-metrics
+  namespace: dpf-operator-system
+  labels:
+    app.kubernetes.io/name: kube-state-metrics
+    app.kubernetes.io/instance: dpf-host-kube-state-metrics
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kube-state-metrics
+      app.kubernetes.io/instance: dpf-host-kube-state-metrics
+  endpoints:
+    - port: http-metrics
+      interval: 30s
+      path: /metrics
+      honorLabels: true

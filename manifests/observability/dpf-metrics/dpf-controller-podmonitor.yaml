@@ -1,0 +1,32 @@
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: dpf-controller-manager
+  namespace: dpf-operator-system
+  labels:
+    app.kubernetes.io/part-of: dpf
+spec:
+  namespaceSelector:
+    matchNames:
+      - dpf-operator-system
+  selector:
+    matchExpressions:
+      - key: dpu.nvidia.com/component
+        operator: Exists
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+      scheme: https
+      authorization:
+        type: Bearer
+        credentials:
+          name: dpf-controller-metrics-reader-token
+          key: token
+      tlsConfig:
+        insecureSkipVerify: true
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_label_dpu_nvidia_com_component]
+          regex: ".*-controller-manager"
+          action: keep
