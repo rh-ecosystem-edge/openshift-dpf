@@ -1,0 +1,29 @@
+apiVersion: machine.openshift.io/v1beta1
+kind: MachineSet
+metadata:
+  name: worker-dpu
+  namespace: openshift-machine-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      machine.openshift.io/cluster-api-machineset: worker-dpu
+  template:
+    metadata:
+      labels:
+        machine.openshift.io/cluster-api-machineset: worker-dpu
+        node-role.kubernetes.io/worker-dpu: ""
+    spec:
+      metadata:
+        labels:
+          node-role.kubernetes.io/worker-dpu: ""
+      providerSpec:
+        value:
+          hostSelector:
+            matchLabels:
+              dpu-capable: "true"
+          customDeploy:
+            method: install_coreos
+          userData:
+            name: worker-dpu-user-data-managed
+            namespace: openshift-machine-api

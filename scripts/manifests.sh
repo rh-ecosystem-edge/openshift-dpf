@@ -118,7 +118,6 @@ function prepare_cluster_manifests() {
     log [INFO] "Cluster manifests preparation complete."
 }
 
-
 update_worker_manifest() {
 
     local mtu=""

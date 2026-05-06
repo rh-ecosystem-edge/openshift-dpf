@@ -2,7 +2,7 @@ apiVersion: machineconfiguration.openshift.io/v1
 kind: MachineConfig
 metadata:
   labels:
-    machineconfiguration.openshift.io/role: worker
+    machineconfiguration.openshift.io/role: worker-dpu
   name: dpu-worker-configuration
 spec:
   config:
@@ -32,7 +32,7 @@ spec:
             Description=Apply NMState bridge configuration
             After=network.target NetworkManager.service nodeip-configuration.service nmstate.service
             Before=crio.service kubelet.service
-            
+
             [Service]
             Type=oneshot
             ExecStart=/usr/local/bin/apply-nmstate-bridge.sh <NODES_MTU>
@@ -40,7 +40,7 @@ spec:
             TimeoutStartSec=150s
             Restart=on-failure
             RestartSec=10
-            
+
             [Install]
             WantedBy=multi-user.target
           enabled: true
@@ -59,7 +59,7 @@ spec:
             Description=Configure and maintain p0 interface routing
             After=kubelet.service network-online.target nmstate-bridge.service
             Wants=network-online.target
-            
+
             [Service]
             Type=simple
             ExecStart=/usr/local/bin/configure-p0-routing.sh
@@ -67,6 +67,6 @@ spec:
             StandardError=journal
             Restart=always
             RestartSec=10
-            
+
             [Install]
             WantedBy=multi-user.target
