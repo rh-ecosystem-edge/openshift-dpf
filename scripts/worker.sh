@@ -13,7 +13,6 @@ source "${SCRIPT_DIR}/cluster.sh"
 WORKER_TEMPLATE_DIR="${MANIFESTS_DIR}/worker-provisioning"
 WORKER_GENERATED_DIR="${GENERATED_DIR}/worker-provisioning"
 
-
 provision_all_workers() {
     local count="${WORKER_COUNT:-0}"
     [[ "$count" -eq 0 ]] && { log "INFO" "WORKER_COUNT=0, skipping"; return 0; }
@@ -23,9 +22,6 @@ provision_all_workers() {
 
     # Apply short worker hostnames MachineConfig if enabled
     apply_short_worker_hostnames
-
-    # Apply custom node labels MachineConfig if configured
-    apply_worker_node_labels
 
     # BMO is pre-installed in OpenShift - verify it's available
     if ! oc get clusteroperator baremetal &>/dev/null; then
@@ -38,6 +34,25 @@ provision_all_workers() {
 
     mkdir -p "${WORKER_GENERATED_DIR}"
     log "INFO" "Provisioning ${count} worker(s)..."
+
+    # Count DPU workers for shared MachineSet
+    local dpu_count=0
+    for i in $(seq 1 "$count"); do
+        local dpu_var="WORKER_${i}_DPU"
+        [[ "${!dpu_var:-true}" == "true" ]] && ((dpu_count++)) || true
+    done
+
+    # Create shared MachineSet if we have DPU workers
+    if [[ $dpu_count -gt 0 ]]; then
+        log "INFO" "Creating/updating shared MachineSet for $dpu_count DPU worker(s)..."
+        sed "s/replicas: 1/replicas: $dpu_count/" \
+            "${WORKER_TEMPLATE_DIR}/machineset-dpu.yaml" \
+            > "${WORKER_GENERATED_DIR}/machineset-dpu.yaml"
+        retry 5 10 apply_manifest "${WORKER_GENERATED_DIR}/machineset-dpu.yaml" true
+
+        # Apply custom node labels MachineConfig for DPU workers
+        apply_worker_node_labels
+    fi
 
     for i in $(seq 1 "$count"); do
         local name_var="WORKER_${i}_NAME"
@@ -56,6 +71,7 @@ provision_all_workers() {
         local bmc_pass_var="WORKER_${i}_BMC_PASSWORD"; local bmc_pass="${!bmc_pass_var}"
         local boot_mac_var="WORKER_${i}_BOOT_MAC"; local boot_mac="${!boot_mac_var}"
         local root_dev_var="WORKER_${i}_ROOT_DEVICE"; local root_dev="${!root_dev_var:-/dev/sda}"
+        local dpu_var="WORKER_${i}_DPU"; local is_dpu="${!dpu_var:-true}"
 
         # Validate required vars
         [[ -z "$bmc_ip" ]] && { log "ERROR" "WORKER_${i}_BMC_IP not set"; return 1; }
@@ -63,7 +79,7 @@ provision_all_workers() {
         [[ -z "$bmc_pass" ]] && { log "ERROR" "WORKER_${i}_BMC_PASSWORD not set"; return 1; }
         [[ -z "$boot_mac" ]] && { log "ERROR" "WORKER_${i}_BOOT_MAC not set"; return 1; }
 
-        log "INFO" "Creating manifests for $name..."
+        log "INFO" "Creating manifests for $name (DPU: $is_dpu)..."
 
         # Generate BMC secret using process_template
         process_template \
@@ -73,18 +89,24 @@ provision_all_workers() {
             "<BMC_USER_BASE64>" "$(printf '%s' "$bmc_user" | base64)" \
             "<BMC_PASSWORD_BASE64>" "$(printf '%s' "$bmc_pass" | base64)"
 
-        # Generate BareMetalHost using process_template
+        local filename="baremetalhost.yaml"
+        if [[ "$is_dpu" == "true" ]]; then
+            filename="baremetalhost-dpu.yaml"
+        fi
+
+        # Generate BareMetalHost using appropriate template
         process_template \
-            "${WORKER_TEMPLATE_DIR}/baremetalhost.yaml" \
+            "${WORKER_TEMPLATE_DIR}/$filename" \
             "${WORKER_GENERATED_DIR}/${name}-bmh.yaml" \
             "<WORKER_NAME>" "$name" \
             "<BOOT_MAC>" "$boot_mac" \
             "<BMC_IP>" "$bmc_ip" \
             "<ROOT_DEVICE>" "$root_dev"
-
+	
         # Apply manifests (retry for transient API/controller or network failures)
         retry 5 10 apply_manifest "${WORKER_GENERATED_DIR}/${name}-bmc-secret.yaml" false
         retry 5 10 apply_manifest "${WORKER_GENERATED_DIR}/${name}-bmh.yaml" false
+
         log "INFO" "BMH $name created"
     done
 
@@ -128,15 +150,15 @@ display_manual_csr_instructions() {
 
 apply_worker_node_labels() {
     if [[ -z "${WORKER_NODE_LABELS:-}" ]]; then
-        log "INFO" "WORKER_NODE_LABELS not set, skipping custom node labels MachineConfig"
+        log "INFO" "WORKER_NODE_LABELS not set, skipping DPU node labels MachineConfig"
         return 0
     fi
 
     get_kubeconfig
 
-    local template="${WORKER_TEMPLATE_DIR}/99-worker-node-labels.yaml"
+    local template="${WORKER_TEMPLATE_DIR}/99-worker-dpu-node-labels.yaml"
     if [[ ! -f "$template" ]]; then
-        log "ERROR" "Worker node labels manifest template not found: $template"
+        log "ERROR" "Worker DPU node labels manifest template not found: $template"
         return 1
     fi
 
@@ -145,15 +167,15 @@ apply_worker_node_labels() {
     local kubelet_env_base64
     kubelet_env_base64=$(printf 'CUSTOM_KUBELET_LABELS=%s\n' "$WORKER_NODE_LABELS" | base64 | tr -d '\n')
 
-    local output="${WORKER_GENERATED_DIR}/99-worker-node-labels.yaml"
+    local output="${WORKER_GENERATED_DIR}/99-worker-dpu-node-labels.yaml"
     process_template \
         "$template" \
         "$output" \
         "<KUBELET_ENV_BASE64>" "$kubelet_env_base64"
 
-    log "INFO" "Applying worker node labels MachineConfig (labels: $WORKER_NODE_LABELS)..."
+    log "INFO" "Applying DPU worker node labels MachineConfig (labels: $WORKER_NODE_LABELS)..."
     apply_manifest "$output" false
-    log "INFO" "Worker node labels MachineConfig applied successfully"
+    log "INFO" "DPU worker node labels MachineConfig applied successfully"
 }
 
 apply_short_worker_hostnames() {

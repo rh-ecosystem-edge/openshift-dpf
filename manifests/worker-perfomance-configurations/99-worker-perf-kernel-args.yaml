@@ -3,7 +3,7 @@ kind: MachineConfig
 metadata:
   name: 99-nvidia-ovn-changes-worker-dpu
   labels:
-    machineconfiguration.openshift.io/role: worker
+    machineconfiguration.openshift.io/role: worker-dpu
 spec:
   kernelArguments:
     - "intel_iommu=on"
