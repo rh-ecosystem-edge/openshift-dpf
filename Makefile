@@ -408,6 +408,7 @@ help:
 	@echo "  VCPUS            - Number of vCPUs for VMs (default: $(VCPUS))"
 	@echo "  DISK_SIZE1       - Primary disk size in GB (default: $(DISK_SIZE1))"
 	@echo "  DISK_SIZE2       - Secondary disk size in GB (default: $(DISK_SIZE2))"
+	@echo "  LIBVIRT_HOST     - Remote libvirt host for VM hosting (e.g., root@192.168.1.100; default: local)"
 	@echo ""
 	@echo "VM Worker Configuration (day2 Assisted Installer flow):"
 	@echo "  VM_WORKER_COUNT      - Number of worker VMs to create (default: 0)"

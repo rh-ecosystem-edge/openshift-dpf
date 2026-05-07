@@ -5,7 +5,7 @@ HOSTS_FILE="/etc/hosts"
 PING_TIMEOUT=2
 PING_COUNT=1
 
-source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/utils.sh"
 
 # Print usage information
 print_usage() {
@@ -32,7 +32,7 @@ check_ip_reachable() {
 # Get list of VMs matching prefix
 get_matching_vms() {
     local vm_prefix=$1
-    virsh list --all | grep "$vm_prefix" | awk '{print $2}'
+    virsh -c "${LIBVIRT_URI}" list --all | grep "$vm_prefix" | awk '{print $2}'
 }
 
 # Get IP address for a specific VM
@@ -43,7 +43,7 @@ get_vm_ip() {
     local vm_ip
 
     # Try to get the IP using virsh domifaddr
-    vm_ip=$(virsh domifaddr "$vm_name" 2>/dev/null | grep -v "^$" | tail -n +3 | grep -oE "\b([0-9]{1,3}\.){3}[0-9]{1,3}\b" | head -1)
+    vm_ip=$(virsh -c "${LIBVIRT_URI}" domifaddr "$vm_name" 2>/dev/null | grep -v "^$" | tail -n +3 | grep -oE "\b([0-9]{1,3}\.){3}[0-9]{1,3}\b" | head -1)
 
     if [ -n "$vm_ip" ]; then
         echo "$vm_ip"
@@ -51,7 +51,7 @@ get_vm_ip() {
     fi
 
     # Fallback: Get the MAC address of the VM
-    vm_mac=$(virsh domiflist "$vm_name" 2>/dev/null | tail -n +3 | awk '{print $5}' | head -n 1)
+    vm_mac=$(virsh -c "${LIBVIRT_URI}" domiflist "$vm_name" 2>/dev/null | tail -n +3 | awk '{print $5}' | head -n 1)
 
     if [ -z "$vm_mac" ]; then
         echo "Error: Could not retrieve MAC address for VM: $vm_name" >&2

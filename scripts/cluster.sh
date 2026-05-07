@@ -15,9 +15,6 @@
 set -e
 set -o pipefail
 
-# Source environment variables
-source "$(dirname "$0")/env.sh"
-
 # Source common utilities
 source "$(dirname "${BASH_SOURCE[0]}")/utils.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/update-etc-hosts.sh"
@@ -714,11 +711,18 @@ function get_iso() {
         return 0
     fi
 
-    mkdir -p "${download_path}" || true
-
-    if ! aicli download iso "${cluster_name}" -p "${download_path}"; then
-        log "ERROR" "Failed to download ISO for cluster ${cluster_name}"
-        return 1
+    if is_remote_libvirt; then
+        log "INFO" "Downloading ISO directly on remote host ${LIBVIRT_HOST}..."
+        if ! ssh "${LIBVIRT_HOST}" "mkdir -p '${download_path}' && curl -fLo '${download_path}/${cluster_name}.iso' '${iso_url}'"; then
+            log "ERROR" "Failed to download ISO on remote host ${LIBVIRT_HOST}"
+            return 1
+        fi
+    else
+        mkdir -p "${download_path}" || true
+        if ! aicli download iso "${cluster_name}" -p "${download_path}"; then
+            log "ERROR" "Failed to download ISO for cluster ${cluster_name}"
+            return 1
+        fi
     fi
 }
 

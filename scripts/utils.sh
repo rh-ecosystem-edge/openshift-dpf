@@ -439,6 +439,31 @@ function clean_resources() {
     log "INFO" "Cleanup complete"
 }
 
+# -----------------------------------------------------------------------------
+# Remote libvirt helpers
+# -----------------------------------------------------------------------------
+libvirt_uri() {
+    if [ -n "${LIBVIRT_HOST:-}" ]; then
+        echo "qemu+ssh://${LIBVIRT_HOST}/system"
+    else
+        echo "qemu:///system"
+    fi
+}
+
+is_remote_libvirt() {
+    [ -n "${LIBVIRT_HOST:-}" ]
+}
+
+libvirt_host_cmd() {
+    if is_remote_libvirt; then
+        ssh "${LIBVIRT_HOST}" "$@"
+    else
+        "$@"
+    fi
+}
+
+LIBVIRT_URI=$(libvirt_uri)
+
 generate_mac_from_machine_id() {
     local vm_name="$1"
 

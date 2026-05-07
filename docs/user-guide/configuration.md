@@ -46,6 +46,22 @@ DISK_SIZE1=120                # Primary disk (GB)
 DISK_SIZE2=80                 # Secondary disk (GB)
 ```
 
+### Remote Libvirt Host (Optional)
+
+Run the automation locally while hosting VMs on a remote machine:
+
+```bash
+LIBVIRT_HOST=root@192.168.1.100   # Remote libvirt host (SSH user@host)
+```
+
+When set, the automation will:
+- Connect to libvirt via `qemu+ssh://` URI
+- Download ISOs directly on the remote host (via SSH + curl)
+- Create and manage the network bridge on the remote host
+- `DISK_PATH` and `ISO_FOLDER` refer to paths on the remote host
+
+**Prerequisites**: SSH key-based authentication must be configured to the remote host, and `libvirtd` must be running there.
+
 ### Network Settings (Usually keep defaults)
 
 ```bash
