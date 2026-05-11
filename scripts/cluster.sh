@@ -697,7 +697,7 @@ function get_iso() {
     fi
 
     log "INFO" "Getting ISO URL..."
-    local iso_url="$(aicli info iso "${cluster_name}" -s)"
+    local iso_url="$(aicli info iso "${cluster_name}" -s | sed 's/\x1b\[[0-9;]*m//g')"
 
     if [ -z "${iso_url}" ]; then
         log "INFO" "No direct URL found. Use console.redhat.com to generate an ISO."
@@ -713,7 +713,7 @@ function get_iso() {
 
     if is_remote_libvirt; then
         log "INFO" "Downloading ISO directly on remote host ${LIBVIRT_HOST}..."
-        if ! ssh "${LIBVIRT_HOST}" "mkdir -p '${download_path}' && curl -fLo '${download_path}/${cluster_name}.iso' '${iso_url}'"; then
+        if ! ssh "${LIBVIRT_HOST}" "mkdir -p '${download_path}' && curl -gfLo '${download_path}/${cluster_name}.iso' '${iso_url}'"; then
             log "ERROR" "Failed to download ISO on remote host ${LIBVIRT_HOST}"
             return 1
         fi
