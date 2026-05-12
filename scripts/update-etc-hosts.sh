@@ -139,6 +139,11 @@ update_hosts_file() {
 
 # Main function
 update_etc_hosts() {
+    if [ "${SKIP_ETC_HOSTS}" = "true" ]; then
+        echo "INFO: Skipping /etc/hosts update (SKIP_ETC_HOSTS=true)"
+        return 0
+    fi
+
     local fqdn=${HOST_CLUSTER_API}
     local vm_prefix="${VM_PREFIX}"
     local final_ip=""
