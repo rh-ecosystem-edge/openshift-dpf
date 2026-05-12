@@ -31,7 +31,7 @@ WORKER_SCRIPT := scripts/worker.sh
         download-day2-iso create-worker-vms delete-worker-vms add-vm-workers install-day2-hosts \
         redeploy-dpu enable-ovn-injector deploy-argocd deploy-maintenance-operator configure-flannel \
         deploy-core-operator-sources deploy-metallb deploy-lso deploy-odf deploy-lvms run-dpf-sanity \
-        add-worker-nodes worker-status approve-worker-csrs \
+        add-worker-nodes worker-status delete-worker approve-worker-csrs \
         deploy-csr-approver delete-csr-approver \
         delete-dpf-hcp-provisioner-operator \
         verify-deployment verify-workers verify-dpu-nodes verify-dpudeployment \
@@ -272,6 +272,26 @@ add-worker-nodes:
 worker-status:
 	@$(WORKER_SCRIPT) display-worker-status
 
+delete-worker:
+	@if [ -z "$(WORKER_NAME)" ]; then \
+		echo "ERROR: WORKER_NAME not specified"; \
+		echo "Usage: make delete-worker WORKER_NAME=<bmh-name|machine-name>"; \
+		echo ""; \
+		echo "Examples:"; \
+		echo "  make delete-worker WORKER_NAME=nvd-srv-27       (BMH name)"; \
+		echo "  make delete-worker WORKER_NAME=worker-dpu-k9dgj (Machine name)"; \
+		exit 1; \
+	fi
+	@echo "================================================================================"
+	@echo "Deleting worker: $(WORKER_NAME)"
+	@echo "================================================================================"
+	@$(WORKER_SCRIPT) delete-worker $(WORKER_NAME)
+	@echo ""
+	@echo "================================================================================"
+	@echo "Worker deletion completed!"
+	@echo "Run 'make worker-status' to verify."
+	@echo "================================================================================"
+
 approve-worker-csrs:
 	@$(WORKER_SCRIPT) approve-worker-csrs
 
@@ -357,6 +377,7 @@ help:
 	@echo "  configure-flannel - Deploy flannel IPAM controller for automatic podCIDR assignment"
 	@echo "  add-worker-nodes  - Provision worker nodes via BMO/Redfish (uses WORKER_* env vars)"
 	@echo "  worker-status     - Display provisioning status for all configured workers"
+	@echo "  delete-worker     - Delete a worker (usage: make delete-worker WORKER_NAME=<name>)"
 	@echo "  approve-worker-csrs - Approve pending CSRs (one-time, for manual use)"
 	@echo "  deploy-csr-approver - Deploy CSR auto-approver CronJob for host cluster workers"
 	@echo "  delete-csr-approver - Remove CSR auto-approver from host cluster"
