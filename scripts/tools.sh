@@ -32,9 +32,9 @@ function install_helm() {
 
 function extract_hypershift_binary() {
     CONTAINER_COMMAND=${CONTAINER_COMMAND:-podman}
-    $CONTAINER_COMMAND cp $($CONTAINER_COMMAND create --name hypershift --rm --pull always $HYPERSHIFT_IMAGE):/usr/bin/hypershift /tmp/hypershift 2>&1
+    "$CONTAINER_COMMAND" cp "$("$CONTAINER_COMMAND" create --name hypershift --rm --pull always "$HYPERSHIFT_IMAGE"):/usr/bin/hypershift" /tmp/hypershift 2>&1
     local rc=$?
-    $CONTAINER_COMMAND rm -f hypershift 2>/dev/null || true
+    "$CONTAINER_COMMAND" rm -f hypershift 2>/dev/null || true
     return $rc
 }
 
