@@ -41,12 +41,13 @@ function install_hypershift() {
 
         # Try extracting the binary from the container image first.
         # Falls back to building from source if the image doesn't match the host architecture.
-        if $CONTAINER_COMMAND cp $($CONTAINER_COMMAND create --name hypershift --rm --pull always $HYPERSHIFT_IMAGE):/usr/bin/hypershift /tmp/hypershift 2>/dev/null; then
+        PULL_OUTPUT=$($CONTAINER_COMMAND cp $($CONTAINER_COMMAND create --name hypershift --rm --pull always $HYPERSHIFT_IMAGE):/usr/bin/hypershift /tmp/hypershift 2>&1) && PULL_RC=0 || PULL_RC=$?
+        if [ $PULL_RC -eq 0 ]; then
             $CONTAINER_COMMAND rm -f hypershift
             log "INFO" "Extracted hypershift binary from container image."
-        else
+        elif echo "$PULL_OUTPUT" | grep -q "no image found in manifest list for architecture"; then
             $CONTAINER_COMMAND rm -f hypershift 2>/dev/null || true
-            log "WARN" "Failed to extract hypershift binary from image (arch mismatch?). Building from source..."
+            log "WARN" "Image $HYPERSHIFT_IMAGE not available for $(uname -m). Building from source..."
 
             if ! command -v go &>/dev/null; then
                 log "ERROR" "Go toolchain not found. Install Go >= 1.22 and retry."
@@ -60,6 +61,9 @@ function install_hypershift() {
             go build -o /tmp/hypershift .
             popd > /dev/null
             log "INFO" "Built hypershift binary from source for $(uname -m)."
+        else
+            log "ERROR" "Failed to extract hypershift binary: $PULL_OUTPUT"
+            return 1
         fi
 
         install -m 0755 /tmp/hypershift "$HOME/.local/bin/hypershift"
