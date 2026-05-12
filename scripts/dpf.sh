@@ -294,7 +294,7 @@ function deploy_hypershift() {
     deploy_dpf_hcp_provisioner_operator
 
     # Step 2: Install Hypershift operator (required by dpf-hcp-provisioner-operator)
-    if oc get deployment -n hypershift hypershift-operator &>/dev/null; then
+    if oc get deployment -n hypershift operator &>/dev/null; then
         log [INFO] "Hypershift operator already installed. Skipping deployment."
     else
         log [INFO] "Installing latest hypershift operator"

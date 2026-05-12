@@ -33,14 +33,39 @@ function install_helm() {
 function install_hypershift() {
     log "INFO" "Installing Hypershift binary and operator..."
 
-    # Create a temporary container and copy the hypershift binary
-    CONTAINER_COMMAND=${CONTAINER_COMMAND:-podman}
-    $CONTAINER_COMMAND cp $($CONTAINER_COMMAND create --name hypershift --rm --pull always $HYPERSHIFT_IMAGE):/usr/bin/hypershift /tmp/hypershift
-    $CONTAINER_COMMAND rm -f hypershift
+    if command -v hypershift &>/dev/null; then
+        log "INFO" "hypershift binary already installed at $(command -v hypershift), skipping binary install."
+    else
+        CONTAINER_COMMAND=${CONTAINER_COMMAND:-podman}
+        HYPERSHIFT_REPO=${HYPERSHIFT_REPO:-https://github.com/openshift/hypershift.git}
 
-    # Install the hypershift binary
-    sudo install -m 0755 -o root -g root /tmp/hypershift /usr/local/bin/hypershift
-    rm -f /tmp/hypershift
+        # Try extracting the binary from the container image first.
+        # Falls back to building from source if the image doesn't match the host architecture.
+        if $CONTAINER_COMMAND cp $($CONTAINER_COMMAND create --name hypershift --rm --pull always $HYPERSHIFT_IMAGE):/usr/bin/hypershift /tmp/hypershift 2>/dev/null; then
+            $CONTAINER_COMMAND rm -f hypershift
+            log "INFO" "Extracted hypershift binary from container image."
+        else
+            $CONTAINER_COMMAND rm -f hypershift 2>/dev/null || true
+            log "WARN" "Failed to extract hypershift binary from image (arch mismatch?). Building from source..."
+
+            if ! command -v go &>/dev/null; then
+                log "ERROR" "Go toolchain not found. Install Go >= 1.22 and retry."
+                return 1
+            fi
+
+            HYPERSHIFT_BUILD_DIR=$(mktemp -d)
+            trap "rm -rf $HYPERSHIFT_BUILD_DIR" RETURN
+            git clone --depth 1 "$HYPERSHIFT_REPO" "$HYPERSHIFT_BUILD_DIR"
+            pushd "$HYPERSHIFT_BUILD_DIR" > /dev/null
+            go build -o /tmp/hypershift .
+            popd > /dev/null
+            log "INFO" "Built hypershift binary from source for $(uname -m)."
+        fi
+
+        install -m 0755 /tmp/hypershift "$HOME/.local/bin/hypershift"
+        rm -f /tmp/hypershift
+        log "INFO" "Installed hypershift binary to $HOME/.local/bin/hypershift"
+    fi
 
     # Install the Hypershift operator
     KUBECONFIG=$KUBECONFIG hypershift install --hypershift-image $HYPERSHIFT_IMAGE
