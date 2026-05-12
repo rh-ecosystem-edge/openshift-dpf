@@ -469,7 +469,9 @@ libvirt_host_script() {
     local env_prefix="$1"; shift
     local script="$1"; shift
     if is_remote_libvirt; then
-        ssh "${LIBVIRT_HOST}" "${env_prefix} bash -s -- $*" < "${script}"
+        local escaped_args
+        escaped_args=$(printf '%q ' "$@")
+        ssh "${LIBVIRT_HOST}" "${env_prefix} bash -s -- ${escaped_args}" < "${script}"
     else
         env ${env_prefix} "${script}" "$@"
     fi
