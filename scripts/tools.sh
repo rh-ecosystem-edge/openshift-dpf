@@ -59,21 +59,17 @@ function build_hypershift_from_source() {
 function install_hypershift() {
     log "INFO" "Installing Hypershift binary and operator..."
 
-    if command -v hypershift &>/dev/null; then
-        log "INFO" "hypershift binary already installed at $(command -v hypershift), skipping binary install."
+    if [[ "$(uname -m)" == "x86_64" ]]; then
+        extract_hypershift_binary
+        log "INFO" "Extracted hypershift binary from container image."
     else
-        if [[ "$(uname -m)" == "x86_64" ]]; then
-            extract_hypershift_binary
-            log "INFO" "Extracted hypershift binary from container image."
-        else
-            log "INFO" "Non-x86 host ($(uname -m)), building hypershift from source..."
-            build_hypershift_from_source
-        fi
-
-        install -m 0755 /tmp/hypershift "$HOME/.local/bin/hypershift"
-        rm -f /tmp/hypershift
-        log "INFO" "Installed hypershift binary to $HOME/.local/bin/hypershift"
+        log "INFO" "Non-x86 host ($(uname -m)), building hypershift from source..."
+        build_hypershift_from_source
     fi
+
+    install -m 0755 /tmp/hypershift "$HOME/.local/bin/hypershift"
+    rm -f /tmp/hypershift
+    log "INFO" "Installed hypershift binary to $HOME/.local/bin/hypershift"
 
     # Install the Hypershift operator
     KUBECONFIG=$KUBECONFIG hypershift install --hypershift-image $HYPERSHIFT_IMAGE
