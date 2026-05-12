@@ -711,9 +711,11 @@ function get_iso() {
         return 0
     fi
 
+    # Note: remote and local use different tools (curl vs aicli), so this
+    # cannot be collapsed into a single libvirt_host_cmd call.
     if is_remote_libvirt; then
         log "INFO" "Downloading ISO directly on remote host ${LIBVIRT_HOST}..."
-        if ! ssh "${LIBVIRT_HOST}" "mkdir -p '${download_path}' && curl -gfLo '${download_path}/${cluster_name}.iso' '${iso_url}'"; then
+        if ! libvirt_host_cmd bash -c "mkdir -p '${download_path}' && curl -gfLo '${download_path}/${cluster_name}.iso' '${iso_url}'"; then
             log "ERROR" "Failed to download ISO on remote host ${LIBVIRT_HOST}"
             return 1
         fi

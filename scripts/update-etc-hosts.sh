@@ -59,16 +59,9 @@ get_vm_ip() {
     fi
 
     # Use arp or ip neigh to find the IP address based on the MAC address
-    if is_remote_libvirt; then
-        vm_ip=$(ssh "${LIBVIRT_HOST}" "arp -an | grep '${vm_mac}'" 2>/dev/null | awk '{print $2}' | tr -d '()')
-        if [ -z "$vm_ip" ]; then
-            vm_ip=$(ssh "${LIBVIRT_HOST}" "ip neigh | grep '${vm_mac}'" 2>/dev/null | awk '{print $1}')
-        fi
-    else
-        vm_ip=$(arp -an | grep "$vm_mac" | awk '{print $2}' | tr -d '()')
-        if [ -z "$vm_ip" ]; then
-            vm_ip=$(ip neigh | grep "$vm_mac" | awk '{print $1}')
-        fi
+    vm_ip=$(libvirt_host_cmd bash -c "arp -an | grep '${vm_mac}'" 2>/dev/null | awk '{print $2}' | tr -d '()')
+    if [ -z "$vm_ip" ]; then
+        vm_ip=$(libvirt_host_cmd bash -c "ip neigh | grep '${vm_mac}'" 2>/dev/null | awk '{print $1}')
     fi
 
     if [ -n "$vm_ip" ]; then

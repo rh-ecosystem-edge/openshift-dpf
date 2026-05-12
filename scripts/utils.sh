@@ -462,6 +462,19 @@ libvirt_host_cmd() {
     fi
 }
 
+# Run a local script on the libvirt host. Passes env vars as prefix and
+# streams the script via stdin when remote, or executes it directly when local.
+# Usage: libvirt_host_script "VAR1=val1 VAR2=val2" /path/to/script.sh [args...]
+libvirt_host_script() {
+    local env_prefix="$1"; shift
+    local script="$1"; shift
+    if is_remote_libvirt; then
+        ssh "${LIBVIRT_HOST}" "${env_prefix} bash -s -- $*" < "${script}"
+    else
+        env ${env_prefix} "${script}" "$@"
+    fi
+}
+
 LIBVIRT_URI=$(libvirt_uri)
 
 generate_mac_from_machine_id() {

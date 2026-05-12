@@ -123,13 +123,8 @@ function create_vms() {
 
     if [ "$SKIP_BRIDGE_CONFIG" != "true" ]; then
         echo "Creating bridge with force mode..."
-        if is_remote_libvirt; then
-            ssh "${LIBVIRT_HOST}" \
-                "BRIDGE_NAME=${BRIDGE_NAME} NODES_MTU=${NODES_MTU} bash -s -- --force" \
-                < "$(dirname "${BASH_SOURCE[0]}")/vm-bridge-ops.sh"
-        else
+        libvirt_host_script "BRIDGE_NAME=${BRIDGE_NAME} NODES_MTU=${NODES_MTU}" \
             "$(dirname "${BASH_SOURCE[0]}")/vm-bridge-ops.sh" --force
-        fi
     else
         echo "Skipping bridge creation as SKIP_BRIDGE_CONFIG is set to true."
     fi
@@ -191,20 +186,11 @@ function create_worker_vms() {
 
     if [ "$SKIP_BRIDGE_CONFIG" != "true" ]; then
         local bridge_exists=false
-        if is_remote_libvirt; then
-            ssh "${LIBVIRT_HOST}" "ip link show '${BRIDGE_NAME}'" &>/dev/null && bridge_exists=true
-        else
-            ip link show "${BRIDGE_NAME}" &>/dev/null && bridge_exists=true
-        fi
+        libvirt_host_cmd ip link show "${BRIDGE_NAME}" &>/dev/null && bridge_exists=true
         if [ "$bridge_exists" = false ]; then
             log "INFO" "Bridge ${BRIDGE_NAME} not found, creating..."
-            if is_remote_libvirt; then
-                ssh "${LIBVIRT_HOST}" \
-                    "BRIDGE_NAME=${BRIDGE_NAME} NODES_MTU=${NODES_MTU} bash -s -- --force" \
-                    < "$(dirname "${BASH_SOURCE[0]}")/vm-bridge-ops.sh"
-            else
+            libvirt_host_script "BRIDGE_NAME=${BRIDGE_NAME} NODES_MTU=${NODES_MTU}" \
                 "$(dirname "${BASH_SOURCE[0]}")/vm-bridge-ops.sh" --force
-            fi
         fi
     fi
 
