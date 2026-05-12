@@ -60,13 +60,20 @@ function install_hypershift() {
     log "INFO" "Installing Hypershift binary and operator..."
 
     if [[ "$(uname -m)" == "x86_64" ]]; then
-        extract_hypershift_binary
+        if ! extract_hypershift_binary; then
+            log "ERROR" "Failed to extract hypershift binary from container image"
+            return 1
+        fi
         log "INFO" "Extracted hypershift binary from container image."
     else
         log "INFO" "Non-x86 host ($(uname -m)), building hypershift from source..."
-        build_hypershift_from_source
+        if ! build_hypershift_from_source; then
+            log "ERROR" "Failed to build hypershift from source"
+            return 1
+        fi
     fi
 
+    mkdir -p "$HOME/.local/bin"
     install -m 0755 /tmp/hypershift "$HOME/.local/bin/hypershift"
     rm -f /tmp/hypershift
     log "INFO" "Installed hypershift binary to $HOME/.local/bin/hypershift"
