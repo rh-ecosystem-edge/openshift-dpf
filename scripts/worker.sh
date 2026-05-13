@@ -239,8 +239,10 @@ delete_bmh_with_cleanup() {
         oc delete bmh -n openshift-machine-api "$bmh_name" --wait=false
 
         log "INFO" "Waiting for BMH deletion (this may take up to 15 minutes)..."
-        retry 60 15 bash -c "! oc get bmh -n openshift-machine-api '$bmh_name' &>/dev/null" || \
-            log "WARN" "BMH $bmh_name deletion still in progress..."
+        if ! retry 60 15 bash -c "! oc get bmh -n openshift-machine-api '$bmh_name' &>/dev/null"; then
+            log "ERROR" "Timed out waiting for BMH $bmh_name deletion"
+            return 1
+        fi
 
         log "INFO" "BMC secret will be automatically deleted (ownerReference to BMH)"
     else
@@ -333,8 +335,10 @@ delete_worker() {
             decrease_machineset_replicas
 
             log "INFO" "Waiting for Machine deletion (this may take up to 15 minutes)..."
-            retry 60 15 bash -c "! oc get machines.machine.openshift.io -n openshift-machine-api '$machine_name' &>/dev/null" || \
-                log "WARN" "Machine $machine_name deletion still in progress..."
+            if ! retry 60 15 bash -c "! oc get machines.machine.openshift.io -n openshift-machine-api '$machine_name' &>/dev/null"; then
+                log "ERROR" "Timed out waiting for Machine $machine_name deletion"
+                return 1
+            fi
         else
             log "WARN" "No Machine found associated with BMH $bmh_name"
             # Still decrease replica count even if Machine not found
