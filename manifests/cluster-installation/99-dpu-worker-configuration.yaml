@@ -25,6 +25,11 @@ spec:
           mode: 0644
           overwrite: true
           path: "/etc/NetworkManager/conf.d/unmanage-ovnk-interface.conf"
+        - contents:
+            source: data:text/plain;charset=utf-8;base64,<BASE64_BIND_MLX5_DRIVER>
+          mode: 0755
+          overwrite: true
+          path: /usr/local/bin/bind-mlx5-driver.sh
     systemd:
       units:
         - contents: |
@@ -45,6 +50,23 @@ spec:
             WantedBy=multi-user.target
           enabled: true
           name: nmstate-bridge.service
+        - contents: |
+            [Unit]
+            Description=Bind Mellanox/BlueField devices to mlx5_core driver
+            After=systemd-modules-load.service
+            Before=NetworkManager.service nmstate-bridge.service crio.service kubelet.service
+
+            [Service]
+            Type=oneshot
+            ExecStart=/usr/local/bin/bind-mlx5-driver.sh
+            RemainAfterExit=yes
+            TimeoutStartSec=150s
+            RestartSec=10
+
+            [Install]
+            WantedBy=multi-user.target
+          enabled: true
+          name: bind-mlx5-driver.service
         - name: ovs-configuration.service
           enabled: false
         - name: openvswitch.service
