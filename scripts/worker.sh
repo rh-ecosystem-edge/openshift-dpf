@@ -385,9 +385,16 @@ delete_worker() {
     if [[ "$is_dpu" == "true" ]]; then
         log "INFO" "DPU worker detected, managing Machine and MachineSet..."
 
-        # Use the machine_name we already found during identification
+        # STEP 1: Disable automated cleaning on BMH FIRST (before triggering any deprovisioning)
+        if oc get bmh -n openshift-machine-api "$bmh_name" &>/dev/null; then
+            log "INFO" "Disabling automated cleaning for BMH: $bmh_name (to skip IPA reboot)"
+            oc patch bmh "$bmh_name" -n openshift-machine-api -p '{"spec":{"automatedCleaningMode":"disabled"}}' --type=merge || \
+                log "WARN" "Failed to disable automated cleaning, continuing..."
+        fi
+
+        # STEP 2 & 3: Delete specific Machine and immediately decrease replicas (minimize race window)
         if [[ -n "$machine_name" ]]; then
-            log "INFO" "Deleting Machine: $machine_name (will trigger BMH deprovisioning)"
+            log "INFO" "Deleting Machine: $machine_name and decreasing MachineSet replicas"
             oc delete machines.machine.openshift.io -n openshift-machine-api "$machine_name" --wait=false
 
             # Immediately decrease replica count to prevent MachineSet from recreating
@@ -404,8 +411,22 @@ delete_worker() {
             decrease_machineset_replicas
         fi
 
-        # Delete the BMH (disable automated cleaning first to skip IPA boot)
-        delete_bmh_with_cleanup "$bmh_name"
+        # STEP 4: Delete BMH if it still exists (cleaning already disabled in step 1)
+        if oc get bmh -n openshift-machine-api "$bmh_name" &>/dev/null; then
+            log "INFO" "Deleting BareMetalHost: $bmh_name"
+            oc delete bmh -n openshift-machine-api "$bmh_name" --wait=false
+
+            log "INFO" "Waiting for BMH deletion (this may take up to 15 minutes)..."
+            if ! retry 60 15 bash -c "! oc get bmh -n openshift-machine-api '$bmh_name' &>/dev/null"; then
+                log "ERROR" "Timed out waiting for BMH $bmh_name deletion"
+                return 1
+            fi
+
+            log "INFO" "BMC secret will be automatically deleted (ownerReference to BMH)"
+        else
+            log "INFO" "BareMetalHost $bmh_name already deleted (consumed by Machine)"
+        fi
+
         warn_manual_node_deletion
 
     # Handle regular (non-DPU) workers
