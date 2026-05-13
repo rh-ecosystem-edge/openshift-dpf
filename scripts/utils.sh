@@ -456,10 +456,21 @@ is_remote_libvirt() {
 
 libvirt_host_cmd() {
     if is_remote_libvirt; then
-        ssh "${LIBVIRT_HOST}" "$@"
+        ssh "${LIBVIRT_HOST}" -- "$(printf '%q ' "$@")"
     else
         "$@"
     fi
+}
+
+# Wraps virsh with the correct connection URI (local or remote).
+# Callers don't need to know about LIBVIRT_URI.
+lvirsh() {
+    virsh -c "${LIBVIRT_URI}" "$@"
+}
+
+# Wraps virt-install with the correct connection URI.
+lvirt_install() {
+    virt-install --connect "${LIBVIRT_URI}" "$@"
 }
 
 # Run a local script on the libvirt host. Passes env vars as prefix and
@@ -477,6 +488,9 @@ libvirt_host_script() {
     fi
 }
 
+# Note: LIBVIRT_URI is computed at source time. This relies on env.sh being
+# sourced first (which sets LIBVIRT_HOST). If any script sources utils.sh
+# before setting LIBVIRT_HOST, the URI will silently fall back to local.
 LIBVIRT_URI=$(libvirt_uri)
 
 generate_mac_from_machine_id() {

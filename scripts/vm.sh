@@ -52,11 +52,11 @@ _delete_vms_by_prefix() {
     fi
     log "INFO" "Deleting VMs matching prefix ${prefix}..."
     local vms
-    vms=$(virsh -c "${LIBVIRT_URI}" list --all | awk '{print $2}' | grep "^${prefix}" || true)
+    vms=$(lvirsh list --all | awk '{print $2}' | grep "^${prefix}" || true)
     for vm in ${vms}; do
-        virsh -c "${LIBVIRT_URI}" destroy "${vm}" 2>/dev/null || true
-        virsh -c "${LIBVIRT_URI}" undefine "${vm}" --remove-all-storage --nvram 2>/dev/null \
-            || virsh -c "${LIBVIRT_URI}" undefine "${vm}" --remove-all-storage 2>/dev/null || true
+        lvirsh destroy "${vm}" 2>/dev/null || true
+        lvirsh undefine "${vm}" --remove-all-storage --nvram 2>/dev/null \
+            || lvirsh undefine "${vm}" --remove-all-storage 2>/dev/null || true
     done
     log "INFO" "VMs matching prefix ${prefix} deleted"
 }
@@ -66,7 +66,7 @@ _delete_vms_by_prefix() {
 _create_vm() {
     local vm_name="$1" ram="$2" vcpus="$3" disk1="$4" disk2="$5" network_arg="$6"
     log "INFO" "Starting VM creation for $vm_name..."
-    nohup virt-install --connect "${LIBVIRT_URI}" --name "$vm_name" --memory "$ram" \
+    nohup lvirt_install --name "$vm_name" --memory "$ram" \
             --vcpus "$vcpus" \
             --os-variant=rhel9.4 \
             --disk path="${DISK_PATH}/${vm_name}-disk1.qcow2",size="${disk1}" \
@@ -87,7 +87,7 @@ _wait_for_vms_running() {
     for i in $(seq 1 "$count"); do
         local vm_name="${prefix}${i}"
         local retries=0
-        until [[ "$(virsh -c "${LIBVIRT_URI}" domstate "$vm_name" 2>/dev/null || true)" == "running" ]]; do
+        until [[ "$(lvirsh domstate "$vm_name" 2>/dev/null || true)" == "running" ]]; do
             if [[ $retries -ge $max_retries ]]; then
                 log "ERROR" "VM $vm_name did not reach running state within 2 minutes"
                 exit 1
@@ -120,6 +120,15 @@ function create_vms() {
     fi
 
     log "Creating VMs with prefix $VM_PREFIX..."
+
+    # Early SSH connectivity check for remote libvirt to fail fast
+    if is_remote_libvirt; then
+        if ! ssh -o ConnectTimeout=5 -o BatchMode=yes "${LIBVIRT_HOST}" true 2>/dev/null; then
+            log "ERROR" "Cannot connect to remote libvirt host: ${LIBVIRT_HOST}"
+            return 1
+        fi
+        log "INFO" "SSH connectivity to ${LIBVIRT_HOST} verified"
+    fi
 
     if [ "$SKIP_BRIDGE_CONFIG" != "true" ]; then
         echo "Creating bridge with force mode..."
@@ -198,7 +207,7 @@ function create_worker_vms() {
     for i in $(seq 1 "$worker_count"); do
         local vm_name="${VM_WORKER_PREFIX}${i}"
 
-        if virsh -c "${LIBVIRT_URI}" dominfo "$vm_name" &>/dev/null; then
+        if lvirsh dominfo "$vm_name" &>/dev/null; then
             log "INFO" "Worker VM $vm_name already exists, skipping"
             continue
         fi
