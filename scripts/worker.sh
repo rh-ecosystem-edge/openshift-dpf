@@ -35,22 +35,33 @@ provision_all_workers() {
     mkdir -p "${WORKER_GENERATED_DIR}"
     log "INFO" "Provisioning ${count} worker(s)..."
 
-    # Count DPU workers for shared MachineSet
+    # Detect SNO environment (VM_COUNT=1)
+    # In SNO with platform "None", Machine API is in NoOp mode and MachineSets won't work
+    local is_sno=false
+    [[ "${VM_COUNT:-0}" -eq 1 ]] && is_sno=true
+
+    # Count DPU workers for shared MachineSet (only in non-SNO environments)
     local dpu_count=0
-    for i in $(seq 1 "$count"); do
-        local dpu_var="WORKER_${i}_DPU"
-        [[ "${!dpu_var:-true}" == "true" ]] && ((dpu_count++)) || true
-    done
+    if [[ "$is_sno" == "false" ]]; then
+        for i in $(seq 1 "$count"); do
+            local dpu_var="WORKER_${i}_DPU"
+            [[ "${!dpu_var:-true}" == "true" ]] && ((dpu_count++)) || true
+        done
 
-    # Create shared MachineSet if we have DPU workers
-    if [[ $dpu_count -gt 0 ]]; then
-        log "INFO" "Creating/updating shared MachineSet for $dpu_count DPU worker(s)..."
-        sed "s/replicas: 1/replicas: $dpu_count/" \
-            "${WORKER_TEMPLATE_DIR}/machineset-dpu.yaml" \
-            > "${WORKER_GENERATED_DIR}/machineset-dpu.yaml"
-        retry 5 10 apply_manifest "${WORKER_GENERATED_DIR}/machineset-dpu.yaml" true
+        # Create shared MachineSet if we have DPU workers and not SNO
+        if [[ $dpu_count -gt 0 ]]; then
+            log "INFO" "Creating/updating shared MachineSet for $dpu_count DPU worker(s)..."
+            sed "s/replicas: 1/replicas: $dpu_count/" \
+                "${WORKER_TEMPLATE_DIR}/machineset-dpu.yaml" \
+                > "${WORKER_GENERATED_DIR}/machineset-dpu.yaml"
+            retry 5 10 apply_manifest "${WORKER_GENERATED_DIR}/machineset-dpu.yaml" true
 
-        # Apply custom node labels MachineConfig for DPU workers
+            # Apply custom node labels MachineConfig for DPU workers
+            apply_worker_node_labels
+        fi
+    else
+        log "INFO" "SNO environment detected (VM_COUNT=1), skipping MachineSet creation (Machine API in NoOp mode)"
+        # Apply custom node labels MachineConfig for all workers in SNO
         apply_worker_node_labels
     fi
 
@@ -89,8 +100,10 @@ provision_all_workers() {
             "<BMC_USER_BASE64>" "$(printf '%s' "$bmc_user" | base64)" \
             "<BMC_PASSWORD_BASE64>" "$(printf '%s' "$bmc_pass" | base64)"
 
+        # In SNO mode, always use basic baremetalhost.yaml (no MachineSet integration)
+        # In non-SNO mode, use baremetalhost-dpu.yaml for DPU workers (with dpu-capable label)
         local filename="baremetalhost.yaml"
-        if [[ "$is_dpu" == "true" ]]; then
+        if [[ "$is_sno" == "false" ]] && [[ "$is_dpu" == "true" ]]; then
             filename="baremetalhost-dpu.yaml"
         fi
 
