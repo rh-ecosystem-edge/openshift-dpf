@@ -276,7 +276,7 @@ delete_worker() {
         # Get Machine consuming this BMH
         machine_name=$(oc get machines.machine.openshift.io -n openshift-machine-api -o json 2>/dev/null | \
             jq -r --arg bmh "$bmh_name" \
-            '.items[] | select(.metadata.annotations."metal3.io/BareMetalHost" // "" | endswith($bmh)) | .metadata.name' 2>/dev/null | head -1)
+            '.items[] | select((.metadata.annotations."metal3.io/BareMetalHost" // "" | split("/") | last) == $bmh) | .metadata.name' 2>/dev/null | head -1)
 
     # Check if it's a Machine name
     elif oc get machines.machine.openshift.io -n openshift-machine-api "$input_name" &>/dev/null; then
