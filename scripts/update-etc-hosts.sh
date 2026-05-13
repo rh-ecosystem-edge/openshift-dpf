@@ -59,9 +59,9 @@ get_vm_ip() {
     fi
 
     # Use arp or ip neigh to find the IP address based on the MAC address
-    vm_ip=$(libvirt_host_cmd bash -c "arp -an | grep '${vm_mac}'" 2>/dev/null | awk '{print $2}' | tr -d '()')
+    vm_ip=$(libvirt_host_cmd arp -an 2>/dev/null | grep "${vm_mac}" | awk '{print $2}' | tr -d '()')
     if [ -z "$vm_ip" ]; then
-        vm_ip=$(libvirt_host_cmd bash -c "ip neigh | grep '${vm_mac}'" 2>/dev/null | awk '{print $1}')
+        vm_ip=$(libvirt_host_cmd ip neigh 2>/dev/null | grep "${vm_mac}" | awk '{print $1}')
     fi
 
     if [ -n "$vm_ip" ]; then
