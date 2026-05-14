@@ -54,6 +54,13 @@ function prepare_cluster_manifests() {
         "99-dpu-worker-configuration.yaml"
     )
 
+    # In SNO mode (VM_COUNT=1), exclude worker-dpu MachineConfigPool
+    # SNO uses platform "None" with Machine API in NoOp mode, so MachineSet/MCP not needed
+    if [[ "${VM_COUNT:-0}" -eq 1 ]]; then
+        log "INFO" "SNO mode detected (VM_COUNT=1), excluding worker-dpu MachineConfigPool"
+        excluded_files+=("99-worker-dpu-mcp.yaml")
+    fi
+
     excluded_files+=("olm-catalogsource-template.yaml")
 
     if [[ "${OLM_WORKAROUND}" == "true" ]]; then
