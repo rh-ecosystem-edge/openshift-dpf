@@ -119,6 +119,25 @@ function prepare_cluster_manifests() {
 }
 
 update_worker_manifest() {
+    # Count DPU workers from WORKER_* environment variables
+    local worker_count="${WORKER_COUNT:-0}"
+    local dpu_count=0
+
+    for i in $(seq 1 "$worker_count"); do
+        local dpu_var="WORKER_${i}_DPU"
+        local is_dpu="${!dpu_var:-true}"
+        [[ "$is_dpu" == "true" ]] && ((dpu_count++)) || true
+    done
+
+    # Skip DPU MachineConfig generation if no DPU workers are configured
+    # This prevents applying DPU-specific configs (e.g., OVS masking) to regular/VM workers
+    if [[ $dpu_count -eq 0 ]]; then
+        log "INFO" "No DPU workers configured (WORKER_COUNT=${worker_count}), skipping DPU MachineConfigs"
+        return 0
+    fi
+
+    log "INFO" "Found ${dpu_count} DPU worker(s), generating DPU MachineConfigs"
+
     # Detect SNO environment (VM_COUNT=1)
     # In SNO with platform "None", Machine API is in NoOp mode
     # Use 'worker' role so MachineConfigs apply to regular worker nodes
@@ -152,14 +171,8 @@ update_worker_manifest() {
             "<BASE64_UNMANAGE_OVNK_INTERFACE>" "$b64_unmanage" \
             "<WORKER_ROLE>" "$worker_role"
 
-    # Process worker performance kernel args if it exists
-    if [[ -f "$MANIFESTS_DIR/worker-perfomance-configurations/99-worker-perf-kernel-args.yaml" ]]; then
-        log "INFO" "Processing worker performance kernel arguments with role: $worker_role"
-        update_file_multi_replace \
-            "$MANIFESTS_DIR/worker-perfomance-configurations/99-worker-perf-kernel-args.yaml" \
-            "$GENERATED_DIR/99-worker-perf-kernel-args.yaml" \
-            "<WORKER_ROLE>" "$worker_role"
-    fi
+    # NOTE: 99-worker-perf-kernel-args.yaml is NOT automatically applied during cluster installation.
+    # It contains <WORKER_ROLE> placeholder for manual use. Users should manually process and apply it if needed.
 }
 
 function deploy_core_operator_sources() {
