@@ -66,7 +66,8 @@ _delete_vms_by_prefix() {
 _create_vm() {
     local vm_name="$1" ram="$2" vcpus="$3" disk1="$4" disk2="$5" network_arg="$6"
     log "INFO" "Starting VM creation for $vm_name..."
-    nohup lvirt_install --name "$vm_name" --memory "$ram" \
+    # nohup cannot call shell functions — expand lvirt_install inline
+    nohup virt-install --connect "${LIBVIRT_URI}" --name "$vm_name" --memory "$ram" \
             --vcpus "$vcpus" \
             --os-variant=rhel9.4 \
             --disk path="${DISK_PATH}/${vm_name}-disk1.qcow2",size="${disk1}" \
