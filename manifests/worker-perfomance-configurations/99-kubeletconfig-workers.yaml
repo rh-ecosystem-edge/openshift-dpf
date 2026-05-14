@@ -10,4 +10,4 @@ spec:
     topologyManagerPolicy: single-numa-node
   machineConfigPoolSelector:
     matchLabels:
-      pools.operator.machineconfiguration.openshift.io/worker: ""
+      pools.operator.machineconfiguration.openshift.io/<WORKER_ROLE>: ""

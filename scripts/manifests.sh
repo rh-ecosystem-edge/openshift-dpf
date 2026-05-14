@@ -171,8 +171,22 @@ update_worker_manifest() {
             "<BASE64_UNMANAGE_OVNK_INTERFACE>" "$b64_unmanage" \
             "<WORKER_ROLE>" "$worker_role"
 
-    # NOTE: 99-worker-perf-kernel-args.yaml is NOT automatically applied during cluster installation.
-    # It contains <WORKER_ROLE> placeholder for manual use. Users should manually process and apply it if needed.
+    # Process worker performance configurations if they exist (update in-place)
+    if [[ -f "$MANIFESTS_DIR/worker-perfomance-configurations/99-worker-perf-kernel-args.yaml" ]]; then
+        log "INFO" "Processing worker performance kernel arguments with role: $worker_role"
+        update_file_multi_replace \
+            "$MANIFESTS_DIR/worker-perfomance-configurations/99-worker-perf-kernel-args.yaml" \
+            "$MANIFESTS_DIR/worker-perfomance-configurations/99-worker-perf-kernel-args.yaml" \
+            "<WORKER_ROLE>" "$worker_role"
+    fi
+
+    if [[ -f "$MANIFESTS_DIR/worker-perfomance-configurations/99-kubeletconfig-workers.yaml" ]]; then
+        log "INFO" "Processing worker kubelet config with role: $worker_role"
+        update_file_multi_replace \
+            "$MANIFESTS_DIR/worker-perfomance-configurations/99-kubeletconfig-workers.yaml" \
+            "$MANIFESTS_DIR/worker-perfomance-configurations/99-kubeletconfig-workers.yaml" \
+            "<WORKER_ROLE>" "$worker_role"
+    fi
 }
 
 function deploy_core_operator_sources() {
