@@ -128,10 +128,11 @@ update_worker_manifest() {
     fi
 
     local mc_files_dir="$MANIFESTS_DIR/cluster-installation/machineconfig-files"
-    local b64_bridge b64_routing b64_unmanage
+    local b64_bridge b64_routing b64_unmanage b64_bind_mlx5
     b64_bridge=$(base64 -w 0 < "$mc_files_dir/apply-nmstate-bridge.sh")
     b64_routing=$(base64 -w 0 < "$mc_files_dir/configure-p0-routing.sh")
     b64_unmanage=$(base64 -w 0 < "$mc_files_dir/unmanage-ovnk-interface.conf")
+    b64_bind_mlx5=$(base64 -w 0 < "$mc_files_dir/bind_mlx5_driver.sh")
 
     update_file_multi_replace \
             "$MANIFESTS_DIR/cluster-installation/99-dpu-worker-configuration.yaml" \
@@ -139,7 +140,8 @@ update_worker_manifest() {
             "<NODES_MTU>" "$mtu" \
             "<BASE64_APPLY_NMSTATE_BRIDGE>" "$b64_bridge" \
             "<BASE64_CONFIGURE_P0_ROUTING>" "$b64_routing" \
-            "<BASE64_UNMANAGE_OVNK_INTERFACE>" "$b64_unmanage"
+            "<BASE64_UNMANAGE_OVNK_INTERFACE>" "$b64_unmanage" \
+            "<BASE64_BIND_MLX5_DRIVER>" "$b64_bind_mlx5"
 }
 
 function deploy_core_operator_sources() {
