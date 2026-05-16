@@ -47,6 +47,7 @@ echo -e "- SANITY_TESTS_WORKLOAD_NAMESPACE: '${SANITY_TESTS_WORKLOAD_NAMESPACE}'
 echo -e "- SANITY_TESTS_PING_COUNT: '${SANITY_TESTS_PING_COUNT}'"
 echo -e "- SANITY_TESTS_PING_HBN_TO_HBN_PODS: '${SANITY_TESTS_PING_HBN_TO_HBN_PODS}'"
 
+# Kubeconfig of the management cluster
 mgmt_kubecfg="${KUBECONFIG}"
 echo -e "\n- mgmt_kubecfg: '${mgmt_kubecfg}'"
 
