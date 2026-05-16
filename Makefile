@@ -461,5 +461,6 @@ help:
 	@echo "  TFT_DURATION         - Duration per test in seconds (default: 10)"
 	@echo "  TFT_CONNECTION_TYPE  - Test type: iperf-tcp, iperf-udp, etc. (default: iperf-tcp)"
 	@echo "  TFT_KUBECONFIG       - Path to cluster kubeconfig"
-	@echo "  TFT_SERVER_NODE      - K8s node name for server (default: from HBN_HOSTNAME_NODE1)"
-	@echo "  TFT_CLIENT_NODE      - K8s node name for client (default: from HBN_HOSTNAME_NODE2)"
+	@echo "  TFT_SERVER_NODE      - K8s node name for server (default: auto-discovered from cluster)"
+	@echo "  TFT_CLIENT_NODE      - K8s node name for client (default: auto-discovered from cluster)"
+	@echo "  TFT_NODE_LABEL       - Label selector for node discovery (default: node-role.kubernetes.io/worker=)"
