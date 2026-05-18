@@ -23,11 +23,13 @@ provision_all_workers() {
     # Apply short worker hostnames MachineConfig if enabled
     apply_short_worker_hostnames
 
-    # BMO is pre-installed in OpenShift - verify it's available
-    if ! oc get clusteroperator baremetal &>/dev/null; then
-        log "ERROR" "Baremetal cluster operator not found. This should not happen in OpenShift."
+    log "INFO" "Waiting for baremetal cluster operator to be available..."
+    if ! retry 30 10 oc get clusteroperator baremetal &>/dev/null; then
+        log "ERROR" "Baremetal cluster operator not found after 5 minutes. This should not happen in OpenShift."
+        log "ERROR" "Check cluster operator status: oc get clusteroperators"
         return 1
     fi
+    log "INFO" "Baremetal cluster operator is available"
 
     # Ensure Provisioning CR exists (apply_manifest handles existence check)
     apply_manifest "${WORKER_TEMPLATE_DIR}/provisioning.yaml" false
