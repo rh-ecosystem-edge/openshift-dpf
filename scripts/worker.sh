@@ -199,7 +199,7 @@ apply_worker_node_labels() {
         "<WORKER_ROLE>" "$worker_role"
 
     log "INFO" "Applying DPU worker node labels MachineConfig (labels: $WORKER_NODE_LABELS, role: $worker_role)..."
-    retry 5 10 apply_manifest "$output" false
+    apply_manifest "$output" false
     log "INFO" "DPU worker node labels MachineConfig applied successfully"
 }
 
