@@ -177,6 +177,15 @@ apply_worker_node_labels() {
 
     mkdir -p "${WORKER_GENERATED_DIR}"
 
+    # Determine worker role based on environment (same logic as update_worker_manifest)
+    local worker_role="worker-dpu"
+    if [[ "${VM_COUNT:-0}" -eq 1 ]]; then
+        worker_role="worker"
+        log "INFO" "SNO environment (VM_COUNT=1), using worker role for node labels MC"
+    else
+        log "INFO" "Multi-node environment, using worker-dpu role for node labels MC"
+    fi
+
     local kubelet_env_base64
     kubelet_env_base64=$(printf 'CUSTOM_KUBELET_LABELS=%s\n' "$WORKER_NODE_LABELS" | base64 | tr -d '\n')
 
@@ -184,9 +193,10 @@ apply_worker_node_labels() {
     process_template \
         "$template" \
         "$output" \
-        "<KUBELET_ENV_BASE64>" "$kubelet_env_base64"
+        "<KUBELET_ENV_BASE64>" "$kubelet_env_base64" \
+        "<WORKER_ROLE>" "$worker_role"
 
-    log "INFO" "Applying DPU worker node labels MachineConfig (labels: $WORKER_NODE_LABELS)..."
+    log "INFO" "Applying DPU worker node labels MachineConfig (labels: $WORKER_NODE_LABELS, role: $worker_role)..."
     apply_manifest "$output" false
     log "INFO" "DPU worker node labels MachineConfig applied successfully"
 }
