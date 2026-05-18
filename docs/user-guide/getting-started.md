@@ -133,11 +133,14 @@ Generate an SSH key for cluster access:
 
 ```bash
 # Generate new SSH key (if you don't have one)
-ssh-keygen -t rsa -f ~/.ssh/id_rsa -N ""
+ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N ""
 
 # Verify public key exists
-ls -la ~/.ssh/id_rsa.pub
+ls -la ~/.ssh/id_ed25519.pub
 ```
+
+> **Note**: Ed25519 is the recommended key type. RSA keys (`~/.ssh/id_rsa.pub`) are still
+> supported — set `SSH_KEY=~/.ssh/id_rsa.pub` in your `.env` if that's what you have.
 
 ## Step 4: Configure Environment
 

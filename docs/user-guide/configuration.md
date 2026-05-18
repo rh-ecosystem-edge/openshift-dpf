@@ -32,7 +32,7 @@ OPENSHIFT_VERSION=4.20.0                 # Supported versions: 4.20.x
 # Credentials (Required)
 OPENSHIFT_PULL_SECRET=openshift_pull.json   # Red Hat pull secret
 DPF_PULL_SECRET=pull-secret.txt             # NGC registry credentials
-SSH_KEY=~/.ssh/id_rsa                       # SSH key for access
+SSH_KEY=~/.ssh/id_ed25519                   # SSH key for access
 ```
 
 ### VM Resources (Adjust for your hardware)
