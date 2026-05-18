@@ -54,6 +54,13 @@ function prepare_cluster_manifests() {
         "99-dpu-worker-configuration.yaml"
     )
 
+    # In SNO mode (VM_COUNT=1), exclude worker-dpu MachineConfigPool
+    # SNO uses platform "None" with Machine API in NoOp mode, so MachineSet/MCP not needed
+    if [[ "${VM_COUNT:-0}" -eq 1 ]]; then
+        log "INFO" "SNO mode detected (VM_COUNT=1), excluding worker-dpu MachineConfigPool"
+        excluded_files+=("99-worker-dpu-mcp.yaml")
+    fi
+
     excluded_files+=("olm-catalogsource-template.yaml")
 
     if [[ "${OLM_WORKAROUND}" == "true" ]]; then
@@ -118,8 +125,36 @@ function prepare_cluster_manifests() {
     log [INFO] "Cluster manifests preparation complete."
 }
 
-
 update_worker_manifest() {
+    # Count DPU workers from WORKER_* environment variables
+    local worker_count="${WORKER_COUNT:-0}"
+    local dpu_count=0
+
+    for i in $(seq 1 "$worker_count"); do
+        local dpu_var="WORKER_${i}_DPU"
+        local is_dpu="${!dpu_var:-true}"
+        [[ "$is_dpu" == "true" ]] && ((dpu_count++)) || true
+    done
+
+    # Skip DPU MachineConfig generation if no DPU workers are configured
+    # This prevents applying DPU-specific configs (e.g., OVS masking) to regular/VM workers
+    if [[ $dpu_count -eq 0 ]]; then
+        log "INFO" "No DPU workers configured (WORKER_COUNT=${worker_count}), skipping DPU MachineConfigs"
+        return 0
+    fi
+
+    log "INFO" "Found ${dpu_count} DPU worker(s), generating DPU MachineConfigs"
+
+    # Detect SNO environment (VM_COUNT=1)
+    # In SNO with platform "None", Machine API is in NoOp mode
+    # Use 'worker' role so MachineConfigs apply to regular worker nodes
+    local worker_role="worker-dpu"
+    if [[ "${VM_COUNT:-0}" -eq 1 ]]; then
+        worker_role="worker"
+        log "INFO" "SNO environment detected (VM_COUNT=1), using worker role for MachineConfigs"
+    else
+        log "INFO" "Multi-node environment, using worker-dpu role with MachineConfigPool"
+    fi
 
     local mtu=""
     if [ "${NODES_MTU}" != "1500" ]; then
@@ -133,13 +168,32 @@ update_worker_manifest() {
     b64_routing=$(base64 -w 0 < "$mc_files_dir/configure-p0-routing.sh")
     b64_unmanage=$(base64 -w 0 < "$mc_files_dir/unmanage-ovnk-interface.conf")
 
+    # Process DPU worker configuration with role templating
     update_file_multi_replace \
             "$MANIFESTS_DIR/cluster-installation/99-dpu-worker-configuration.yaml" \
             "$GENERATED_DIR/99-dpu-worker-configuration.yaml" \
             "<NODES_MTU>" "$mtu" \
             "<BASE64_APPLY_NMSTATE_BRIDGE>" "$b64_bridge" \
             "<BASE64_CONFIGURE_P0_ROUTING>" "$b64_routing" \
-            "<BASE64_UNMANAGE_OVNK_INTERFACE>" "$b64_unmanage"
+            "<BASE64_UNMANAGE_OVNK_INTERFACE>" "$b64_unmanage" \
+            "<WORKER_ROLE>" "$worker_role"
+
+    # Process worker performance configurations if they exist (update in-place)
+    if [[ -f "$MANIFESTS_DIR/worker-perfomance-configurations/99-worker-perf-kernel-args.yaml" ]]; then
+        log "INFO" "Processing worker performance kernel arguments with role: $worker_role"
+        update_file_multi_replace \
+            "$MANIFESTS_DIR/worker-perfomance-configurations/99-worker-perf-kernel-args.yaml" \
+            "$MANIFESTS_DIR/worker-perfomance-configurations/99-worker-perf-kernel-args.yaml" \
+            "<WORKER_ROLE>" "$worker_role"
+    fi
+
+    if [[ -f "$MANIFESTS_DIR/worker-perfomance-configurations/99-kubeletconfig-workers.yaml" ]]; then
+        log "INFO" "Processing worker kubelet config with role: $worker_role"
+        update_file_multi_replace \
+            "$MANIFESTS_DIR/worker-perfomance-configurations/99-kubeletconfig-workers.yaml" \
+            "$MANIFESTS_DIR/worker-perfomance-configurations/99-kubeletconfig-workers.yaml" \
+            "<WORKER_ROLE>" "$worker_role"
+    fi
 }
 
 function deploy_core_operator_sources() {
