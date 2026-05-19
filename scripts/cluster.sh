@@ -696,7 +696,7 @@ function get_iso() {
         fi
     fi
 
-    log "INFO" "Getting ISO URL..."
+    log "INFO" "Getting ISO URL..." >&2
     local iso_url="$(aicli info iso "${cluster_name}" -s | sed 's/\x1b\[[0-9;]*m//g')"
 
     if [ -z "${iso_url}" ]; then
