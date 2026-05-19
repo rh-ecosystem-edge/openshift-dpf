@@ -65,21 +65,20 @@ _download_iso_to_http() {
     if [[ -n "${REDFISH_ISO_HOST:-}" ]]; then
         # Remote mode — download via SSH
         ssh -o StrictHostKeyChecking=no "${REDFISH_ISO_HOST}" "mkdir -p '${REDFISH_ISO_HOSTPATH}'" || return 1
-        # Only download if not already present (avoid re-downloading for multi-worker setups)
+        # Always re-download — stale ISOs from previous clusters cause boot failures
         ssh -o StrictHostKeyChecking=no "${REDFISH_ISO_HOST}" \
-            "test -f '${REDFISH_ISO_HOSTPATH}/${iso_filename}' || wget -q -O '${REDFISH_ISO_HOSTPATH}/${iso_filename}' '${iso_url}'" || {
+            "wget -q -O '${REDFISH_ISO_HOSTPATH}/${iso_filename}' '${iso_url}'" || {
             log "ERROR" "Failed to download ISO on ${REDFISH_ISO_HOST}" >&2
             return 1
         }
     else
         # Local mode — download directly
         mkdir -p "${REDFISH_ISO_HOSTPATH}" || return 1
-        if [[ ! -f "${REDFISH_ISO_HOSTPATH}/${iso_filename}" ]]; then
-            wget -q -O "${REDFISH_ISO_HOSTPATH}/${iso_filename}" "${iso_url}" || {
+        # Always re-download — stale ISOs from previous clusters cause boot failures
+        wget -q -O "${REDFISH_ISO_HOSTPATH}/${iso_filename}" "${iso_url}" || {
                 log "ERROR" "Failed to download ISO locally" >&2
                 return 1
             }
-        fi
     fi
     echo "${REDFISH_ISO_BASEURL}/${iso_filename}"
 }
