@@ -24,6 +24,9 @@ TFT_SCRIPT := scripts/traffic-flow-tests.sh
 # Worker provisioning script
 WORKER_SCRIPT := scripts/worker.sh
 
+# Redfish direct provisioning script
+REDFISH_SCRIPT := scripts/redfish.sh
+
 .PHONY: all clean check-cluster create-cluster prepare-manifests generate-ovn update-paths help delete-cluster verify-files \
         download-iso fix-yaml-spacing create-vms delete-vms enable-storage cluster-install wait-for-ready \
         wait-for-installed wait-for-status cluster-start clean-all deploy-dpf kubeconfig kubeadmin-password deploy-nfd \
@@ -33,6 +36,7 @@ WORKER_SCRIPT := scripts/worker.sh
         deploy-core-operator-sources deploy-metallb deploy-lso deploy-odf deploy-lvms run-dpf-sanity \
         add-worker-nodes worker-status approve-worker-csrs \
         deploy-csr-approver delete-csr-approver \
+        redfish-verify redfish-power-status \
         delete-dpf-hcp-provisioner-operator \
         verify-deployment verify-workers verify-dpu-nodes verify-dpudeployment \
         run-traffic-flow-tests tft-setup tft-cleanup tft-show-config tft-results aicli-list \
@@ -250,7 +254,11 @@ tft-results:
 
 add-worker-nodes:
 	@echo "================================================================================"
-	@echo "Adding worker nodes via BMO/Redfish provisioning..."
+	@if [ "$(WORKER_PROVISION_METHOD)" = "redfish" ]; then \
+		echo "Adding worker nodes via direct Redfish provisioning..."; \
+	else \
+		echo "Adding worker nodes via BMO/Redfish provisioning..."; \
+	fi
 	@echo "================================================================================"
 	@mkdir -p $(GENERATED_DIR)/worker-provisioning
 	@$(WORKER_SCRIPT) provision-all-workers
@@ -281,6 +289,29 @@ deploy-csr-approver:
 
 delete-csr-approver:
 	@$(WORKER_SCRIPT) delete-csr-auto-approver
+
+# ---------------------------------------------------------------------------
+# Redfish direct provisioning utilities
+# ---------------------------------------------------------------------------
+redfish-verify:
+	@echo "Verifying Redfish connectivity to all configured workers..."
+	@for i in $$(seq 1 $(WORKER_COUNT)); do \
+		eval bmc_ip=\$$WORKER_$${i}_BMC_IP; \
+		eval bmc_user=\$$WORKER_$${i}_BMC_USER; \
+		eval bmc_pass=\$$WORKER_$${i}_BMC_PASSWORD; \
+		$(REDFISH_SCRIPT) verify-connectivity "$$bmc_ip" "$$bmc_user" "$$bmc_pass"; \
+	done
+
+redfish-power-status:
+	@echo "Querying power state for all configured workers..."
+	@for i in $$(seq 1 $(WORKER_COUNT)); do \
+		eval bmc_ip=\$$WORKER_$${i}_BMC_IP; \
+		eval bmc_user=\$$WORKER_$${i}_BMC_USER; \
+		eval bmc_pass=\$$WORKER_$${i}_BMC_PASSWORD; \
+		eval name=\$$WORKER_$${i}_NAME; \
+		state=$$($(REDFISH_SCRIPT) get-power-state "$$bmc_ip" "$$bmc_user" "$$bmc_pass"); \
+		echo "  $$name ($$bmc_ip): $$state"; \
+	done
 
 delete-dpf-hcp-provisioner-operator:
 	@echo "Deleting DPF HCP Provisioner Operator..."
