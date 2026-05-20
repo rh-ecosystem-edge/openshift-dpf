@@ -10,7 +10,7 @@ spec:
     dpuSetStrategy:
       type: RollingUpdate
     bfb: bf-bundle
-    flavor: flavor
+    flavor: hbn-ovnk
     dpuSets:
     - nameSuffix: "dpuset1"
       dpuAnnotations:

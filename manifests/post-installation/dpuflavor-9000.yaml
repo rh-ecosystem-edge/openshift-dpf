@@ -1,15 +1,13 @@
+---
 apiVersion: provisioning.dpu.nvidia.com/v1alpha1
 kind: DPUFlavor
 metadata:
-  name: flavor
+  name: hbn-ovnk
   namespace: dpf-operator-system
   annotations:
+    # Required when flavor bfcfg exceeds the DPF limit of 128K
     provisioning.dpu.nvidia.com/skip-bfcfg-size-check: ""
 spec:
-  bfcfgParameters:
-    - UPDATE_ATF_UEFI=yes
-    - UPDATE_DPU_OS=yes
-    - WITH_NIC_FW_UPDATE=yes
   grub:
     kernelParameters:
       - console=hvc0
@@ -18,9 +16,9 @@ spec:
       - iommu.passthrough=1
       - cgroup_no_v1=net_prio,net_cls
       - hugepagesz=2048kB
-      - hugepages=8072
+      - hugepages=250
   nvconfig:
-    - device: '*'
+    - device: "*"
       parameters:
         - PF_BAR2_ENABLE=0
         - PER_PF_NUM_SF=1
@@ -34,39 +32,45 @@ spec:
         - SRIOV_EN=1
         - NUM_OF_VFS=<NUM_VFS>
         - LAG_RESOURCE_ALLOCATION=1
-        - NUM_VF_MSIX=48
+        - NUM_VF_MSIX=30
         - LINK_TYPE_P1=ETH
         - LINK_TYPE_P2=ETH
   ovs:
     rawConfigScript: |
-      #!/bin/bash
       _ovs-vsctl() {
-        ovs-vsctl --no-wait --timeout 15 "$@"
+        ovs-vsctl --timeout 15 "$@"
       }
+
       _ovs-vsctl set Open_vSwitch . other_config:doca-init=true
       _ovs-vsctl set Open_vSwitch . other_config:dpdk-max-memzones=50000
       _ovs-vsctl set Open_vSwitch . other_config:hw-offload=true
       _ovs-vsctl set Open_vSwitch . other_config:pmd-quiet-idle=true
       _ovs-vsctl set Open_vSwitch . other_config:max-idle=20000
       _ovs-vsctl set Open_vSwitch . other_config:max-revalidator=5000
-      _ovs-vsctl --if-exists del-br ovsbr1
-      _ovs-vsctl --if-exists del-br ovsbr2
+      _ovs-vsctl set Open_vSwitch . other_config:doca-congestion-threshold=60
+      _ovs-vsctl set Open_vSwitch . other_config:flow-limit=500000
+      _ovs-vsctl set Open_vSwitch . other_config:hw-offload-ct-unidir-udp-enabled=true
+      _ovs-vsctl remove Open_vSwitch . other_config default-datapath-type || true
+
+      if systemctl list-unit-files openvswitch-switch.service &>/dev/null; then
+        systemctl restart openvswitch-switch
+      elif systemctl list-unit-files openvswitch.service &>/dev/null; then
+        systemctl restart openvswitch
+      fi
+
       _ovs-vsctl --may-exist add-br br-sfc
       _ovs-vsctl set bridge br-sfc datapath_type=netdev
       _ovs-vsctl set bridge br-sfc fail_mode=secure
+      _ovs-vsctl --may-exist add-br br-hbn
+      _ovs-vsctl set bridge br-hbn datapath_type=netdev
+      _ovs-vsctl set bridge br-hbn fail_mode=secure
       _ovs-vsctl --may-exist add-port br-sfc p0
       _ovs-vsctl set Interface p0 type=dpdk
       _ovs-vsctl set Interface p0 mtu_request=9216
       _ovs-vsctl set Port p0 external_ids:dpf-type=physical
-      _ovs-vsctl --may-exist add-port br-sfc p1
-      _ovs-vsctl set Interface p1 type=dpdk
-      _ovs-vsctl set Interface p1 mtu_request=9216
-      _ovs-vsctl set Port p1 external_ids:dpf-type=physical
 
       # Activate DOCA for OVNK
       _ovs-vsctl set Open_vSwitch . external-ids:ovn-bridge-datapath-type=netdev
-      _ovs-vsctl set Open_vSwitch . other_config:hw-offload-ct-unidir-udp-enabled=true
-
       # setup ovnkube managed bridge, br-dpu (this corresponds to br-ex on ovnk docs)
       _ovs-vsctl --may-exist add-br br-dpu
       _ovs-vsctl br-set-external-id br-dpu bridge-id br-dpu
@@ -74,10 +78,9 @@ spec:
       _ovs-vsctl set bridge br-dpu datapath_type=netdev
       _ovs-vsctl set Interface br-dpu mtu_request=9000
       _ovs-vsctl --may-exist add-port br-dpu pf0hpf
-      _ovs-vsctl set Interface pf0hpf mtu_request=9216
       _ovs-vsctl set Interface pf0hpf type=dpdk
 
-      # Create switching OVS bridge in between the SC managed bridge and OVNK
+      # Create OVS bridge (br-ovn) in between the SC managed bridge and OVNK
       _ovs-vsctl --may-exist add-br br-ovn
       _ovs-vsctl set bridge br-ovn datapath_type=netdev
       _ovs-vsctl set Interface br-ovn mtu_request=9000
@@ -85,6 +88,40 @@ spec:
       _ovs-vsctl --may-exist add-port br-dpu pbrdputobrovn
 
       # Patch br-ovn and br-dpu together
-      _ovs-vsctl set interface pbrovntobrdpu type=patch options:peer=pbrdputobrovn
-      _ovs-vsctl set interface pbrdputobrovn type=patch options:peer=pbrovntobrdpu
+      _ovs-vsctl set Interface pbrovntobrdpu type=patch options:peer=pbrdputobrovn
+      _ovs-vsctl set Interface pbrdputobrovn type=patch options:peer=pbrovntobrdpu
 
+  # openshift-dpf currently performs all three updates unconditionally via
+  # dpu-fw-upgrade.sh (ignition).
+  # TODO: enable once parameters are implemented by dpu-fw-upgrade.sh
+  # bfcfgParameters:
+  #   - UPDATE_ATF_UEFI=yes
+  #   - UPDATE_DPU_OS=yes
+  #   - WITH_NIC_FW_UPDATE=yes
+
+  # TODO: enable once hostagent NM backend is fully implemented
+  # hostNetworkInterfaceConfigs:
+  #   - portNumber: 0
+  #     dhcp: true
+  #     mtu: 9000
+
+  # These files are currently created via ignition.
+  # TODO: enable once configFiles is implemented and ignition handling is removed
+  # configFiles:
+  # - path: /etc/mellanox/mlnx-bf.conf
+  #   operation: override
+  #   raw: |
+  #       ALLOW_SHARED_RQ="no"
+  #       IPSEC_FULL_OFFLOAD="no"
+  #       ENABLE_ESWITCH_MULTIPORT="yes"
+  #   permissions: "0644"
+  # - path: /etc/mellanox/mlnx-ovs.conf
+  #   operation: override
+  #   raw: |
+  #       CREATE_OVS_BRIDGES="no"
+  #       OVS_DOCA="yes"
+  #   permissions: "0644"
+  # - path: /etc/mellanox/mlnx-sf.conf
+  #   operation: override
+  #   raw: ""
+  #   permissions: "0644"
