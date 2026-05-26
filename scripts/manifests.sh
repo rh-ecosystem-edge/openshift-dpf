@@ -178,21 +178,25 @@ update_worker_manifest() {
             "<BASE64_UNMANAGE_OVNK_INTERFACE>" "$b64_unmanage" \
             "<WORKER_ROLE>" "$worker_role"
 
-    # Process worker performance configurations if they exist (update in-place)
+    # Process worker performance configurations if they exist (optional - for manual application by user)
+    mkdir -p "$GENERATED_DIR/worker-perfomance-configurations"
+
     if [[ -f "$MANIFESTS_DIR/worker-perfomance-configurations/99-worker-perf-kernel-args.yaml" ]]; then
         log "INFO" "Processing worker performance kernel arguments with role: $worker_role"
         update_file_multi_replace \
             "$MANIFESTS_DIR/worker-perfomance-configurations/99-worker-perf-kernel-args.yaml" \
-            "$MANIFESTS_DIR/worker-perfomance-configurations/99-worker-perf-kernel-args.yaml" \
+            "$GENERATED_DIR/worker-perfomance-configurations/99-worker-perf-kernel-args.yaml" \
             "<WORKER_ROLE>" "$worker_role"
+        log "INFO" "Generated: $GENERATED_DIR/worker-perfomance-configurations/99-worker-perf-kernel-args.yaml (apply manually if needed)"
     fi
 
     if [[ -f "$MANIFESTS_DIR/worker-perfomance-configurations/99-kubeletconfig-workers.yaml" ]]; then
         log "INFO" "Processing worker kubelet config with role: $worker_role"
         update_file_multi_replace \
             "$MANIFESTS_DIR/worker-perfomance-configurations/99-kubeletconfig-workers.yaml" \
-            "$MANIFESTS_DIR/worker-perfomance-configurations/99-kubeletconfig-workers.yaml" \
+            "$GENERATED_DIR/worker-perfomance-configurations/99-kubeletconfig-workers.yaml" \
             "<WORKER_ROLE>" "$worker_role"
+        log "INFO" "Generated: $GENERATED_DIR/worker-perfomance-configurations/99-kubeletconfig-workers.yaml (apply manually if needed)"
     fi
 }
 
