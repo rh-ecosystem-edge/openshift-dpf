@@ -20,6 +20,24 @@ provision_all_workers() {
     # Ensure kubeconfig is available
     get_kubeconfig
 
+    # Count DPU workers once (used for day-2 check and MachineSet)
+    local dpu_count=0
+    for i in $(seq 1 "$count"); do
+        local dpu_var="WORKER_${i}_DPU"
+        [[ "${!dpu_var:-true}" == "true" ]] && ((dpu_count++)) || true
+    done
+
+    # Day-2 DPU worker support
+    if check_cluster_installed && [[ $dpu_count -gt 0 ]]; then
+        if ! oc get mc dpu-worker-configuration &>/dev/null; then
+            log "INFO" "Day-2 DPU worker addition detected - generating missing DPU MachineConfigs..."
+            mkdir -p "$GENERATED_DIR"
+            source "${SCRIPT_DIR}/manifests.sh"
+            update_worker_manifest
+            retry 5 10 apply_manifest "$GENERATED_DIR/99-dpu-worker-configuration.yaml" false
+        fi
+    fi
+
     # Apply short worker hostnames MachineConfig if enabled
     apply_short_worker_hostnames
 
@@ -42,14 +60,8 @@ provision_all_workers() {
     local is_sno=false
     [[ "${VM_COUNT:-0}" -eq 1 ]] && is_sno=true
 
-    # Count DPU workers for shared MachineSet (only in non-SNO environments)
-    local dpu_count=0
+    # Create shared MachineSet for DPU workers (only in non-SNO environments)
     if [[ "$is_sno" == "false" ]]; then
-        for i in $(seq 1 "$count"); do
-            local dpu_var="WORKER_${i}_DPU"
-            [[ "${!dpu_var:-true}" == "true" ]] && ((dpu_count++)) || true
-        done
-
         # Create shared MachineSet if we have DPU workers and not SNO
         if [[ $dpu_count -gt 0 ]]; then
             log "INFO" "Creating/updating shared MachineSet for $dpu_count DPU worker(s)..."
