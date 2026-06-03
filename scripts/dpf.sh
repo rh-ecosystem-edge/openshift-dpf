@@ -198,6 +198,35 @@ function deploy_dpf_hcp_provisioner_operator() {
     log [INFO] "DPF HCP Provisioner Operator is ready!"
 }
 
+function deploy_dpu_worker_config() {
+    log [INFO] "Deploying DPU Worker Config chart..."
+
+    ensure_helm_installed
+
+    local version_flag=""
+    if [[ -n "${DPU_WORKER_CONFIG_CHART_VERSION}" ]]; then
+        version_flag="--version ${DPU_WORKER_CONFIG_CHART_VERSION}"
+    fi
+
+    local mtu_flag=""
+    if [[ -n "${NODES_MTU}" && "${NODES_MTU}" != "1500" ]]; then
+        mtu_flag="--set networkMTU=${NODES_MTU}"
+    fi
+
+    if helm upgrade --install dpu-worker-config \
+        "${DPU_WORKER_CONFIG_CHART_URL}" \
+        --namespace ${DPF_HCP_PROVISIONER_OPERATOR_NAMESPACE} \
+        --create-namespace \
+        --disable-openapi-validation \
+        ${version_flag} \
+        ${mtu_flag}; then
+        log [INFO] "Helm release 'dpu-worker-config' deployed successfully"
+    else
+        log [ERROR] "Helm deployment of dpu-worker-config failed"
+        return 1
+    fi
+}
+
 function create_dpfhcpprovisioner_secrets() {
     log [INFO] "Creating secrets in ${CLUSTERS_NAMESPACE} namespace..."
 
@@ -292,10 +321,13 @@ function deploy_hypershift() {
     log [INFO] "Deploying Hosted Cluster using DPF HCP Provisioner Operator"
     log [INFO] "================================================================================"
 
-    # Step 1: Deploy DPF HCP Provisioner Operator
+    # Step 1: Deploy DPU Worker Config chart (MachineConfig for DPU worker nodes)
+    deploy_dpu_worker_config
+
+    # Step 2: Deploy DPF HCP Provisioner Operator
     deploy_dpf_hcp_provisioner_operator
 
-    # Step 2: Install Hypershift operator (required by dpf-hcp-provisioner-operator)
+    # Step 3: Install Hypershift operator (required by dpf-hcp-provisioner-operator)
     if oc get deployment -n hypershift operator &>/dev/null; then
         log [INFO] "Hypershift operator already installed. Skipping deployment."
     else
@@ -304,7 +336,7 @@ function deploy_hypershift() {
         wait_for_pods "hypershift" "app=operator" 30 5
     fi
 
-    # Step 3: Deploy MetalLB operator if HYPERSHIFT_API_IP is configured (multi-node clusters only)
+    # Step 4: Deploy MetalLB operator if HYPERSHIFT_API_IP is configured (multi-node clusters only)
     if [ -n "${HYPERSHIFT_API_IP}" ]; then
         log [INFO] "HYPERSHIFT_API_IP configured. Deploying MetalLB operator for LoadBalancer support..."
         deploy_metallb
@@ -313,13 +345,13 @@ function deploy_hypershift() {
         log [WARN] "Hypershift API will use NodePort instead of LoadBalancer."
     fi
 
-    # Step 4: Create secrets in clusters namespace
+    # Step 5: Create secrets in clusters namespace
     create_dpfhcpprovisioner_secrets
 
-    # Step 5: Create DPFHCPProvisioner Custom Resource
+    # Step 6: Create DPFHCPProvisioner Custom Resource
     create_dpfhcpprovisioner_cr
 
-    # Step 6: Wait for HostedCluster to be created by the operator
+    # Step 7: Wait for HostedCluster to be created by the operator
     # The operator creates HostedCluster in the same namespace as DPFHCPProvisioner CR
     log [INFO] "Waiting for DPF HCP Provisioner Operator to create HostedCluster..."
     if ! retry 5 30 oc get hostedcluster -n ${CLUSTERS_NAMESPACE} ${HOSTED_CLUSTER_NAME} &>/dev/null; then
@@ -336,7 +368,7 @@ function deploy_hypershift() {
         add_cno_image_override
     fi
 
-    # Step 7: Wait for hosted control plane namespace and pods
+    # Step 8: Wait for hosted control plane namespace and pods
     log [INFO] "Waiting for hosted control plane namespace ${HOSTED_CONTROL_PLANE_NAMESPACE}..."
     retry 30 10 bash -c "oc get namespace ${HOSTED_CONTROL_PLANE_NAMESPACE} &>/dev/null"
 
@@ -346,7 +378,7 @@ function deploy_hypershift() {
     log [INFO] "Waiting for etcd pods..."
     wait_for_pods ${HOSTED_CONTROL_PLANE_NAMESPACE} "app=etcd" 60 10
 
-    # Step 8: Configure hypershift (create kubeconfig and copy to dpf-operator-system)
+    # Step 9: Configure hypershift (create kubeconfig and copy to dpf-operator-system)
     configure_hypershift
 
     log [INFO] "================================================================================"
