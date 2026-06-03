@@ -51,7 +51,6 @@ function prepare_cluster_manifests() {
         "ovn-values-with-injector.yaml"
         "nfd-subscription.yaml"
         "openshift-cert-manager.yaml"
-        "99-dpu-worker-configuration.yaml"
     )
 
     # In SNO mode (VM_COUNT=1), exclude worker-dpu MachineConfigPool
@@ -104,7 +103,7 @@ function prepare_cluster_manifests() {
     enable_storage
 
     update_worker_manifest
-    
+
     # Install manifests to cluster
     # Check if cluster is already installed
     if check_cluster_installed; then
@@ -136,18 +135,14 @@ update_worker_manifest() {
         [[ "$is_dpu" == "true" ]] && ((dpu_count++)) || true
     done
 
-    # Skip DPU MachineConfig generation if no DPU workers are configured
-    # This prevents applying DPU-specific configs (e.g., OVS masking) to regular/VM workers
     if [[ $dpu_count -eq 0 ]]; then
-        log "INFO" "No DPU workers configured (WORKER_COUNT=${worker_count}), skipping DPU MachineConfigs"
+        log "INFO" "No DPU workers configured (WORKER_COUNT=${worker_count}), skipping worker manifest generation"
         return 0
     fi
 
-    log "INFO" "Found ${dpu_count} DPU worker(s), generating DPU MachineConfigs"
+    log "INFO" "Found ${dpu_count} DPU worker(s), generating worker manifests"
 
-    # Detect SNO environment (VM_COUNT=1)
-    # In SNO with platform "None", Machine API is in NoOp mode
-    # Use 'worker' role so MachineConfigs apply to regular worker nodes
+    # Detect SNO environment (VM_COUNT=1): use 'worker' role, otherwise 'worker-dpu'
     local worker_role="worker-dpu"
     if [[ "${VM_COUNT:-0}" -eq 1 ]]; then
         worker_role="worker"
@@ -156,31 +151,7 @@ update_worker_manifest() {
         log "INFO" "Multi-node environment, using worker-dpu role with MachineConfigPool"
     fi
 
-    local mtu=""
-    if [ "${NODES_MTU}" != "1500" ]; then
-        log "INFO" "Setting ExecStart to include MTU: ${NODES_MTU}"
-        mtu="${NODES_MTU}"
-    fi
-
-    local mc_files_dir="$MANIFESTS_DIR/cluster-installation/machineconfig-files"
-    local b64_bridge b64_routing b64_unmanage b64_set_ovnk_dpu_label
-    b64_bridge=$(base64 -w 0 < "$mc_files_dir/apply-nmstate-bridge.sh")
-    b64_routing=$(base64 -w 0 < "$mc_files_dir/configure-p0-routing.sh")
-    b64_unmanage=$(base64 -w 0 < "$mc_files_dir/unmanage-ovnk-interface.conf")
-    b64_set_ovnk_dpu_label=$(base64 -w 0 < "$mc_files_dir/set-ovnk-dpu-label.sh")
-
-    # Process DPU worker configuration with role templating
-    update_file_multi_replace \
-            "$MANIFESTS_DIR/cluster-installation/99-dpu-worker-configuration.yaml" \
-            "$GENERATED_DIR/99-dpu-worker-configuration.yaml" \
-            "<NODES_MTU>" "$mtu" \
-            "<BASE64_APPLY_NMSTATE_BRIDGE>" "$b64_bridge" \
-            "<BASE64_CONFIGURE_P0_ROUTING>" "$b64_routing" \
-            "<BASE64_UNMANAGE_OVNK_INTERFACE>" "$b64_unmanage" \
-            "<BASE64_SET_OVNK_DPU_LABEL>" "$b64_set_ovnk_dpu_label" \
-            "<WORKER_ROLE>" "$worker_role"
-
-    # Process worker performance configurations if they exist (optional - for manual application by user)
+    # Process worker performance configurations (optional - for manual application by user)
     mkdir -p "$GENERATED_DIR/worker-perfomance-configurations"
 
     if [[ -f "$MANIFESTS_DIR/worker-perfomance-configurations/99-worker-perf-kernel-args.yaml" ]]; then
