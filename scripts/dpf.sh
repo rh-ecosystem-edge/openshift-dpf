@@ -181,6 +181,7 @@ function deploy_dpf_hcp_provisioner_operator() {
         --disable-openapi-validation \
         ${version_flag} \
         --set image.repository=${DPF_HCP_PROVISIONER_OPERATOR_IMAGE_REPO} \
+        --set image.pullPolicy=Always \
         --set image.tag=${DPF_HCP_PROVISIONER_OPERATOR_IMAGE_TAG}; then
 
         log [INFO] "Helm release 'dpf-hcp-provisioner-operator' deployed successfully"
