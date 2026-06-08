@@ -21,13 +21,13 @@ source "${SCRIPT_DIR}/utils.sh"
 REDFISH_TIMEOUT=${REDFISH_TIMEOUT:-30}
 REDFISH_VERIFY_SSL=${REDFISH_VERIFY_SSL:-false}
 
-# Build curl flags for Redfish calls
+# Build curl flags for Redfish calls.
+# Populates the caller's CURL_FLAGS array variable.
 _redfish_curl_flags() {
-    local flags="-s -S --connect-timeout 10 --max-time ${REDFISH_TIMEOUT}"
+    CURL_FLAGS=(-s -S --connect-timeout 10 --max-time "${REDFISH_TIMEOUT}")
     if [ "${REDFISH_VERIFY_SSL}" != "true" ]; then
-        flags="${flags} -k"
+        CURL_FLAGS+=(-k)
     fi
-    echo "${flags}"
 }
 
 # Make a Redfish API call
@@ -41,17 +41,16 @@ redfish_call() {
     local body="${6:-}"
 
     local url="https://${bmc_ip}${path}"
-    local curl_flags
-    curl_flags=$(_redfish_curl_flags)
-
-    local cmd="curl ${curl_flags} -X ${method} -u '${user}:${pass}' -H 'Content-Type: application/json'"
+    local CURL_FLAGS
+    _redfish_curl_flags
 
     if [ -n "${body}" ]; then
-        cmd="${cmd} -d '${body}'"
+        curl "${CURL_FLAGS[@]}" -X "${method}" -u "${user}:${pass}" \
+            -H 'Content-Type: application/json' -d "${body}" "${url}" 2>&1
+    else
+        curl "${CURL_FLAGS[@]}" -X "${method}" -u "${user}:${pass}" \
+            -H 'Content-Type: application/json' "${url}" 2>&1
     fi
-
-    cmd="${cmd} '${url}'"
-    eval "${cmd}" 2>&1
 }
 
 # Get the first System ID from the Redfish service root
