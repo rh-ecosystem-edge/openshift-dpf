@@ -103,13 +103,7 @@ function prepare_cluster_manifests() {
 
     enable_storage
 
-    # DPU worker MachineConfig masks OVS and replaces br-ex with nmstate bridge.
-    # Skip it when using Redfish provisioning — those workers need standard OVS/OVN networking.
-    if [[ "${WORKER_PROVISION_METHOD:-bmo}" != "redfish" ]]; then
-        update_worker_manifest
-    else
-        log "INFO" "Skipping DPU worker MachineConfig (WORKER_PROVISION_METHOD=redfish — workers need standard OVS)"
-    fi
+    update_worker_manifest
     
     # Install manifests to cluster
     # Check if cluster is already installed

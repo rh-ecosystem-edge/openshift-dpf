@@ -219,8 +219,8 @@ _provision_workers_redfish() {
     log "INFO" "Existing hosts in infra-env (will be excluded): ${existing_host_ids:-none}"
 
     # Step 3: Mount ISO and boot each worker via Redfish + IPMI
-    # Track worker BMC info for post-provision cleanup (eject ISO after install)
-    local -a worker_bmc_ips=() worker_bmc_users=() worker_bmc_passes=()
+    # Track worker info for post-provision cleanup and node labeling
+    local -a worker_bmc_ips=() worker_bmc_users=() worker_bmc_passes=() worker_names=()
     for i in $(seq 1 "$count"); do
         _get_worker_config "$i" || return 1
         redfish_provision_worker \
@@ -229,6 +229,7 @@ _provision_workers_redfish() {
         worker_bmc_ips+=("${WORKER_BMC_IP}")
         worker_bmc_users+=("${WORKER_BMC_USER}")
         worker_bmc_passes+=("${WORKER_BMC_PASS}")
+        worker_names+=("${WORKER_NAME}")
     done
 
     # Step 4: Wait for hosts to register in Assisted Installer
@@ -338,6 +339,37 @@ _provision_workers_redfish() {
         # Don't fail — installation succeeded, node just needs time
     fi
 
+    # Step 9: Label worker nodes with worker-dpu role
+    # In the BMO path, the MachineSet assigns node-role.kubernetes.io/worker-dpu automatically.
+    # Redfish bypasses MachineSet, so we label nodes manually so the worker-dpu MCP picks them up
+    # and applies DPU MachineConfigs (nmstate bridge, OVS mask, kernel args, etc.).
+    log "INFO" "Labeling Redfish worker nodes with worker-dpu role..."
+    for name in "${worker_names[@]}"; do
+        local node_name
+        # Node name may differ from WORKER_NAME (AI uses the requested hostname but
+        # some environments append the domain). Try exact match first, then prefix.
+        if oc get node "$name" &>/dev/null; then
+            node_name="$name"
+        else
+            node_name=$(oc get nodes --no-headers -o custom-columns=NAME:.metadata.name 2>/dev/null \
+                | grep "^${name}" | head -1) || true
+        fi
+
+        if [[ -z "$node_name" ]]; then
+            log "WARN" "Could not find node for worker $name — label manually: oc label node <name> node-role.kubernetes.io/worker-dpu="
+            continue
+        fi
+
+        if oc get node "$node_name" --show-labels 2>/dev/null | grep -q "node-role.kubernetes.io/worker-dpu"; then
+            log "INFO" "Node $node_name already has worker-dpu role"
+        else
+            oc label node "$node_name" node-role.kubernetes.io/worker-dpu="" --overwrite || {
+                log "WARN" "Failed to label node $node_name — label manually: oc label node $node_name node-role.kubernetes.io/worker-dpu="
+            }
+            log "INFO" "Labeled node $node_name with worker-dpu role"
+        fi
+    done
+
     log "INFO" "Redfish worker provisioning complete"
 }
 
@@ -358,7 +390,7 @@ provision_all_workers() {
         [[ "${!dpu_var:-true}" == "true" ]] && ((dpu_count++)) || true
     done
 
-    # Day-2 DPU worker support
+    # Day-2 DPU worker support — ensure DPU MachineConfigs and MCP exist
     if check_cluster_installed && [[ $dpu_count -gt 0 ]]; then
         if ! oc get mc dpu-worker-configuration &>/dev/null; then
             log "INFO" "Day-2 DPU worker addition detected - generating missing DPU MachineConfigs..."
@@ -366,6 +398,13 @@ provision_all_workers() {
             source "${SCRIPT_DIR}/manifests.sh"
             update_worker_manifest
             retry 5 10 apply_manifest "$GENERATED_DIR/99-dpu-worker-configuration.yaml" false
+        fi
+
+        # Ensure worker-dpu MachineConfigPool exists (created at cluster install time,
+        # but may be missing if original install had no DPU workers or used SNO mode)
+        if ! oc get mcp worker-dpu &>/dev/null; then
+            log "INFO" "worker-dpu MachineConfigPool not found — applying..."
+            retry 5 10 apply_manifest "${MANIFESTS_DIR}/cluster-installation/99-worker-dpu-mcp.yaml" false
         fi
     fi
 

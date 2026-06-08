@@ -109,6 +109,8 @@ REDFISH_ISO_HOST=root@10.8.231.20
 
 > **Note:** `WORKER_n_BOOT_MAC` is not required for Redfish provisioning. The ISO is mounted via VirtualMedia, not PXE.
 
+> **Note:** Redfish workers are DPU workers. After installation, they are automatically labeled with `node-role.kubernetes.io/worker-dpu` so the `worker-dpu` MachineConfigPool picks them up and applies all DPU MachineConfigs (nmstate bridge, OVS mask, kernel args). In the BMO path this label comes from the MachineSet; in Redfish mode it is applied directly by the automation.
+
 ## Usage
 
 ```bash
@@ -136,6 +138,7 @@ make add-worker-nodes
 10. **Wait for install** — Polls until installation completes (status `added-to-existing-cluster`)
 11. **Eject ISO** — Ejects VirtualMedia so the post-install reboot goes to the installed OS, not back to the discovery ISO
 12. **CSR approval** — Approves pending certificate signing requests and waits for the node to become `Ready`
+13. **Label nodes** — Labels worker nodes with `node-role.kubernetes.io/worker-dpu` so the `worker-dpu` MachineConfigPool picks them up and applies DPU MachineConfigs (in BMO mode, the MachineSet does this automatically)
 
 ## Troubleshooting
 
