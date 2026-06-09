@@ -34,12 +34,8 @@ SPECIAL_FILES=(
     "dpuflavor-1500.yaml"
     "dpuflavor-9000.yaml"
     "dpuflavor.yaml"
-    "ovn-template.yaml"
     "ovn-configuration.yaml"
-    "hbn-template.yaml"
     "hbn-configuration.yaml"
-    "dts-template.yaml"
-    "blueman-template.yaml"
     "dpu-node-ipam-controller.yaml"
     "dpudeployment.yaml"
     "nodesriovdevicepluginconfig.yaml"
@@ -75,36 +71,6 @@ function update_hbn_ovn_manifests() {
         "<HBN_OVN_NETWORK>" \
         "${HBN_OVN_NETWORK}"
     
-    # Skip ovn-dpuservice.yaml - now handled by DPUDeployment
-    # Services are now managed through DPUDeployment with templates and configurations
-    
-    # Update ovn-template.yaml for DPUDeployment
-    if [ -f "${POST_INSTALL_DIR}/ovn-template.yaml" ]; then
-        # Determine the replacement value for <OVN_KUBERNETES_UTILS_IMAGES>
-        local utils_images_replacement=""
-        if [ -n "${OVN_KUBERNETES_UTILS_IMAGE_REPO}" ] && [ -n "${OVN_KUBERNETES_UTILS_IMAGE_TAG}" ]; then
-            # Build the imagedpf block with proper indentation (8 spaces for imagedpf:, 10 spaces for repository/tag)
-            utils_images_replacement="imagedpf:
-          repository: ${OVN_KUBERNETES_UTILS_IMAGE_REPO}
-          tag: ${OVN_KUBERNETES_UTILS_IMAGE_TAG}"
-            log [INFO] "OVN_KUBERNETES_UTILS_IMAGE_REPO and OVN_KUBERNETES_UTILS_IMAGE_TAG set, including imagedpf section in ovn-template.yaml" 
-        else
-            log [INFO] "OVN_KUBERNETES_UTILS_IMAGE_REPO or OVN_KUBERNETES_UTILS_IMAGE_TAG not set, omitting imagedpf section from ovn-template.yaml"
-        fi
-        
-        # Use update_file_multi_replace for all replacements
-        update_file_multi_replace \
-            "${POST_INSTALL_DIR}/ovn-template.yaml" \
-            "${GENERATED_POST_INSTALL_DIR}/ovn-template.yaml" \
-            "<DPF_VERSION>" "${DPF_VERSION}" \
-            "<OVN_CHART_VERSION>" "${OVN_CHART_VERSION}" \
-            "<OVN_TEMPLATE_CHART_URL>" "${OVN_TEMPLATE_CHART_URL}" \
-            "<OVN_KUBERNETES_IMAGE_REPO>" "${OVN_KUBERNETES_IMAGE_REPO}" \
-            "<OVN_KUBERNETES_IMAGE_TAG>" "${OVN_KUBERNETES_IMAGE_TAG}" \
-            "<OVN_KUBERNETES_UTILS_IMAGES>" "${utils_images_replacement}" \
-            "<OVN_CHART_URL>" "${OVN_CHART_URL}"
-    fi
-
     # Update ovn-configuration.yaml for DPUDeployment
     if [ -f "${POST_INSTALL_DIR}/ovn-configuration.yaml" ]; then
         local ovn_mtu=""
@@ -167,49 +133,7 @@ function update_vf_configuration() {
 }
 
 # Function to update service template versions
-function update_service_templates() {
-    log [INFO] "Updating service template versions..."
-    
-    # Validate DPF_VERSION is set
-    if [ -z "$DPF_VERSION" ]; then
-        log [ERROR] "DPF_VERSION is not set. Required for service template updates"
-        return 1
-    fi
-    
-    # Update all service templates with DPF_VERSION if they exist
-    local templates=("hbn-template.yaml" "dts-template.yaml" "blueman-template.yaml")
-    
-    for template in "${templates[@]}"; do
-        if [ -f "${POST_INSTALL_DIR}/${template}" ]; then
-            # HBN template needs helm repo URL, version, and image configuration
-            if [[ "${template}" == "hbn-template.yaml" ]]; then
-                update_file_multi_replace \
-                    "${POST_INSTALL_DIR}/${template}" \
-                    "${GENERATED_POST_INSTALL_DIR}/${template}" \
-                    "<HBN_HELM_REPO_URL>" "${HBN_HELM_REPO_URL}" \
-                    "<HBN_HELM_CHART_VERSION>" "${HBN_HELM_CHART_VERSION}" \
-                    "<HBN_IMAGE_REPO>" "${HBN_IMAGE_REPO}" \
-                    "<HBN_IMAGE_TAG>" "${HBN_IMAGE_TAG}"
-                log [INFO] "Updated ${template} with HBN helm and image configuration"
-            # DTS template needs helm repo URL and version
-            elif [[ "${template}" == "dts-template.yaml" ]]; then
-                update_file_multi_replace \
-                    "${POST_INSTALL_DIR}/${template}" \
-                    "${GENERATED_POST_INSTALL_DIR}/${template}" \
-                    "<DTS_HELM_REPO_URL>" "${DTS_HELM_REPO_URL}" \
-                    "<DTS_HELM_CHART_VERSION>" "${DTS_HELM_CHART_VERSION}" \
-                    "<DTS_IMAGE>" "${DTS_IMAGE}"
-                log [INFO] "Updated ${template} with DTS helm and image configuration"
-            else
-                update_file_multi_replace \
-                    "${POST_INSTALL_DIR}/${template}" \
-                    "${GENERATED_POST_INSTALL_DIR}/${template}" \
-                    "<DPF_VERSION>" "${DPF_VERSION}"
-                log [INFO] "Updated ${template} with DPF_VERSION"
-            fi
-        fi
-    done
-    
+function update_ipam_controller() {
     # Update IPAM controller manifest (skip for OCP >= 4.22 where Hypershift handles node CIDR allocation natively)
     if ocp_version_gte "${OPENSHIFT_VERSION}" "4.22"; then
         log [INFO] "OCP ${OPENSHIFT_VERSION} >= 4.22: skipping dpu-node-ipam-controller (node CIDR allocation handled by Hypershift)"
@@ -221,8 +145,6 @@ function update_service_templates() {
             "<HOSTED_CLUSTER_NAME>" "${HOSTED_CLUSTER_NAME}"
         log [INFO] "Updated dpu-node-ipam-controller.yaml with namespace and cluster name"
     fi
-    
-    log [INFO] "Service template versions updated successfully"
 }
 
 
@@ -253,7 +175,7 @@ function prepare_post_installation() {
     update_bfb_manifest
     update_hbn_ovn_manifests
     update_vf_configuration
-    update_service_templates
+    update_ipam_controller
     update_dpu_service_nad
     
     # Process DPUDeployment template
