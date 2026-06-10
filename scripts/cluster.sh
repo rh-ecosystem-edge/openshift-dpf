@@ -391,8 +391,8 @@ function start_cluster_installation() {
         log "INFO" "STORAGE_TYPE=odf detected. Deploying LSO and ODF..."
         deploy_lso
         deploy_odf
-    elif [[ "${OLM_WORKAROUND}" == "true" ]]; then
-        log "INFO" "OLM_WORKAROUND=true: deploying LVM via subscription (using catalog ${CATALOG_SOURCE_NAME})"
+    else
+        log "INFO" "Deploying LVMS (STORAGE_TYPE=${STORAGE_TYPE})..."
         deploy_lvm
     fi
 }
