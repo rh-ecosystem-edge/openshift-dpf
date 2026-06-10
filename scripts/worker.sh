@@ -70,13 +70,9 @@ provision_all_workers() {
                 > "${WORKER_GENERATED_DIR}/machineset-dpu.yaml"
             retry 5 10 apply_manifest "${WORKER_GENERATED_DIR}/machineset-dpu.yaml" true
 
-            # Apply custom node labels MachineConfig for DPU workers
-            apply_worker_node_labels
         fi
     else
         log "INFO" "SNO environment detected (VM_COUNT=1), skipping MachineSet creation (Machine API in NoOp mode)"
-        # Apply custom node labels MachineConfig for all workers in SNO
-        apply_worker_node_labels
     fi
 
     for i in $(seq 1 "$count"); do
@@ -175,46 +171,6 @@ display_manual_csr_instructions() {
     echo "Or: make approve-worker-csrs"
 }
 
-apply_worker_node_labels() {
-    if [[ -z "${WORKER_NODE_LABELS:-}" ]]; then
-        log "INFO" "WORKER_NODE_LABELS not set, skipping DPU node labels MachineConfig"
-        return 0
-    fi
-
-    get_kubeconfig
-
-    local template="${WORKER_TEMPLATE_DIR}/99-worker-dpu-node-labels.yaml"
-    if [[ ! -f "$template" ]]; then
-        log "ERROR" "Worker DPU node labels manifest template not found: $template"
-        return 1
-    fi
-
-    mkdir -p "${WORKER_GENERATED_DIR}"
-
-    # Determine worker role based on environment (same logic as update_worker_manifest)
-    local worker_role="worker-dpu"
-    if [[ "${VM_COUNT:-0}" -eq 1 ]]; then
-        worker_role="worker"
-        log "INFO" "SNO environment (VM_COUNT=1), using worker role for node labels MC"
-    else
-        log "INFO" "Multi-node environment, using worker-dpu role for node labels MC"
-    fi
-
-    local kubelet_env_base64
-    kubelet_env_base64=$(printf 'CUSTOM_KUBELET_LABELS=%s\n' "$WORKER_NODE_LABELS" | base64 | tr -d '\n')
-
-    local output="${WORKER_GENERATED_DIR}/99-worker-dpu-node-labels.yaml"
-    process_template \
-        "$template" \
-        "$output" \
-        "<KUBELET_ENV_BASE64>" "$kubelet_env_base64" \
-        "<WORKER_ROLE>" "$worker_role"
-
-    log "INFO" "Applying DPU worker node labels MachineConfig (labels: $WORKER_NODE_LABELS, role: $worker_role)..."
-    apply_manifest "$output" false
-    log "INFO" "DPU worker node labels MachineConfig applied successfully"
-}
-
 apply_short_worker_hostnames() {
     # Apply MachineConfig that sets worker hostnames based on MAC address
     # This is controlled by ENABLE_SHORT_WORKER_HOSTNAMES flag
@@ -277,11 +233,10 @@ case "${1:-}" in
     display-worker-status) display_worker_status ;;
     display-manual-csr-instructions) display_manual_csr_instructions ;;
     apply-short-worker-hostnames) apply_short_worker_hostnames ;;
-    apply-worker-node-labels) apply_worker_node_labels ;;
     deploy-csr-auto-approver) deploy_csr_auto_approver ;;
     delete-csr-auto-approver) delete_csr_auto_approver ;;
     *)
-        echo "Usage: $0 {provision-all-workers|approve-worker-csrs|display-worker-status|display-manual-csr-instructions|apply-short-worker-hostnames|apply-worker-node-labels|deploy-csr-auto-approver|delete-csr-auto-approver}"
+        echo "Usage: $0 {provision-all-workers|approve-worker-csrs|display-worker-status|display-manual-csr-instructions|apply-short-worker-hostnames|deploy-csr-auto-approver|delete-csr-auto-approver}"
         exit 1
         ;;
 esac
