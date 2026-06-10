@@ -109,7 +109,7 @@ REDFISH_ISO_HOST=root@10.8.231.20
 
 > **Note:** `WORKER_n_BOOT_MAC` is not required for Redfish provisioning. The ISO is mounted via VirtualMedia, not PXE.
 
-> **Note:** Redfish workers are DPU workers. After installation, they are automatically labeled with `node-role.kubernetes.io/worker-dpu` so the `worker-dpu` MachineConfigPool picks them up and applies all DPU MachineConfigs (nmstate bridge, OVS mask, kernel args). In the BMO path this label comes from the MachineSet; in Redfish mode it is applied directly by the automation.
+> **Note:** Redfish workers are DPU workers. During installation, the Assisted Installer is configured to serve ignition from the `worker-dpu` MachineConfigPool (via `aicli update host -P mcp=worker-dpu`), so DPU MachineConfigs (nmstate bridge, OVS mask, kernel args) are applied at install time. After installation, nodes are labeled with `node-role.kubernetes.io/worker-dpu` and the `worker` MCP is paused during the join window to prevent conflicting config rendering. In the BMO path, the MachineSet handles the label assignment instead.
 
 ## Usage
 
@@ -134,11 +134,14 @@ make add-worker-nodes
 6. **Boot override** — Sets one-time boot to virtual CD via Redfish (`BootSourceOverrideTarget: Cd`)
 7. **Power on** — Powers on the server via Redfish
 8. **Wait for registration** — Polls Assisted Installer until the host appears with status `known`
-9. **Bind and start** — Binds the host to the cluster and starts installation via `aicli`
-10. **Wait for install** — Polls until installation completes (status `added-to-existing-cluster`)
-11. **Eject ISO** — Ejects VirtualMedia so the post-install reboot goes to the installed OS, not back to the discovery ISO
-12. **CSR approval** — Approves pending certificate signing requests and waits for the node to become `Ready`
-13. **Label nodes** — Labels worker nodes with `node-role.kubernetes.io/worker-dpu` so the `worker-dpu` MachineConfigPool picks them up and applies DPU MachineConfigs (in BMO mode, the MachineSet does this automatically)
+9. **Bind and assign MCP** — Binds the host to the cluster and sets `machine_config_pool_name=worker-dpu` via `aicli` so the host receives ignition from the `worker-dpu` MachineConfigPool (not the default `worker` pool). This ensures DPU MachineConfigs are baked into the initial ignition.
+10. **Start installation** — Starts the host installation via `aicli`
+11. **Wait for install** — Polls until installation completes (status `added-to-existing-cluster`)
+12. **Eject ISO** — Ejects VirtualMedia so the post-install reboot goes to the installed OS, not back to the discovery ISO
+13. **Pause worker MCP** — Pauses the `worker` MachineConfigPool so MCO doesn't apply default worker configs to the new nodes before they're labeled `worker-dpu`
+14. **CSR approval** — Approves pending certificate signing requests and waits for the node to become `Ready`
+15. **Label nodes** — Labels worker nodes with `node-role.kubernetes.io/worker-dpu` so the `worker-dpu` MachineConfigPool picks them up
+16. **Unpause worker MCP** — Unpauses the `worker` MachineConfigPool now that the nodes are safely claimed by `worker-dpu`
 
 ## Troubleshooting
 

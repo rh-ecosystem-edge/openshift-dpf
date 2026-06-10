@@ -261,19 +261,28 @@ _provision_workers_redfish() {
                     and (.status == "known" or .status == "known-unbound")
                     and (.id as $id | $skip | index($id) | not)) | .id')
 
-    # Step 5: Bind and start installation for each NEW host
+    # Step 5: Bind hosts, assign worker-dpu MCP, and start installation
+    # The MCP must be set BEFORE starting installation so the host receives
+    # ignition from the worker-dpu MachineConfigPool instead of the default
+    # worker pool. Without this, nodes get the wrong ignition and the
+    # worker-dpu MachineConfigs (nmstate bridge, OVS mask, kernel args) are
+    # never applied during install.
     for host_id in ${new_host_ids}; do
         log "INFO" "Binding host ${host_id} to cluster ${CLUSTER_NAME}..."
         aicli bind host "${host_id}" "${CLUSTER_NAME}" || true
     done
 
-    # Wait briefly for bind to take effect, then start
+    # Wait for bind to take effect, then set MCP and start
     sleep 5
     for host_id in ${new_host_ids}; do
         local host_status
         host_status=$(aicli -o json list hosts 2>/dev/null \
             | jq -r --arg hid "${host_id}" '.[] | select(.id == $hid) | .status')
         if [ "${host_status}" = "known" ]; then
+            log "INFO" "Setting MCP to worker-dpu for host ${host_id}..."
+            aicli update host "${host_id}" -P mcp=worker-dpu || {
+                log "ERROR" "Failed to set MCP for host ${host_id} — host may get default worker ignition"
+            }
             log "INFO" "Starting installation for host ${host_id}..."
             aicli start host "${host_id}" || true
         else
@@ -290,7 +299,8 @@ _provision_workers_redfish() {
             hs=$(aicli -o json list hosts 2>/dev/null \
                 | jq -r --arg hid "${host_id}" '.[] | select(.id == $hid) | .status')
             if [ "${hs}" = "known" ]; then
-                log "INFO" "Retrying start for host ${host_id} (status: known)..."
+                log "INFO" "Retrying MCP assignment + start for host ${host_id}..."
+                aicli update host "${host_id}" -P mcp=worker-dpu || true
                 aicli start host "${host_id}" || true
             fi
         done
@@ -321,7 +331,16 @@ _provision_workers_redfish() {
         redfish_eject_iso "${worker_bmc_ips[$idx]}" "${worker_bmc_users[$idx]}" "${worker_bmc_passes[$idx]}" "${vm_cd_path}" || true
     done
 
-    # Step 8: Approve CSRs and wait for workers to become Ready
+    # Step 8: Pause worker MCP, approve CSRs, and wait for workers to become Ready
+    # Pause the worker MCP so newly joining nodes don't get the default worker
+    # pool rendering before the worker-dpu label is applied. Without this,
+    # MCO may start applying worker configs and reboot the node, conflicting
+    # with the worker-dpu configs the node should actually get.
+    log "INFO" "Pausing worker MachineConfigPool to prevent premature rendering..."
+    oc patch mcp worker --type merge -p '{"spec":{"paused":true}}' 2>/dev/null || {
+        log "WARN" "Failed to pause worker MCP — nodes may receive default worker configs temporarily"
+    }
+
     log "INFO" "Waiting for worker nodes to join the cluster..."
     _check_workers_ready() {
         # Approve any pending CSRs first
@@ -369,6 +388,14 @@ _provision_workers_redfish() {
             log "INFO" "Labeled node $node_name with worker-dpu role"
         fi
     done
+
+    # Step 10: Unpause worker MCP
+    # Now that all nodes are labeled worker-dpu, the worker-dpu MCP selector
+    # matches them and the default worker MCP won't claim them. Safe to unpause.
+    log "INFO" "Unpausing worker MachineConfigPool..."
+    oc patch mcp worker --type merge -p '{"spec":{"paused":false}}' 2>/dev/null || {
+        log "WARN" "Failed to unpause worker MCP — run manually: oc patch mcp worker --type merge -p '{\"spec\":{\"paused\":false}}'"
+    }
 
     log "INFO" "Redfish worker provisioning complete"
 }
