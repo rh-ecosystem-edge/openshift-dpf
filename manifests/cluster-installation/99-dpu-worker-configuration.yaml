@@ -25,6 +25,11 @@ spec:
           mode: 0644
           overwrite: true
           path: "/etc/NetworkManager/conf.d/unmanage-ovnk-interface.conf"
+        - contents:
+            source: data:text/plain;charset=utf-8;base64,<BASE64_SET_OVNK_DPU_LABEL>
+          mode: 0755
+          overwrite: true
+          path: /usr/local/bin/set-ovnk-dpu-label.sh
     systemd:
       units:
         - contents: |
@@ -45,6 +50,21 @@ spec:
             WantedBy=multi-user.target
           enabled: true
           name: nmstate-bridge.service
+        - name: set-ovnk-dpu-label.service
+          enabled: true
+          contents: |
+            [Unit]
+            Description=Set OVN-K DPU host label via CUSTOM_KUBELET_LABELS
+            After=nodeip-configuration.service
+            Before=kubelet-dependencies.target
+
+            [Service]
+            Type=oneshot
+            ExecStart=/usr/local/bin/set-ovnk-dpu-label.sh
+            RemainAfterExit=yes
+
+            [Install]
+            RequiredBy=kubelet-dependencies.target
         - name: ovs-configuration.service
           enabled: false
         - name: openvswitch.service
