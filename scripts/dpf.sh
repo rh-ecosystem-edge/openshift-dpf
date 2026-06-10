@@ -174,6 +174,11 @@ function deploy_dpf_hcp_provisioner_operator() {
         version_flag="--version ${DPF_HCP_PROVISIONER_OPERATOR_VERSION}"
     fi
 
+    local mtu_flag=""
+    if [[ "${NODES_MTU}" != "1500" ]]; then
+        mtu_flag="--set dpuWorkerConfig.networkMTU=${NODES_MTU}"
+    fi
+
     if helm upgrade --install dpf-hcp-provisioner-operator \
         "${DPF_HCP_PROVISIONER_OPERATOR_CHART_URL}" \
         --namespace ${DPF_HCP_PROVISIONER_OPERATOR_NAMESPACE} \
@@ -182,7 +187,8 @@ function deploy_dpf_hcp_provisioner_operator() {
         ${version_flag} \
         --set image.repository=${DPF_HCP_PROVISIONER_OPERATOR_IMAGE_REPO} \
         --set image.pullPolicy=Always \
-        --set image.tag=${DPF_HCP_PROVISIONER_OPERATOR_IMAGE_TAG}; then
+        --set image.tag=${DPF_HCP_PROVISIONER_OPERATOR_IMAGE_TAG} \
+        ${mtu_flag}; then
 
         log [INFO] "Helm release 'dpf-hcp-provisioner-operator' deployed successfully"
         log [INFO] "DPF HCP Provisioner Operator deployment initiated. Use 'oc get pods -n ${DPF_HCP_PROVISIONER_OPERATOR_NAMESPACE}' to monitor progress."
