@@ -24,9 +24,12 @@ TFT_SCRIPT := scripts/traffic-flow-tests.sh
 # Worker provisioning script
 WORKER_SCRIPT := scripts/worker.sh
 
+# Cleanup script
+CLEAN_SCRIPT := scripts/clean.sh
+
 .PHONY: all clean check-cluster create-cluster prepare-manifests generate-ovn update-paths help delete-cluster verify-files \
         download-iso fix-yaml-spacing create-vms delete-vms enable-storage cluster-install wait-for-ready \
-        wait-for-installed wait-for-status cluster-start clean-all deploy-dpf kubeconfig kubeadmin-password deploy-nfd \
+        wait-for-installed wait-for-status cluster-start clean-all clean-cluster deploy-dpf kubeconfig kubeadmin-password deploy-nfd \
         install-hypershift install-helm deploy-dpu-services prepare-dpu-files upgrade-dpf create-day2-cluster get-day2-iso \
         download-day2-iso create-worker-vms delete-worker-vms add-vm-workers install-day2-hosts \
         redeploy-dpu enable-ovn-injector deploy-argocd deploy-maintenance-operator configure-flannel \
@@ -191,6 +194,12 @@ deploy-core-operator-sources:
 update-etc-hosts:
 	@scripts/update-etc-hosts.sh update_etc_hosts
 
+clean-cluster:
+	@echo "================================================================================"
+	@echo "Cleaning DPF from cluster (preserving supporting operators)..."
+	@echo "================================================================================"
+	@$(CLEAN_SCRIPT) clean-cluster
+
 clean-all:
 	@$(CLUSTER_SCRIPT) clean-all
 	@$(VM_SCRIPT) delete
@@ -318,6 +327,7 @@ help:
 	@echo "  deploy-core-operator-sources - Deploy NFD & SR-IOV subscriptions and CatalogSource"
 	@echo "  delete-cluster    - Delete the cluster"
 	@echo "  clean            - Remove generated files"
+	@echo "  clean-cluster    - Remove DPF, HCP operator, hosted cluster, DPF objects, and DPU workers"
 	@echo "  clean-all        - Delete cluster, VMs, and clean all generated files"
 	@echo ""
 	@echo "VM Management:"
