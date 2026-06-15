@@ -90,7 +90,7 @@ echo -e "\nOutput of oc get nodes --kubeconfig='${mgmt_kubecfg}':"
 oc get nodes --kubeconfig="${mgmt_kubecfg}"
 
 # Find number of DPU enabled host worker nodes which are in Ready state on management cluster
-dpu_host_worker_list=$(oc get nodes --no-headers -l ${dpu_enabled_label}  --kubeconfig="${mgmt_kubecfg}" | awk '$2=="Ready" && $3=="worker" {print $1}' | xargs)
+dpu_host_worker_list=$(oc get nodes --no-headers -l ${dpu_enabled_label}  --kubeconfig="${mgmt_kubecfg}" | awk '$2=="Ready" && $3=="worker,worker-dpu" {print $1}' | xargs)
 
 echo -e "\nChecking how many DPU enabled host worker nodes are in Ready Phase on management cluster"
 if [ -z "${dpu_host_worker_list}" ]; then
