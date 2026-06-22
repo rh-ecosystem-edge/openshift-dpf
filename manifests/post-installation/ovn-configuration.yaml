@@ -11,20 +11,12 @@ spec:
         global:
           enableOvnKubeIdentity: false
           imagePullSecretName: "dpf-pull-secret"
-          enableEgressIP: "true"
-          enableEgressFirewall: "true"
-          enableEgressQoS: "true"
-          enableEgressService: "true"
-          enableMultiNetwork: "true"
-          enableMultiNetworkPolicy: "true"
-          enableAdminNetworkPolicy: "true"
-          enableNetworkSegmentation: "true"
         k8sAPIServer: https://<HOST_CLUSTER_API>:6443
         podNetwork: 10.128.0.0/14/23
         serviceNetwork: 172.30.0.0/16
         mtu: <NODES_MTU>
         dpuManifests:
-          ovnMultiNetworkEnable: "true"
+          ovnMultiNetworkEnable: "false"
           kubernetesSecretName: "ovn-dpu"
           vtepCIDR: "<HBN_OVN_NETWORK>"
           hostCIDR: "<DPU_HOST_CIDR>"
