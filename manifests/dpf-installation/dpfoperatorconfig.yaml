@@ -23,6 +23,9 @@ spec:
     dpuCNIPath: /run/multus/cni/net.d/
     # Configure lib64 path for RHCOS systems
     dpuOpenvSwitchSystemSharedLib64Path: /lib64
+    # Configure linker cache and opt library path for RHCOS systems
+    dpuLinkerCachePath: /etc/ld.so.cache
+    dpuOptLibraryPath: /usr/opt
     # When using OpenShift Multus (default), Flannel needs to install CNI config
     flannelSkipCNIConfigInstallation: false
   provisioningController:
