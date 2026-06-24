@@ -21,5 +21,6 @@ spec:
         enabled: true
         cniBinDir: /var/lib/cni/bin/
         cniConfDir: /run/multus/cni/net.d
+      <OVN_DAEMONSET_VERSION>
       leaseNamespace: "openshift-ovn-kubernetes"
       gatewayOpts: "--gateway-interface=br-dpu"
