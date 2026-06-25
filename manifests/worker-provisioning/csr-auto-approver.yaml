@@ -45,6 +45,7 @@ metadata:
   name: csr-auto-approver
   namespace: openshift-machine-api
 spec:
+  concurrencyPolicy: Replace
   schedule: "*/1 * * * *"
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
