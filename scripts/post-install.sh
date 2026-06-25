@@ -92,6 +92,13 @@ function update_hbn_ovn_manifests() {
             log [INFO] "OVN_KUBERNETES_UTILS_IMAGE_REPO or OVN_KUBERNETES_UTILS_IMAGE_TAG not set, omitting imagedpf section from ovn-template.yaml"
         fi
         
+        local ovn_daemonset_version="1.1.0"
+        if ocp_version_gte "${OPENSHIFT_VERSION}" "4.22.1"; then
+            ovn_daemonset_version="1.3.0"
+        elif ocp_version_gte "${OPENSHIFT_VERSION}" "4.21.9"; then
+            ovn_daemonset_version="1.2.0"
+        fi
+
         # Use update_file_multi_replace for all replacements
         update_file_multi_replace \
             "${POST_INSTALL_DIR}/ovn-template.yaml" \
@@ -102,7 +109,8 @@ function update_hbn_ovn_manifests() {
             "<OVN_KUBERNETES_IMAGE_REPO>" "${OVN_KUBERNETES_IMAGE_REPO}" \
             "<OVN_KUBERNETES_IMAGE_TAG>" "${OVN_KUBERNETES_IMAGE_TAG}" \
             "<OVN_KUBERNETES_UTILS_IMAGES>" "${utils_images_replacement}" \
-            "<OVN_CHART_URL>" "${OVN_CHART_URL}"
+            "<OVN_CHART_URL>" "${OVN_CHART_URL}" \
+            "<OVN_DAEMONSET_VERSION>" "${ovn_daemonset_version}"
     fi
 
     # Update ovn-configuration.yaml for DPUDeployment
@@ -115,20 +123,14 @@ function update_hbn_ovn_manifests() {
             ovn_mtu=1400
         fi
 
-        local ovn_daemonset_version="1.1.0"
-        if ocp_version_gte "${OPENSHIFT_VERSION}" "4.21.9"; then
-            ovn_daemonset_version="1.2.0"
-        fi
-
-        log "INFO" "ovn-configuration will be set with MTU:$ovn_mtu ovnDaemonsetVersion:$ovn_daemonset_version"
+        log "INFO" "ovn-configuration will be set with MTU:$ovn_mtu"
         update_file_multi_replace \
             "${POST_INSTALL_DIR}/ovn-configuration.yaml" \
             "${GENERATED_POST_INSTALL_DIR}/ovn-configuration.yaml" \
             "<HBN_OVN_NETWORK>" "${HBN_OVN_NETWORK}" \
             "<HOST_CLUSTER_API>" "${HOST_CLUSTER_API}" \
             "<DPU_HOST_CIDR>" "${DPU_HOST_CIDR}" \
-            "<NODES_MTU>" "${ovn_mtu}" \
-            "<OVN_DAEMONSET_VERSION>" "${ovn_daemonset_version}"
+            "<NODES_MTU>" "${ovn_mtu}"
     fi
     
     # Update hbn-configuration.yaml 
