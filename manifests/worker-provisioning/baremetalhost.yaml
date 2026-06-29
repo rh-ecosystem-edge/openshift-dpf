@@ -4,8 +4,6 @@ kind: BareMetalHost
 metadata:
   name: <WORKER_NAME>
   namespace: openshift-machine-api
-  annotations:
-    inspect.metal3.io: disabled
 spec:
   online: true
   bootMACAddress: <BOOT_MAC>
