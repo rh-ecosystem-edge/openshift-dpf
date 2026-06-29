@@ -13,6 +13,7 @@ VM_SCRIPT := scripts/vm.sh
 UTILS_SCRIPT := scripts/utils.sh
 POST_INSTALL_SCRIPT := scripts/post-install.sh
 VERIFY_SCRIPT := scripts/verify.sh
+PREINSTALL_VALIDATE_SCRIPT := scripts/preinstall-validate.sh
 ENV_SCRIPT := scripts/env.sh
 
 # Sanity tests script:
@@ -36,7 +37,8 @@ WORKER_SCRIPT := scripts/worker.sh
         delete-dpf-hcp-provisioner-operator \
         verify-deployment verify-workers verify-dpu-nodes verify-dpudeployment \
         run-traffic-flow-tests tft-setup tft-cleanup tft-show-config tft-results aicli-list \
-        validate-env-files generate-env deploy-observability
+        validate-env-files generate-env deploy-observability \
+        validate-hbn-network
 
 all: 
 	@mkdir -p logs
@@ -61,7 +63,7 @@ aicli-list:
 delete-cluster:
 	@$(CLUSTER_SCRIPT) delete-cluster
 
-check-cluster:
+check-cluster: validate-hbn-network
 	@$(CLUSTER_SCRIPT) check-create-cluster
 
 create-cluster:
@@ -299,6 +301,9 @@ verify-dpu-nodes:
 verify-dpudeployment:
 	@$(VERIFY_SCRIPT) verify-dpudeployment
 
+validate-hbn-network:
+	@$(PREINSTALL_VALIDATE_SCRIPT) validate-hbn-network
+
 validate-env-files:
 	@$(ENV_SCRIPT) validate-env-files
 
@@ -361,6 +366,9 @@ help:
 	@echo "  deploy-csr-approver - Deploy CSR auto-approver CronJob for host cluster workers"
 	@echo "  delete-csr-approver - Remove CSR auto-approver from host cluster"
 	@echo "  delete-dpf-hcp-provisioner-operator - Remove DPF HCP Provisioner Operator and related resources"
+	@echo ""
+	@echo "Pre-install Validation:"
+	@echo "  validate-hbn-network  - Verify all IPs in HBN_OVN_NETWORK are free (nmap sweep)"
 	@echo ""
 	@echo "Verification:"
 	@echo "  verify-deployment     - Full verification: workers + DPU nodes + DPUDeployment"
