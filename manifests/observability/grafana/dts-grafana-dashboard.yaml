@@ -1,0 +1,191 @@
+---
+# DOCA Telemetry Service (DTS) — DPU hardware telemetry dashboard.
+#
+# Config-only addition to the existing dpf-grafana stack. The DTS DPUService
+# already exports sysfs/ethtool counters on :9189; the doca-telemetry-service
+# ServiceMonitor scrapes them into OpenShift user-workload monitoring, and the
+# GrafanaDatasource "prometheus" (Thanos querier) makes them queryable.
+#
+# This manifest only adds a visualization: a ConfigMap holding the dashboard
+# JSON plus a GrafanaDashboard CR that loads it into the dpf-grafana instance
+# (instanceSelector dashboards=dpf-grafana, same convention as
+# grafana-dashboards.yaml). No DTS/cluster reconfiguration required.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dpf-dts-grafana-dashboard
+  namespace: dpf-operator-system
+  labels:
+    app.kubernetes.io/part-of: dpf
+data:
+  doca-dpu-telemetry-dts.json: |
+    {
+      "title": "DOCA DPU Telemetry (DTS)",
+      "uid": "doca-dpu-telemetry-dts",
+      "tags": ["dpf", "dpu", "dts", "telemetry"],
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "editable": true,
+      "time": {"from": "now-1h", "to": "now"},
+      "refresh": "30s",
+      "templating": {
+        "list": [
+          {
+            "name": "source",
+            "label": "DPU (source)",
+            "type": "query",
+            "datasource": {"type": "prometheus", "uid": "prometheus"},
+            "query": "label_values(current_link_speed, source)",
+            "refresh": 2,
+            "includeAll": true,
+            "multi": true,
+            "current": {"text": "All", "value": "$__all"},
+            "sort": 1
+          }
+        ]
+      },
+      "panels": [
+        {
+          "type": "stat",
+          "title": "PCIe Link Speed (GT/s)",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+          "fieldConfig": {"defaults": {"unit": "none"}, "overrides": []},
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "none"},
+          "targets": [
+            {"refId": "A", "datasource": {"type": "prometheus", "uid": "prometheus"},
+             "expr": "current_link_speed{source=~\"$source\"}", "legendFormat": "{{source}} {{hca}}"}
+          ]
+        },
+        {
+          "type": "stat",
+          "title": "PCIe Link Width (lanes)",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+          "fieldConfig": {"defaults": {"unit": "none"}, "overrides": []},
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "none"},
+          "targets": [
+            {"refId": "A", "datasource": {"type": "prometheus", "uid": "prometheus"},
+             "expr": "current_link_width{source=~\"$source\"}", "legendFormat": "{{source}} {{hca}}"}
+          ]
+        },
+        {
+          "type": "stat",
+          "title": "Max PCIe Link Speed (GT/s)",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+          "fieldConfig": {"defaults": {"unit": "none"}, "overrides": []},
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "none"},
+          "targets": [
+            {"refId": "A", "datasource": {"type": "prometheus", "uid": "prometheus"},
+             "expr": "max_link_speed{source=~\"$source\"}", "legendFormat": "{{source}} {{hca}}"}
+          ]
+        },
+        {
+          "type": "stat",
+          "title": "Max PCIe Link Width (lanes)",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+          "fieldConfig": {"defaults": {"unit": "none"}, "overrides": []},
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "none"},
+          "targets": [
+            {"refId": "A", "datasource": {"type": "prometheus", "uid": "prometheus"},
+             "expr": "max_link_width{source=~\"$source\"}", "legendFormat": "{{source}} {{hca}}"}
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Uplink RX throughput (p0/p1)",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+          "fieldConfig": {"defaults": {"unit": "bps", "custom": {"drawStyle": "line", "fillOpacity": 10}}, "overrides": []},
+          "options": {"legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}, "tooltip": {"mode": "multi"}},
+          "targets": [
+            {"refId": "A", "datasource": {"type": "prometheus", "uid": "prometheus"},
+             "expr": "sum by(source)(rate({__name__=~\"p[01]_eth_rx_bytes\", source=~\"$source\"}[5m])) * 8",
+             "legendFormat": "{{source}}"}
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Uplink TX throughput (p0/p1)",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+          "fieldConfig": {"defaults": {"unit": "bps", "custom": {"drawStyle": "line", "fillOpacity": 10}}, "overrides": []},
+          "options": {"legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}, "tooltip": {"mode": "multi"}},
+          "targets": [
+            {"refId": "A", "datasource": {"type": "prometheus", "uid": "prometheus"},
+             "expr": "sum by(source)(rate({__name__=~\"p[01]_eth_tx_bytes\", source=~\"$source\"}[5m])) * 8",
+             "legendFormat": "{{source}}"}
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Uplink packets/s (p0/p1 rx+tx)",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+          "fieldConfig": {"defaults": {"unit": "pps", "custom": {"drawStyle": "line", "fillOpacity": 10}}, "overrides": []},
+          "options": {"legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}, "tooltip": {"mode": "multi"}},
+          "targets": [
+            {"refId": "A", "datasource": {"type": "prometheus", "uid": "prometheus"},
+             "expr": "sum by(source)(rate({__name__=~\"p[01]_eth_rx_packets\", source=~\"$source\"}[5m]))",
+             "legendFormat": "{{source}} rx"},
+            {"refId": "B", "datasource": {"type": "prometheus", "uid": "prometheus"},
+             "expr": "sum by(source)(rate({__name__=~\"p[01]_eth_tx_packets\", source=~\"$source\"}[5m]))",
+             "legendFormat": "{{source}} tx"}
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Uplink errors & drops/s (p0/p1)",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+          "fieldConfig": {"defaults": {"unit": "cps", "custom": {"drawStyle": "line", "fillOpacity": 10}}, "overrides": []},
+          "options": {"legend": {"displayMode": "table", "placement": "bottom", "calcs": ["max"]}, "tooltip": {"mode": "multi"}},
+          "targets": [
+            {"refId": "A", "datasource": {"type": "prometheus", "uid": "prometheus"},
+             "expr": "sum by(source)(rate({__name__=~\"p[01]_eth_rx_errors\", source=~\"$source\"}[5m])) + sum by(source)(rate({__name__=~\"p[01]_eth_tx_errors\", source=~\"$source\"}[5m])) + sum by(source)(rate({__name__=~\"p[01]_eth_rx_dropped\", source=~\"$source\"}[5m])) + sum by(source)(rate({__name__=~\"p[01]_eth_tx_dropped\", source=~\"$source\"}[5m])) + sum by(source)(rate({__name__=~\"p[01]_eth_rx_crc_errors\", source=~\"$source\"}[5m]))",
+             "legendFormat": "{{source}}"}
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "NIC channel poll/s",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20},
+          "fieldConfig": {"defaults": {"unit": "cps", "custom": {"drawStyle": "line", "fillOpacity": 10}}, "overrides": []},
+          "options": {"legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}, "tooltip": {"mode": "multi"}},
+          "targets": [
+            {"refId": "A", "datasource": {"type": "prometheus", "uid": "prometheus"},
+             "expr": "rate(ch_poll{source=~\"$source\"}[5m])",
+             "legendFormat": "{{source}} {{device_name}}"}
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "NIC channel events/s",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20},
+          "fieldConfig": {"defaults": {"unit": "cps", "custom": {"drawStyle": "line", "fillOpacity": 10}}, "overrides": []},
+          "options": {"legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}, "tooltip": {"mode": "multi"}},
+          "targets": [
+            {"refId": "A", "datasource": {"type": "prometheus", "uid": "prometheus"},
+             "expr": "rate(ch_events{source=~\"$source\"}[5m])",
+             "legendFormat": "{{source}} {{device_name}}"}
+          ]
+        }
+      ]
+    }
+---
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  name: doca-dpu-telemetry-dts
+  namespace: dpf-operator-system
+spec:
+  instanceSelector:
+    matchLabels:
+      dashboards: "dpf-grafana"
+  configMapRef:
+    name: dpf-dts-grafana-dashboard
+    key: doca-dpu-telemetry-dts.json
