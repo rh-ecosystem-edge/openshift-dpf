@@ -77,7 +77,38 @@ function update_hbn_ovn_manifests() {
     
     # Skip ovn-dpuservice.yaml - now handled by DPUDeployment
     # Services are now managed through DPUDeployment with templates and configurations
-    
+
+    # OVN feature flags are only enabled on OCP >= 4.22.2
+    local ovn_global_features=""
+    local ovn_multi_network_enable=""
+    local ovn_configuration_features=""
+    local ovn_multi_network_enable_value="false"
+    if ocp_version_gte "${OPENSHIFT_VERSION}" "4.22.2"; then
+        ovn_global_features="global:
+        enableEgressIP: \"true\"
+        egressIpHealthCheckPort: \"0\"
+        enableEgressFirewall: \"true\"
+        enableEgressQoS: \"true\"
+        enableEgressService: \"true\"
+        enableMultiNetwork: \"false\"
+        enableMultiNetworkPolicy: \"true\"
+        enableAdminNetworkPolicy: \"true\"
+        enableNetworkSegmentation: \"true\""
+        ovn_multi_network_enable="ovnMultiNetworkEnable: \"true\""
+        ovn_configuration_features="enableEgressIP: \"true\"
+          enableEgressFirewall: \"true\"
+          enableEgressQoS: \"true\"
+          enableEgressService: \"true\"
+          enableMultiNetwork: \"true\"
+          enableMultiNetworkPolicy: \"true\"
+          enableAdminNetworkPolicy: \"true\"
+          enableNetworkSegmentation: \"true\""
+        ovn_multi_network_enable_value="true"
+        log "INFO" "OCP ${OPENSHIFT_VERSION} >= 4.22.2: enabling OVN feature flags"
+    else
+        log "INFO" "OCP ${OPENSHIFT_VERSION} < 4.22.2: skipping OVN feature flags"
+    fi
+
     # Update ovn-template.yaml for DPUDeployment
     if [ -f "${POST_INSTALL_DIR}/ovn-template.yaml" ]; then
         # Determine the replacement value for <OVN_KUBERNETES_UTILS_IMAGES>
@@ -87,11 +118,11 @@ function update_hbn_ovn_manifests() {
             utils_images_replacement="imagedpf:
           repository: ${OVN_KUBERNETES_UTILS_IMAGE_REPO}
           tag: ${OVN_KUBERNETES_UTILS_IMAGE_TAG}"
-            log [INFO] "OVN_KUBERNETES_UTILS_IMAGE_REPO and OVN_KUBERNETES_UTILS_IMAGE_TAG set, including imagedpf section in ovn-template.yaml" 
+            log [INFO] "OVN_KUBERNETES_UTILS_IMAGE_REPO and OVN_KUBERNETES_UTILS_IMAGE_TAG set, including imagedpf section in ovn-template.yaml"
         else
             log [INFO] "OVN_KUBERNETES_UTILS_IMAGE_REPO or OVN_KUBERNETES_UTILS_IMAGE_TAG not set, omitting imagedpf section from ovn-template.yaml"
         fi
-        
+
         local ovn_daemonset_version_replacement=""
         if [ -n "${OVN_DAEMONSET_VERSION}" ]; then
             ovn_daemonset_version_replacement="ovnDaemonsetVersion: \"${OVN_DAEMONSET_VERSION}\""
@@ -114,7 +145,9 @@ function update_hbn_ovn_manifests() {
             "<OVN_KUBERNETES_IMAGE_TAG>" "${OVN_KUBERNETES_IMAGE_TAG}" \
             "<OVN_KUBERNETES_UTILS_IMAGES>" "${utils_images_replacement}" \
             "<OVN_CHART_URL>" "${OVN_CHART_URL}" \
-            "<OVN_DAEMONSET_VERSION>" "${ovn_daemonset_version_replacement}"
+            "<OVN_DAEMONSET_VERSION>" "${ovn_daemonset_version_replacement}" \
+            "<OVN_GLOBAL_FEATURES>" "${ovn_global_features}" \
+            "<OVN_MULTI_NETWORK_ENABLE>" "${ovn_multi_network_enable}"
     fi
 
     # Update ovn-configuration.yaml for DPUDeployment
@@ -134,7 +167,9 @@ function update_hbn_ovn_manifests() {
             "<HBN_OVN_NETWORK>" "${HBN_OVN_NETWORK}" \
             "<HOST_CLUSTER_API>" "${HOST_CLUSTER_API}" \
             "<DPU_HOST_CIDR>" "${DPU_HOST_CIDR}" \
-            "<NODES_MTU>" "${ovn_mtu}"
+            "<NODES_MTU>" "${ovn_mtu}" \
+            "<OVN_CONFIGURATION_FEATURES>" "${ovn_configuration_features}" \
+            "<OVN_MULTI_NETWORK_ENABLE_VALUE>" "${ovn_multi_network_enable_value}"
     fi
     
     # Update hbn-configuration.yaml 
