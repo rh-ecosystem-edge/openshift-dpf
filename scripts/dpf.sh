@@ -509,6 +509,10 @@ function apply_dpf() {
     log "INFO" "Enabling IP forwarding for OVN Kubernetes..."
     oc patch network.operator.openshift.io cluster --type=merge -p \
     '{"spec":{"defaultNetwork":{ "ovnKubernetesConfig":{"gatewayConfig":{"ipForwarding":"Global"}}}}}'
+
+    log "INFO" "Enabling MultiNetworkPolicy on the cluster network operator..."
+    oc patch network.operator.openshift.io cluster --type=merge -p \
+    '{"spec":{"useMultiNetworkPolicy":true}}'
     
     deploy_nfd
     
