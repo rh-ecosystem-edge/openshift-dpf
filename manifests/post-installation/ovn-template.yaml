@@ -11,16 +11,7 @@ spec:
       chart: ovn-kubernetes-chart
       version: <OVN_CHART_VERSION>
     values:
-      global:
-        enableEgressIP: "true"
-        egressIpHealthCheckPort: "0"
-        enableEgressFirewall: "true"
-        enableEgressQoS: "true"
-        enableEgressService: "true"
-        enableMultiNetwork: "false"
-        enableMultiNetworkPolicy: "true"
-        enableAdminNetworkPolicy: "true"
-        enableNetworkSegmentation: "true"
+      <OVN_GLOBAL_FEATURES>
       commonManifests:
         enabled: true
       dpuManifests:
@@ -29,7 +20,7 @@ spec:
           tag: <OVN_KUBERNETES_IMAGE_TAG>
         <OVN_KUBERNETES_UTILS_IMAGES>
         enabled: true
-        ovnMultiNetworkEnable: "true"
+        <OVN_MULTI_NETWORK_ENABLE>
         cniBinDir: /var/lib/cni/bin/
         cniConfDir: /run/multus/cni/net.d
       <OVN_DAEMONSET_VERSION>
