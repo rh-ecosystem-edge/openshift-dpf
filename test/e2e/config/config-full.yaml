@@ -1,0 +1,26 @@
+# Full regression suite configuration
+# Covers all priority tiers including requires-bmc and requires-ssh tests.
+# Fill in hardware-specific values for your environment.
+
+mgmtKubeconfig: ""          # falls back to $KUBECONFIG
+hostedClusterName: ""       # falls back to $HOSTED_CLUSTER_NAME
+hostedClusterNamespace: ""  # falls back to $HOSTED_CLUSTER_NAMESPACE
+dpfNamespace: dpf-operator-system
+dpuCount: 2
+dpfVersion: ""
+
+# SSH access to the hypervisor that hosts cluster VMs
+hypervisorHost: "10.6.135.45"
+hypervisorUser: "core"
+sshPrivateKeyPath: "/var/run/secrets/dpf-ci/ssh-key"
+
+# BMC access for IPMI/Redfish power-cycle tests (TC-RES-003, -004, -005)
+# bmcAddresses maps worker node names to their BMC IPs
+bmcAddresses:
+  worker-0: "192.168.1.100"
+  worker-1: "192.168.1.101"
+bmcUser: "admin"
+bmcPassword: ""  # set via DPF_BMC_PASSWORD env var at runtime
+
+# Upgrade tests
+previousDPFVersion: ""      # e.g. "v0.5.0" — required for TC-UPG-001, TC-UPG-002
