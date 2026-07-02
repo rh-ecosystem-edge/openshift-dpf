@@ -43,13 +43,14 @@ TFT_CONNECTION_TYPE="${TFT_CONNECTION_TYPE:-iperf-tcp}"
 # Kubeconfig path (relative to working directory by default)
 TFT_KUBECONFIG="${TFT_KUBECONFIG:-$(pwd)/kubeconfig.${CLUSTER_NAME}}"
 
+# Node selection label for discovering worker nodes
+TFT_NODE_LABEL="${TFT_NODE_LABEL:-node-role.kubernetes.io/worker=}"
+
 # Node names for TFT (server and client)
 # These are the actual Kubernetes node names, NOT BareMetalHost names
-# Priority: TFT_*_NODE > HBN_HOSTNAME_NODE* (minus wildcard) > WORKER_*_NAME
-_hbn_node1="${HBN_HOSTNAME_NODE1%\*}"
-_hbn_node2="${HBN_HOSTNAME_NODE2%\*}"
-TFT_SERVER_NODE="${TFT_SERVER_NODE:-${_hbn_node1:-${WORKER_1_NAME}}}"
-TFT_CLIENT_NODE="${TFT_CLIENT_NODE:-${_hbn_node2:-${WORKER_2_NAME}}}"
+# If not set via environment, they are auto-discovered from the cluster's Ready nodes matching TFT_NODE_LABEL
+TFT_SERVER_NODE="${TFT_SERVER_NODE:-}"
+TFT_CLIENT_NODE="${TFT_CLIENT_NODE:-}"
 
 # -----------------------------------------------------------------------------
 # Ensure Python 3.11 is available (install if missing)
@@ -169,6 +170,46 @@ setup_venv() {
 }
 
 # -----------------------------------------------------------------------------
+# Discover Worker Nodes from Cluster
+# -----------------------------------------------------------------------------
+discover_worker_nodes() {
+    if [[ -n "${TFT_SERVER_NODE}" ]] && [[ -n "${TFT_CLIENT_NODE}" ]]; then
+        log "INFO" "Using pre-configured node names: server=${TFT_SERVER_NODE}, client=${TFT_CLIENT_NODE}"
+        return 0
+    fi
+
+    log "INFO" "Discovering worker nodes from cluster (label: ${TFT_NODE_LABEL})..."
+
+    local kubeconfig="${TFT_KUBECONFIG}"
+    if [[ ! -f "${kubeconfig}" ]]; then
+        log "ERROR" "Kubeconfig not found at ${kubeconfig}, cannot discover worker nodes"
+        return 1
+    fi
+
+    local workers
+    workers=$(oc get nodes --no-headers -l "${TFT_NODE_LABEL}" \
+        --kubeconfig="${kubeconfig}" 2>/dev/null \
+        | awk '$2=="Ready" {print $1}')
+
+    local worker_array=()
+    while IFS= read -r node; do
+        [[ -n "${node}" ]] && worker_array+=("${node}")
+    done <<< "${workers}"
+
+    if [[ ${#worker_array[@]} -lt 2 ]]; then
+        log "ERROR" "Need at least 2 Ready worker nodes for TFT, found ${#worker_array[@]}"
+        log "ERROR" "Cluster nodes:"
+        oc get nodes --kubeconfig="${kubeconfig}" 2>/dev/null || true
+        return 1
+    fi
+
+    TFT_SERVER_NODE="${TFT_SERVER_NODE:-${worker_array[0]}}"
+    TFT_CLIENT_NODE="${TFT_CLIENT_NODE:-${worker_array[1]}}"
+
+    log "INFO" "Discovered worker nodes: server=${TFT_SERVER_NODE}, client=${TFT_CLIENT_NODE}"
+}
+
+# -----------------------------------------------------------------------------
 # Generate Test Configuration
 # -----------------------------------------------------------------------------
 generate_config() {
@@ -179,11 +220,13 @@ generate_config() {
         return 1
     fi
     
+    # Auto-discover worker nodes from the cluster if not explicitly set
+    discover_worker_nodes || return 1
+
     # Validate required node names
     if [[ -z "${TFT_SERVER_NODE}" ]] || [[ -z "${TFT_CLIENT_NODE}" ]]; then
         log "ERROR" "TFT_SERVER_NODE and TFT_CLIENT_NODE must be set"
-        log "ERROR" "These are derived from HBN_HOSTNAME_NODE1/NODE2 or can be set directly"
-        log "ERROR" "They should match actual Kubernetes node names (not BareMetalHost names)"
+        log "ERROR" "Set them via environment or ensure the cluster has at least 2 Ready worker nodes"
         return 1
     fi
     
@@ -393,14 +436,14 @@ show_config() {
     echo "  TFT_CONNECTION_TYPE: ${TFT_CONNECTION_TYPE}"
     echo ""
     echo "Cluster:"
-    echo "  TFT_SERVER_NODE:    ${TFT_SERVER_NODE:-<not set>}"
-    echo "  TFT_CLIENT_NODE:    ${TFT_CLIENT_NODE:-<not set>}"
+    echo "  TFT_SERVER_NODE:    ${TFT_SERVER_NODE:-<auto-discover>}"
+    echo "  TFT_CLIENT_NODE:    ${TFT_CLIENT_NODE:-<auto-discover>}"
+    echo "  TFT_NODE_LABEL:     ${TFT_NODE_LABEL}"
     echo "  TFT_KUBECONFIG:     ${TFT_KUBECONFIG}"
     echo ""
-    echo "Node name sources (priority order):"
-    echo "  1. TFT_SERVER_NODE / TFT_CLIENT_NODE (if set)"
-    echo "  2. HBN_HOSTNAME_NODE1/2 (minus wildcard): ${HBN_HOSTNAME_NODE1:-<not set>} / ${HBN_HOSTNAME_NODE2:-<not set>}"
-    echo "  3. WORKER_1_NAME / WORKER_2_NAME: ${WORKER_1_NAME:-<not set>} / ${WORKER_2_NAME:-<not set>}"
+    echo "Node name resolution:"
+    echo "  1. TFT_SERVER_NODE / TFT_CLIENT_NODE (if set via environment)"
+    echo "  2. Auto-discovered from cluster's Ready nodes matching TFT_NODE_LABEL"
     echo ""
     echo "Excluded Test Cases (known failures):"
     echo "  4  - POD_TO_HOST_DIFF_NODE"
@@ -453,14 +496,15 @@ case "${1:-}" in
         echo "  TFT_DURATION        - Duration per test in seconds (default: 10)"
         echo "  TFT_CONNECTION_TYPE - Connection type: iperf-tcp, iperf-udp, etc. (default: iperf-tcp)"
         echo "  TFT_KUBECONFIG      - Path to cluster kubeconfig"
-        echo "  TFT_SERVER_NODE     - Kubernetes node name for server (default: from HBN_HOSTNAME_NODE1)"
-        echo "  TFT_CLIENT_NODE     - Kubernetes node name for client (default: from HBN_HOSTNAME_NODE2)"
+        echo "  TFT_SERVER_NODE     - Kubernetes node name for server (default: auto-discovered from cluster)"
+        echo "  TFT_CLIENT_NODE     - Kubernetes node name for client (default: auto-discovered from cluster)"
+        echo "  TFT_NODE_LABEL      - Label selector for discovering nodes (default: node-role.kubernetes.io/worker=)"
         echo "  TFT_PYTHON          - Python interpreter (default: python3.11)"
         echo ""
         echo "Note: Python 3.11 is required. If not installed, the script will attempt"
         echo "      to install it automatically using dnf/yum/apt."
         echo ""
-        echo "Node names fallback: TFT_*_NODE > HBN_HOSTNAME_NODE* > WORKER_*_NAME"
+        echo "Node names: auto-discovered from cluster (using TFT_NODE_LABEL) unless TFT_SERVER_NODE/TFT_CLIENT_NODE are set"
         exit 1
         ;;
 esac

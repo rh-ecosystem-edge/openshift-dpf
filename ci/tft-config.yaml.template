@@ -4,7 +4,7 @@
 # Repository: https://github.com/ovn-kubernetes/kubernetes-traffic-flow-tests
 #
 # This template is processed by scripts/traffic-flow-tests.sh
-# Placeholders (e.g., __WORKER_1_NAME__) are replaced with values from .env
+# Placeholders are replaced with values by scripts/traffic-flow-tests.sh
 
 tft:
   - name: "DPF Traffic Flow Test"
