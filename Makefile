@@ -33,6 +33,7 @@ WORKER_SCRIPT := scripts/worker.sh
         deploy-core-operator-sources deploy-metallb deploy-lso deploy-odf deploy-lvms run-dpf-sanity \
         add-worker-nodes worker-status approve-worker-csrs \
         deploy-csr-approver delete-csr-approver \
+        deploy-machine-provisioning-completer delete-machine-provisioning-completer \
         delete-dpf-hcp-provisioner-operator \
         verify-deployment verify-workers verify-dpu-nodes verify-dpudeployment \
         run-traffic-flow-tests tft-setup tft-cleanup tft-show-config tft-results aicli-list \
@@ -117,6 +118,11 @@ add-vm-workers:
 		else \
 			echo ""; \
 			$(WORKER_SCRIPT) display-manual-csr-instructions; \
+		fi; \
+		if [ "$(AUTO_COMPLETE_MACHINE_PROVISIONING)" = "true" ]; then \
+			echo ""; \
+			echo "AUTO_COMPLETE_MACHINE_PROVISIONING=true - Deploying machine provisioning completer CronJob..."; \
+			$(WORKER_SCRIPT) deploy-machine-provisioning-completer; \
 		fi; \
 		echo ""; \
 		echo "================================================================================"; \
@@ -262,6 +268,11 @@ add-worker-nodes:
 		echo ""; \
 		$(WORKER_SCRIPT) display-manual-csr-instructions; \
 	fi
+	@if [ "$(AUTO_COMPLETE_MACHINE_PROVISIONING)" = "true" ]; then \
+		echo ""; \
+		echo "AUTO_COMPLETE_MACHINE_PROVISIONING=true - Deploying machine provisioning completer CronJob..."; \
+		$(WORKER_SCRIPT) deploy-machine-provisioning-completer; \
+	fi
 	@echo ""
 	@echo "================================================================================"
 	@echo "Worker node provisioning initiated!"
@@ -281,6 +292,13 @@ deploy-csr-approver:
 
 delete-csr-approver:
 	@$(WORKER_SCRIPT) delete-csr-auto-approver
+
+deploy-machine-provisioning-completer:
+	@echo "Deploying machine provisioning completer for host cluster workers..."
+	@$(WORKER_SCRIPT) deploy-machine-provisioning-completer
+
+delete-machine-provisioning-completer:
+	@$(WORKER_SCRIPT) delete-machine-provisioning-completer
 
 delete-dpf-hcp-provisioner-operator:
 	@echo "Deleting DPF HCP Provisioner Operator..."
@@ -360,6 +378,8 @@ help:
 	@echo "  approve-worker-csrs - Approve pending CSRs (one-time, for manual use)"
 	@echo "  deploy-csr-approver - Deploy CSR auto-approver CronJob for host cluster workers"
 	@echo "  delete-csr-approver - Remove CSR auto-approver from host cluster"
+	@echo "  deploy-machine-provisioning-completer - Deploy CronJob to link worker nodes to Machines via providerID"
+	@echo "  delete-machine-provisioning-completer - Remove machine provisioning completer from host cluster"
 	@echo "  delete-dpf-hcp-provisioner-operator - Remove DPF HCP Provisioner Operator and related resources"
 	@echo ""
 	@echo "Verification:"
@@ -449,6 +469,9 @@ help:
 	@echo ""
 	@echo "CSR Auto-Approval Configuration:"
 	@echo "  AUTO_APPROVE_WORKER_CSR     - Deploy CronJob to auto-approve CSRs for host cluster workers (default: false)"
+	@echo ""
+	@echo "Machine Provisioning Configuration:"
+	@echo "  AUTO_COMPLETE_MACHINE_PROVISIONING - Deploy CronJob to set providerID on worker nodes, completing Machine provisioning (default: false)"
 	@echo ""
 	@echo "Verification Configuration:"
 	@echo "  VERIFY_DEPLOYMENT    - Run verification after 'make all' completes (default: false)"

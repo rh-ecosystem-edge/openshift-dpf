@@ -226,6 +226,36 @@ delete_csr_auto_approver() {
     log "INFO" "CSR auto-approver removed"
 }
 
+deploy_machine_provisioning_completer() {
+    get_kubeconfig
+
+    local manifest="${WORKER_TEMPLATE_DIR}/machine-provisioning-completer.yaml"
+    if [[ ! -f "$manifest" ]]; then
+        log "ERROR" "Machine provisioning completer manifest not found: $manifest"
+        return 1
+    fi
+
+    if oc get cronjob -n openshift-machine-api machine-provisioning-completer &>/dev/null; then
+        log "INFO" "Machine provisioning completer already deployed, skipping"
+        return 0
+    fi
+
+    log "INFO" "Deploying machine provisioning completer for host cluster workers..."
+    apply_manifest "$manifest" false
+    log "INFO" "Machine provisioning completer deployed successfully"
+}
+
+delete_machine_provisioning_completer() {
+    get_kubeconfig
+
+    log "INFO" "Removing machine provisioning completer from host cluster..."
+    oc delete cronjob -n openshift-machine-api machine-provisioning-completer --ignore-not-found
+    oc delete clusterrolebinding machine-provisioning-completer --ignore-not-found
+    oc delete clusterrole machine-provisioning-completer --ignore-not-found
+    oc delete serviceaccount -n openshift-machine-api machine-provisioning-completer --ignore-not-found
+    log "INFO" "Machine provisioning completer removed"
+}
+
 # Command dispatcher
 case "${1:-}" in
     provision-all-workers) provision_all_workers ;;
@@ -235,8 +265,10 @@ case "${1:-}" in
     apply-short-worker-hostnames) apply_short_worker_hostnames ;;
     deploy-csr-auto-approver) deploy_csr_auto_approver ;;
     delete-csr-auto-approver) delete_csr_auto_approver ;;
+    deploy-machine-provisioning-completer) deploy_machine_provisioning_completer ;;
+    delete-machine-provisioning-completer) delete_machine_provisioning_completer ;;
     *)
-        echo "Usage: $0 {provision-all-workers|approve-worker-csrs|display-worker-status|display-manual-csr-instructions|apply-short-worker-hostnames|deploy-csr-auto-approver|delete-csr-auto-approver}"
+        echo "Usage: $0 {provision-all-workers|approve-worker-csrs|display-worker-status|display-manual-csr-instructions|apply-short-worker-hostnames|deploy-csr-auto-approver|delete-csr-auto-approver|deploy-machine-provisioning-completer|delete-machine-provisioning-completer}"
         exit 1
         ;;
 esac

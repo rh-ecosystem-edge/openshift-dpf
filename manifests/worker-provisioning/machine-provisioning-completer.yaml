@@ -1,0 +1,131 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: machine-provisioning-completer
+  namespace: openshift-machine-api
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: machine-provisioning-completer
+rules:
+- apiGroups: ["machine.openshift.io"]
+  resources: ["machines"]
+  verbs: ["get", "list"]
+- apiGroups: ["metal3.io"]
+  resources: ["baremetalhosts"]
+  verbs: ["get", "list"]
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["get", "list", "patch"]
+- apiGroups: ["security.openshift.io"]
+  resources: ["securitycontextconstraints"]
+  resourceNames: ["hostnetwork"]
+  verbs: ["use"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: machine-provisioning-completer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: machine-provisioning-completer
+subjects:
+- kind: ServiceAccount
+  name: machine-provisioning-completer
+  namespace: openshift-machine-api
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: machine-provisioning-completer
+  namespace: openshift-machine-api
+spec:
+  concurrencyPolicy: Replace
+  schedule: "*/2 * * * *"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: machine-provisioning-completer
+          hostNetwork: true
+          nodeSelector:
+            node-role.kubernetes.io/control-plane: ""
+          tolerations:
+          - key: node-role.kubernetes.io/master
+            operator: Exists
+            effect: NoSchedule
+          containers:
+          - name: completer
+            image: registry.redhat.io/openshift4/ose-cli:latest
+            command:
+            - /bin/bash
+            - -c
+            - |
+              set -euo pipefail
+
+              # Get machines stuck in Provisioned phase
+              provisioned=$(oc get machines -n openshift-machine-api \
+                -o jsonpath='{range .items[?(@.status.phase=="Provisioned")]}{.metadata.name}{"\n"}{end}')
+              if [ -z "$provisioned" ]; then
+                echo "No machines in Provisioned phase"
+                exit 0
+              fi
+
+              # Build BMH boot MAC -> providerID mapping
+              declare -A mac_to_provider
+              for machine in $provisioned; do
+                provider_id=$(oc get machine "$machine" -n openshift-machine-api -o jsonpath='{.spec.providerID}')
+                bmh_name=$(echo "$provider_id" | awk -F/ '{print $(NF-1)}')
+                boot_mac=$(oc get bmh "$bmh_name" -n openshift-machine-api -o jsonpath='{.spec.bootMACAddress}' | tr '[:upper:]' '[:lower:]')
+                if [ -n "$boot_mac" ]; then
+                  mac_to_provider["$boot_mac"]="$provider_id"
+                  echo "Machine $machine: BMH=$bmh_name MAC=$boot_mac"
+                fi
+              done
+
+              [ ${#mac_to_provider[@]} -eq 0 ] && { echo "No BMH MACs found"; exit 0; }
+
+              # Get all worker-dpu nodes without providerID
+              all_dpu_nodes=$(oc get nodes -l node-role.kubernetes.io/worker-dpu -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.spec.providerID}{"\n"}{end}')
+              unlinked=""
+              while IFS=' ' read -r name pid; do
+                [ -z "$name" ] && continue
+                [ -z "$pid" ] && unlinked="$unlinked $name"
+              done <<< "$all_dpu_nodes"
+              unlinked=$(echo "$unlinked" | xargs)
+
+              if [ -z "$unlinked" ]; then
+                echo "All worker-dpu nodes already have providerID"
+                exit 0
+              fi
+              echo "Unlinked nodes: $unlinked"
+
+              for node in $unlinked; do
+                node_ip=$(oc get node "$node" -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}')
+
+                # Populate ARP cache by touching the node, then read MAC
+                curl -s --connect-timeout 1 "http://${node_ip}:10250" >/dev/null 2>&1 || true
+                node_mac=$(ip neigh show "$node_ip" 2>/dev/null | awk '{print $5}' | tr '[:upper:]' '[:lower:]')
+                if [ -n "$node_mac" ] && [ -n "${mac_to_provider[$node_mac]+x}" ]; then
+                  oc patch node "$node" --type merge -p "{\"spec\":{\"providerID\":\"${mac_to_provider[$node_mac]}\"}}"
+                  echo "Linked node $node (via ARP MAC=$node_mac)"
+                  continue
+                fi
+
+                # Fallback: match node hostname against BMH boot MAC (for short hostnames like worker-303ea713ea90)
+                node_hostname=$(echo "$node" | tr -d '-' | tr '[:upper:]' '[:lower:]')
+                for mac in "${!mac_to_provider[@]}"; do
+                  mac_nocolon=$(echo "$mac" | tr -d ':')
+                  if echo "$node_hostname" | grep -q "$mac_nocolon"; then
+                    oc patch node "$node" --type merge -p "{\"spec\":{\"providerID\":\"${mac_to_provider[$mac]}\"}}"
+                    echo "Linked node $node (via hostname MAC match=$mac)"
+                    break
+                  fi
+                done
+              done
+          restartPolicy: OnFailure
