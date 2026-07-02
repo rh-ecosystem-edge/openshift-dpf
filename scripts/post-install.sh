@@ -446,6 +446,14 @@ function apply_observability() {
     log [INFO] "Applying Grafana manifests..."
     retry 5 30 apply_manifest "${OBSERVABILITY_DIR}/grafana" "true"
 
+    # Native OpenShift console dashboards (Observe -> Dashboards). These are
+    # ConfigMaps in openshift-config-managed labeled console.openshift.io/dashboard;
+    # they render against platform Thanos/UWM with no Grafana dependency.
+    if [ -d "${OBSERVABILITY_DIR}/console-dashboards" ]; then
+        log [INFO] "Applying OpenShift console dashboards..."
+        retry 5 30 apply_manifest "${OBSERVABILITY_DIR}/console-dashboards" "true"
+    fi
+
     log [INFO] "Observability manifest application completed successfully"
 }
 
