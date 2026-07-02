@@ -1,0 +1,12 @@
+# BAT (Build Acceptance Test) configuration
+# Runs only Urgent priority tests — used as CI gate before GA.
+# Override values via env vars: KUBECONFIG, HOSTED_CLUSTER_NAME, HOSTED_CLUSTER_NAMESPACE
+
+mgmtKubeconfig: ""          # falls back to $KUBECONFIG
+hostedClusterName: ""       # falls back to $HOSTED_CLUSTER_NAME
+hostedClusterNamespace: ""  # falls back to $HOSTED_CLUSTER_NAMESPACE
+dpfNamespace: dpf-operator-system
+dpuCount: 2
+dpfVersion: ""              # populated at CI runtime
+
+# SSH / BMC left nil — BAT tests do not require hardware access
