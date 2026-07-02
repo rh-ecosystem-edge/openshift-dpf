@@ -1,0 +1,53 @@
+--- a/test/e2e/e2e_suite_test.go
++++ b/test/e2e/e2e_suite_test.go
+@@ -1,5 +1,6 @@
+ /*
+ Copyright 2024 NVIDIA
++Copyright 2026 Red Hat
+
+ Licensed under the Apache License, Version 2.0 (the "License");
+ you may not use this file except in compliance with the License.
+@@ -253,6 +254,12 @@ var _ = BeforeSuite(func() {
+
+ 	cleanupTracker = cleanup.NewTracker(utils.CleanupWithLabelAndWait, cleanupFlags, ctx, testClient, resourcesToDelete)
+
++	// openshift-dpf patch: skip resource creation for pre-existing deployments.
++	if os.Getenv("DPF_SKIP_SETUP") != "" {
++		By("DPF_SKIP_SETUP is set — running against pre-existing deployment, skipping setup")
++		return
++	}
++
+ 	// Upgrade validation tests skip cleanup to preserve resources from previous test run.
+ 	// isUpgradeValidationPhase matches the active label filter against every label
+ 	// registered by validationPhase, so no per-phase update is needed here when a new
+@@ -378,7 +385,9 @@ var _ = BeforeSuite(func() {
+
+ var _ = ReportBeforeEach(func(spec SpecReport) {
+ 	// Detect entering scopes and perform "before" cleanup
+-	cleanupTracker.HandleScopeLifecycle(&spec, cleanup.GinkgoHook.BeforeEach)
++	if cleanupTracker != nil {
++		cleanupTracker.HandleScopeLifecycle(&spec, cleanup.GinkgoHook.BeforeEach)
++	}
+ })
+
+ // reportAfterEach collects diagnostics when a test fails
+@@ -411,7 +420,9 @@ var _ = ReportAfterEach(func(spec SpecReport) {
+ 	reportAfterEach(spec)
+
+ 	// Handle scope lifecycle and cleanup
+-	cleanupTracker.HandleScopeLifecycle(&spec, cleanup.GinkgoHook.AfterEach)
++	if cleanupTracker != nil {
++		cleanupTracker.HandleScopeLifecycle(&spec, cleanup.GinkgoHook.AfterEach)
++	}
+ })
+
+ var _ = AfterSuite(func() {
+@@ -441,5 +452,7 @@ var _ = AfterSuite(func() {
+ 	}
+
+ 	By("Performing final suite cleanup")
+-	cleanupTracker.HandleScopeLifecycle(nil, cleanup.GinkgoHook.AfterSuite)
++	if cleanupTracker != nil {
++		cleanupTracker.HandleScopeLifecycle(nil, cleanup.GinkgoHook.AfterSuite)
++	}
+ })
