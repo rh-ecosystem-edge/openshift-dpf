@@ -40,6 +40,7 @@ k8sAPIServer: https://<TARGETCLUSTER_API_SERVER_HOST>:<TARGETCLUSTER_API_SERVER_
 podNetwork: <POD_CIDR>/24
 serviceNetwork: <SERVICE_CIDR>
 gatewayOpts: --gateway-interface=<DPU_P0>
+hostNetworkNamespace: openshift-host-network
 
 # DPU manifests configuration (for DPUService deployment)
 dpuManifests:
