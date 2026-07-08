@@ -8,12 +8,15 @@ import (
 	. "github.com/onsi/gomega"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	dpfe2e "github.com/nvidia/doca-platform/test/e2e"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/openshift-dpf/test/utils"
 )
 
 const (
@@ -136,6 +139,47 @@ var _ = Describe("TC-DPUD-001: Delete and Recreate DPUDeployment", Label("dpudep
 		}).WithTimeout(dpfe2e.DPUDeploymentReadyTimeout).WithPolling(5 * time.Second).Should(Succeed())
 
 		GinkgoWriter.Printf("DPUDeployment %s is Ready\n", cfg.DPUDeploymentName)
+	})
+
+	It("should have all DPU objects in Ready phase after reprovisioning", func() {
+		expectedDPUs := len(dpuHostWorkers)
+		By(fmt.Sprintf("Waiting for %d DPU objects to reach Ready phase", expectedDPUs))
+
+		Eventually(func(g Gomega) {
+			dpuList := &provisioningv1.DPUList{}
+			g.Expect(mgmtClient.List(ctx, dpuList, client.InNamespace(cfg.DPFNamespace))).To(Succeed())
+			g.Expect(len(dpuList.Items)).To(BeNumerically(">=", expectedDPUs),
+				"Expected at least %d DPU objects, got %d", expectedDPUs, len(dpuList.Items))
+
+			readyCount := 0
+			for _, dpu := range dpuList.Items {
+				if dpu.Status.Phase == provisioningv1.DPUReady {
+					readyCount++
+				}
+			}
+			g.Expect(readyCount).To(BeNumerically(">=", expectedDPUs),
+				"Expected %d DPUs in Ready phase, got %d (total: %d)",
+				expectedDPUs, readyCount, len(dpuList.Items))
+		}).WithTimeout(dpfe2e.DPUDeploymentReadyTimeout).WithPolling(30 * time.Second).Should(Succeed())
+
+		GinkgoWriter.Printf("All %d DPU objects are in Ready phase\n", expectedDPUs)
+	})
+
+	It("should have DPU worker nodes Ready after reprovisioning", func() {
+		By("Waiting for DPU worker nodes to be Ready in the hosted cluster")
+		expectedNodes := len(dpuHostWorkers)
+		if expectedNodes == 0 {
+			Skip("No DPU host workers discovered — cannot validate DPU node readiness")
+		}
+
+		Eventually(func(g Gomega) {
+			readyNodes, err := utils.GetReadyWorkerNodes(ctx, hostedClient)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(len(readyNodes)).To(BeNumerically(">=", expectedNodes),
+				"Expected at least %d Ready DPU worker nodes, got %d", expectedNodes, len(readyNodes))
+		}).WithTimeout(dpfe2e.DPUDeploymentReadyTimeout).WithPolling(30 * time.Second).Should(Succeed())
+
+		GinkgoWriter.Printf("All %d DPU worker nodes are Ready in hosted cluster\n", expectedNodes)
 	})
 
 	It("should recreate the ignition ConfigMap after DPUDeployment recreation", func() {
