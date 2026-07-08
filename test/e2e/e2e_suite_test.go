@@ -18,6 +18,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/openshift-dpf/test/utils"
@@ -47,6 +48,7 @@ func init() {
 
 func TestE2E(t *testing.T) {
 	RegisterFailHandler(Fail)
+	ctrl.SetLogger(GinkgoLogr)
 	RunSpecs(t, "DPF E2E Suite")
 }
 
