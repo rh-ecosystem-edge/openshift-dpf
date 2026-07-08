@@ -6,8 +6,6 @@ metadata:
   namespace: openshift-machine-api
   labels:
     dpu-capable: "true"
-  annotations:
-    inspect.metal3.io: disabled
 spec:
   online: false
   bootMACAddress: <BOOT_MAC>
