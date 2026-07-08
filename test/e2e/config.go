@@ -12,6 +12,8 @@ type TestConfig struct {
 	ClustersNamespace string
 	DPFNamespace      string
 	WorkloadNamespace string
+	DPUClusterName    string
+	DPUDeploymentName string
 	PingCount         int
 	PingHBNToHBN      bool
 	WorkerCount       int
@@ -25,6 +27,8 @@ func init() {
 	flag.StringVar(&cfg.ClustersNamespace, "clusters-namespace", envOrDefault("CLUSTERS_NAMESPACE", "clusters"), "namespace for hosted clusters")
 	flag.StringVar(&cfg.DPFNamespace, "dpf-namespace", envOrDefault("DPF_NAMESPACE", "dpf-operator-system"), "DPF operator namespace")
 	flag.StringVar(&cfg.WorkloadNamespace, "workload-namespace", envOrDefault("SANITY_TESTS_WORKLOAD_NAMESPACE", "workload"), "workload test namespace")
+	flag.StringVar(&cfg.DPUClusterName, "dpu-cluster-name", envOrDefault("DPU_CLUSTER_NAME", "doca"), "DPU cluster name (used for ignition ConfigMap naming)")
+	flag.StringVar(&cfg.DPUDeploymentName, "dpu-deployment-name", envOrDefault("DPU_DEPLOYMENT_NAME", "dpudeployment"), "DPUDeployment name in the DPF namespace")
 	flag.IntVar(&cfg.PingCount, "ping-count", envOrDefaultInt("SANITY_TESTS_PING_COUNT", 20), "ping count for connectivity tests")
 	flag.BoolVar(&cfg.PingHBNToHBN, "ping-hbn-to-hbn", envOrDefaultBool("SANITY_TESTS_PING_HBN_TO_HBN_PODS", false), "enable HBN-to-HBN pod ping tests")
 	flag.IntVar(&cfg.WorkerCount, "worker-count", envOrDefaultInt("WORKER_COUNT", 0), "expected number of DPU worker nodes")
