@@ -251,18 +251,22 @@ test-e2e-clean:
 # Go E2E Tests (library-import based, runs against pre-existing deployment)
 E2E_GO_LABEL_FILTER ?= dpudeployment-lifecycle
 E2E_GO_TIMEOUT ?= 90m
-DPU_CLUSTER_NAME ?= $(CLUSTER_NAME)
+DPU_CLUSTER_NAME ?= $(HOSTED_CLUSTER_NAME)
 DPU_DEPLOYMENT_NAME ?= dpudeployment
+E2E_KUBECONFIG := $(abspath $(KUBECONFIG))
 
 test-go-e2e:
 	@echo "================================================================================"
 	@echo "Running Go E2E tests (label-filter: $(E2E_GO_LABEL_FILTER))..."
+	@echo "  KUBECONFIG: $(E2E_KUBECONFIG)"
+	@echo "  HOSTED_CLUSTER_NAME: $(HOSTED_CLUSTER_NAME)"
+	@echo "  DPU_CLUSTER_NAME: $(DPU_CLUSTER_NAME)"
 	@echo "================================================================================"
 	cd test && GOTOOLCHAIN=auto go test -v -count=1 -timeout $(E2E_GO_TIMEOUT) ./e2e/ \
 		-ginkgo.v \
 		-ginkgo.label-filter="$(E2E_GO_LABEL_FILTER)" \
-		-e2e.kubeconfig="$(KUBECONFIG)" \
-		-hosted-cluster-name="$(CLUSTER_NAME)" \
+		-e2e.kubeconfig="$(E2E_KUBECONFIG)" \
+		-hosted-cluster-name="$(HOSTED_CLUSTER_NAME)" \
 		-dpu-cluster-name="$(DPU_CLUSTER_NAME)" \
 		-dpu-deployment-name="$(DPU_DEPLOYMENT_NAME)"
 
