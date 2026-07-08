@@ -12,7 +12,7 @@ require (
 	sigs.k8s.io/controller-runtime v0.24.1
 )
 
-replace github.com/nvidia/doca-platform => ../repos/doca-platform
+replace github.com/nvidia/doca-platform => github.com/josecastillolema/doca-platform v0.0.0-20260706152903-1b18a818b650
 
 require (
 	cel.dev/expr v0.25.1 // indirect
