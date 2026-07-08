@@ -38,7 +38,8 @@ WORKER_SCRIPT := scripts/worker.sh
         verify-deployment verify-workers verify-dpu-nodes verify-dpudeployment \
         run-traffic-flow-tests tft-setup tft-cleanup tft-show-config tft-results aicli-list \
         validate-env-files generate-env deploy-observability \
-        test-e2e test-e2e-setup test-e2e-clean
+        test-e2e test-e2e-setup test-e2e-clean \
+        test-go-e2e
 
 all: 
 	@mkdir -p logs
@@ -246,6 +247,24 @@ test-e2e: test-e2e-setup
 
 test-e2e-clean:
 	@$(E2E_SCRIPT) clean
+
+# Go E2E Tests (library-import based, runs against pre-existing deployment)
+E2E_GO_LABEL_FILTER ?= dpudeployment-lifecycle
+E2E_GO_TIMEOUT ?= 90m
+DPU_CLUSTER_NAME ?= $(CLUSTER_NAME)
+DPU_DEPLOYMENT_NAME ?= dpudeployment
+
+test-go-e2e:
+	@echo "================================================================================"
+	@echo "Running Go E2E tests (label-filter: $(E2E_GO_LABEL_FILTER))..."
+	@echo "================================================================================"
+	cd test && GOTOOLCHAIN=auto go test -v -count=1 -timeout $(E2E_GO_TIMEOUT) ./e2e/ \
+		-ginkgo.v \
+		-ginkgo.label-filter="$(E2E_GO_LABEL_FILTER)" \
+		-e2e.kubeconfig="$(KUBECONFIG)" \
+		-hosted-cluster-name="$(CLUSTER_NAME)" \
+		-dpu-cluster-name="$(DPU_CLUSTER_NAME)" \
+		-dpu-deployment-name="$(DPU_DEPLOYMENT_NAME)"
 
 # Traffic Flow Tests
 run-traffic-flow-tests:
