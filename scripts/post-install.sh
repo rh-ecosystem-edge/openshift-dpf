@@ -62,7 +62,7 @@ function update_bfb_manifest() {
 # Function to update HBN OVN manifests
 function update_hbn_ovn_manifests() {
     log [INFO] "Updating HBN OVN manifests..."
-    
+
     # DPU_HOST_CIDR must be set by user
     if [ -z "${DPU_HOST_CIDR}" ]; then
         log [ERROR] "DPU_HOST_CIDR environment variable is not set. Please set it to the DPU nodes subnet (e.g., 10.6.135.0/24)"
@@ -74,7 +74,7 @@ function update_hbn_ovn_manifests() {
         "${GENERATED_POST_INSTALL_DIR}/hbn-ovn-ipam.yaml" \
         "<HBN_OVN_NETWORK>" \
         "${HBN_OVN_NETWORK}"
-    
+
     # Skip ovn-dpuservice.yaml - now handled by DPUDeployment
     # Services are now managed through DPUDeployment with templates and configurations
 
@@ -99,7 +99,7 @@ function update_hbn_ovn_manifests() {
           enableEgressFirewall: \"true\"
           enableEgressQoS: \"true\"
           enableEgressService: \"true\"
-          enableMultiNetwork: \"true\"
+          enableMultiNetwork: \"false\"
           enableMultiNetworkPolicy: \"true\"
           enableAdminNetworkPolicy: \"true\"
           enableNetworkSegmentation: \"true\""
@@ -171,8 +171,8 @@ function update_hbn_ovn_manifests() {
             "<OVN_CONFIGURATION_FEATURES>" "${ovn_configuration_features}" \
             "<OVN_MULTI_NETWORK_ENABLE_VALUE>" "${ovn_multi_network_enable_value}"
     fi
-    
-    # Update hbn-configuration.yaml 
+
+    # Update hbn-configuration.yaml
     if [ -f "${POST_INSTALL_DIR}/hbn-configuration.yaml" ]; then
         update_file_multi_replace \
             "${POST_INSTALL_DIR}/hbn-configuration.yaml" \
@@ -185,7 +185,7 @@ function update_hbn_ovn_manifests() {
 # Function to update VF configuration
 function update_vf_configuration() {
     log [INFO] "Updating VF configuration in manifests..."
-    
+
     # Calculate VF range upper bound
     local vf_range_upper=$((NUM_VFS - 1))
 
@@ -196,30 +196,30 @@ function update_vf_configuration() {
     fi
 
     log "INFO" "Creating unified dpuflavor.yaml from $mtu_source_file for MTU $NODES_MTU"
-    
+
     # Copy and process the appropriate source file as dpuflavor.yaml
     update_file_multi_replace \
         "${POST_INSTALL_DIR}/$mtu_source_file" \
         "${GENERATED_POST_INSTALL_DIR}/dpuflavor.yaml" \
         "<NUM_VFS>" "${NUM_VFS}"
-    
-    
+
+
     log [INFO] "VF configuration updated successfully"
 }
 
 # Function to update service template versions
 function update_service_templates() {
     log [INFO] "Updating service template versions..."
-    
+
     # Validate DPF_VERSION is set
     if [ -z "$DPF_VERSION" ]; then
         log [ERROR] "DPF_VERSION is not set. Required for service template updates"
         return 1
     fi
-    
+
     # Update all service templates with DPF_VERSION if they exist
     local templates=("hbn-template.yaml" "dts-template.yaml" "blueman-template.yaml")
-    
+
     for template in "${templates[@]}"; do
         if [ -f "${POST_INSTALL_DIR}/${template}" ]; then
             # HBN template needs helm repo URL, version, and image configuration
@@ -250,7 +250,7 @@ function update_service_templates() {
             fi
         fi
     done
-    
+
     # Update IPAM controller manifest (skip for OCP >= 4.22 where Hypershift handles node CIDR allocation natively)
     if ocp_version_gte "${OPENSHIFT_VERSION}" "4.22"; then
         log [INFO] "OCP ${OPENSHIFT_VERSION} >= 4.22: skipping dpu-node-ipam-controller (node CIDR allocation handled by Hypershift)"
@@ -262,14 +262,14 @@ function update_service_templates() {
             "<HOSTED_CLUSTER_NAME>" "${HOSTED_CLUSTER_NAME}"
         log [INFO] "Updated dpu-node-ipam-controller.yaml with namespace and cluster name"
     fi
-    
+
     log [INFO] "Service template versions updated successfully"
 }
 
 
 
 function update_dpu_service_nad() {
-   local svc_file="dpu-service-nads.yaml" 
+   local svc_file="dpu-service-nads.yaml"
 
    if [ -f "${POST_INSTALL_DIR}/${svc_file}" ]; then
        update_file_multi_replace \
@@ -284,7 +284,7 @@ function update_dpu_service_nad() {
 # Function to prepare post-installation manifests
 function prepare_post_installation() {
     log [INFO] "Starting post-installation manifest preparation..."
-    
+
     # Check if post-installation directory exists
     if [ ! -d "${POST_INSTALL_DIR}" ]; then
         log [ERROR] "Post-installation directory not found: ${POST_INSTALL_DIR}"
@@ -296,7 +296,7 @@ function prepare_post_installation() {
     update_vf_configuration
     update_service_templates
     update_dpu_service_nad
-    
+
     # Process DPUDeployment template
     if [ -f "${POST_INSTALL_DIR}/dpudeployment.yaml" ]; then
         update_file_multi_replace \
@@ -319,33 +319,33 @@ function prepare_post_installation() {
 
     # Copy remaining manifests using utility function (exclude special files)
     copy_manifests_with_exclusions "${POST_INSTALL_DIR}" "${GENERATED_POST_INSTALL_DIR}" "${SPECIAL_FILES[@]}"
-    
+
     log [INFO] "Post-installation manifest preparation completed successfully"
 }
 
 # Function to apply post-installation manifests
 function apply_post_installation() {
     log [INFO] "Starting post-installation manifest application..."
-    
+
     # Check if generated post-installation directory exists
     if [ ! -d "${GENERATED_POST_INSTALL_DIR}" ]; then
         log [ERROR] "Generated post-installation directory not found: ${GENERATED_POST_INSTALL_DIR}"
         log [ERROR] "Please run prepare-dpu-files first"
         exit 1
     fi
-    
+
     # Get kubeconfig
     get_kubeconfig
-    
+
     # Wait for DPF provisioning webhook to be ready before applying manifests
     log [INFO] "Waiting for DPF provisioning webhook service to be ready..."
     local webhook_ready=false
     local max_attempts=30
     local attempt=0
-    
+
     while [ $attempt -lt $max_attempts ] && [ "$webhook_ready" = "false" ]; do
         attempt=$((attempt + 1))
-        
+
         # Check if webhook endpoints are available
         if oc get endpoints -n dpf-operator-system dpf-provisioning-webhook-service -o jsonpath='{.subsets[*].addresses[*].ip}' 2>/dev/null | grep -q .; then
             log [INFO] "DPF provisioning webhook service is ready"
@@ -357,7 +357,7 @@ function apply_post_installation() {
             sleep 5
         fi
     done
-    
+
     if [ "$webhook_ready" = "false" ]; then
         log [ERROR] "DPF provisioning webhook service not ready after $max_attempts attempts"
         log [ERROR] "This may cause failures when applying DPU manifests that require webhook validation"
@@ -368,7 +368,7 @@ function apply_post_installation() {
             log [WARN] "STRICT_WEBHOOK_CHECK is disabled, proceeding anyway..."
         fi
     fi
-    
+
     # Apply each YAML file in the generated post-installation directory
     for file in "${GENERATED_POST_INSTALL_DIR}"/*.yaml; do
         if [ -f "$file" ]; then
@@ -389,7 +389,7 @@ function apply_post_installation() {
             fi
         fi
     done
-    
+
     # Apply dpudeployment.yaml last if it exists, with apply_always=true
     if [ -f "${GENERATED_POST_INSTALL_DIR}/dpudeployment.yaml" ]; then
         log [INFO] "Applying dpudeployment.yaml (last manifest)..."
@@ -397,7 +397,7 @@ function apply_post_installation() {
     else
         log [WARN] "dpudeployment.yaml not found in ${GENERATED_POST_INSTALL_DIR}"
     fi
-    
+
     log [INFO] "Post-installation manifest application completed successfully"
 }
 
