@@ -4,6 +4,10 @@ import (
 	"context"
 	"fmt"
 
+	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
+	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -23,6 +27,9 @@ type ClusterClients struct {
 func NewScheme() *runtime.Scheme {
 	s := runtime.NewScheme()
 	_ = clientgoscheme.AddToScheme(s)
+	_ = operatorv1.AddToScheme(s)
+	_ = dpuservicev1.AddToScheme(s)
+	_ = provisioningv1.AddToScheme(s)
 	return s
 }
 
