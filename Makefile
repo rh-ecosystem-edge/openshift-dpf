@@ -164,9 +164,6 @@ deploy-dpf: prepare-dpf-manifests
 prepare-dpu-files:
 	@$(POST_INSTALL_SCRIPT) prepare
 
-generate-overrides:
-	@$(POST_INSTALL_SCRIPT) generate-overrides
-
 deploy-dpu-services: prepare-dpu-files
 	@$(POST_INSTALL_SCRIPT) apply
 

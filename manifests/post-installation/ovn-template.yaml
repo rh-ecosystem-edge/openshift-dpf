@@ -1,0 +1,28 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceTemplate
+metadata:
+  name: ovn
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: "ovn"
+  helmChart:
+    source:
+      repoURL: <OVN_TEMPLATE_CHART_URL>
+      chart: ovn-kubernetes-chart
+      version: <OVN_CHART_VERSION>
+    values:
+      <OVN_GLOBAL_FEATURES>
+      commonManifests:
+        enabled: true
+      dpuManifests:
+        image:
+          repository: <OVN_KUBERNETES_IMAGE_REPO>
+          tag: <OVN_KUBERNETES_IMAGE_TAG>
+        <OVN_KUBERNETES_UTILS_IMAGES>
+        enabled: true
+        <OVN_MULTI_NETWORK_ENABLE>
+        cniBinDir: /var/lib/cni/bin/
+        cniConfDir: /run/multus/cni/net.d
+      <OVN_DAEMONSET_VERSION>
+      leaseNamespace: "openshift-ovn-kubernetes"
+      gatewayOpts: "--gateway-interface=br-dpu"

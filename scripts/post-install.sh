@@ -34,8 +34,12 @@ SPECIAL_FILES=(
     "dpuflavor-1500.yaml"
     "dpuflavor-9000.yaml"
     "dpuflavor.yaml"
+    "ovn-template.yaml"
     "ovn-configuration.yaml"
+    "hbn-template.yaml"
     "hbn-configuration.yaml"
+    "dts-template.yaml"
+    "blueman-template.yaml"
     "dpu-node-ipam-controller.yaml"
     "dpudeployment.yaml"
     "nodesriovdevicepluginconfig.yaml"
@@ -70,11 +74,27 @@ function update_hbn_ovn_manifests() {
         "${GENERATED_POST_INSTALL_DIR}/hbn-ovn-ipam.yaml" \
         "<HBN_OVN_NETWORK>" \
         "${HBN_OVN_NETWORK}"
+    
+    # Skip ovn-dpuservice.yaml - now handled by DPUDeployment
+    # Services are now managed through DPUDeployment with templates and configurations
 
     # OVN feature flags are only enabled on OCP >= 4.22.2
+    local ovn_global_features=""
+    local ovn_multi_network_enable=""
     local ovn_configuration_features=""
     local ovn_multi_network_enable_value="false"
     if ocp_version_gte "${OPENSHIFT_VERSION}" "4.22.2"; then
+        ovn_global_features="global:
+        enableEgressIP: \"true\"
+        egressIpHealthCheckPort: \"0\"
+        enableEgressFirewall: \"true\"
+        enableEgressQoS: \"true\"
+        enableEgressService: \"true\"
+        enableMultiNetwork: \"false\"
+        enableMultiNetworkPolicy: \"true\"
+        enableAdminNetworkPolicy: \"true\"
+        enableNetworkSegmentation: \"true\""
+        ovn_multi_network_enable="ovnMultiNetworkEnable: \"true\""
         ovn_configuration_features="enableEgressIP: \"true\"
           enableEgressFirewall: \"true\"
           enableEgressQoS: \"true\"
@@ -87,6 +107,47 @@ function update_hbn_ovn_manifests() {
         log "INFO" "OCP ${OPENSHIFT_VERSION} >= 4.22.2: enabling OVN feature flags"
     else
         log "INFO" "OCP ${OPENSHIFT_VERSION} < 4.22.2: skipping OVN feature flags"
+    fi
+
+    # Update ovn-template.yaml for DPUDeployment
+    if [ -f "${POST_INSTALL_DIR}/ovn-template.yaml" ]; then
+        # Determine the replacement value for <OVN_KUBERNETES_UTILS_IMAGES>
+        local utils_images_replacement=""
+        if [ -n "${OVN_KUBERNETES_UTILS_IMAGE_REPO}" ] && [ -n "${OVN_KUBERNETES_UTILS_IMAGE_TAG}" ]; then
+            # Build the imagedpf block with proper indentation (8 spaces for imagedpf:, 10 spaces for repository/tag)
+            utils_images_replacement="imagedpf:
+          repository: ${OVN_KUBERNETES_UTILS_IMAGE_REPO}
+          tag: ${OVN_KUBERNETES_UTILS_IMAGE_TAG}"
+            log [INFO] "OVN_KUBERNETES_UTILS_IMAGE_REPO and OVN_KUBERNETES_UTILS_IMAGE_TAG set, including imagedpf section in ovn-template.yaml"
+        else
+            log [INFO] "OVN_KUBERNETES_UTILS_IMAGE_REPO or OVN_KUBERNETES_UTILS_IMAGE_TAG not set, omitting imagedpf section from ovn-template.yaml"
+        fi
+
+        local ovn_daemonset_version_replacement=""
+        if [ -n "${OVN_DAEMONSET_VERSION}" ]; then
+            ovn_daemonset_version_replacement="ovnDaemonsetVersion: \"${OVN_DAEMONSET_VERSION}\""
+            log [INFO] "Setting ovnDaemonsetVersion to ${OVN_DAEMONSET_VERSION}"
+        elif ! ocp_version_gte "${OPENSHIFT_VERSION}" "4.22.1"; then
+            local ds_version="1.2.0"
+            ocp_version_gte "${OPENSHIFT_VERSION}" "4.21.9" || ds_version="1.1.0"
+            ovn_daemonset_version_replacement="ovnDaemonsetVersion: \"${ds_version}\""
+            log [INFO] "OCP ${OPENSHIFT_VERSION} < 4.22.1: setting ovnDaemonsetVersion to ${ds_version}"
+        fi
+
+        # Use update_file_multi_replace for all replacements
+        update_file_multi_replace \
+            "${POST_INSTALL_DIR}/ovn-template.yaml" \
+            "${GENERATED_POST_INSTALL_DIR}/ovn-template.yaml" \
+            "<DPF_VERSION>" "${DPF_VERSION}" \
+            "<OVN_CHART_VERSION>" "${OVN_CHART_VERSION}" \
+            "<OVN_TEMPLATE_CHART_URL>" "${OVN_TEMPLATE_CHART_URL}" \
+            "<OVN_KUBERNETES_IMAGE_REPO>" "${OVN_KUBERNETES_IMAGE_REPO}" \
+            "<OVN_KUBERNETES_IMAGE_TAG>" "${OVN_KUBERNETES_IMAGE_TAG}" \
+            "<OVN_KUBERNETES_UTILS_IMAGES>" "${utils_images_replacement}" \
+            "<OVN_CHART_URL>" "${OVN_CHART_URL}" \
+            "<OVN_DAEMONSET_VERSION>" "${ovn_daemonset_version_replacement}" \
+            "<OVN_GLOBAL_FEATURES>" "${ovn_global_features}" \
+            "<OVN_MULTI_NETWORK_ENABLE>" "${ovn_multi_network_enable}"
     fi
 
     # Update ovn-configuration.yaml for DPUDeployment
@@ -147,36 +208,49 @@ function update_vf_configuration() {
 }
 
 # Function to update service template versions
-function generate_dpuservicetemplate_overrides() {
-    local major_minor
-    major_minor=$(echo "${DPF_VERSION#v}" | cut -d. -f1-2)
-
-    local overrides
-    overrides=$(jq -n -f "$(dirname "${BASH_SOURCE[0]}")/dpuservicetemplate-overrides.jq" \
-        --arg major_minor "${major_minor}" \
-        --arg ovn_chart_url "${OVN_CHART_URL:-}" \
-        --arg ovn_chart_version "${OVN_CHART_VERSION:-}" \
-        --arg hbn_helm_repo_url "${HBN_HELM_REPO_URL:-}" \
-        --arg hbn_helm_chart_version "${HBN_HELM_CHART_VERSION:-}" \
-        --arg hbn_image_repo "${HBN_IMAGE_REPO:-}" \
-        --arg hbn_image_tag "${HBN_IMAGE_TAG:-}" \
-        --arg dts_helm_repo_url "${DTS_HELM_REPO_URL:-}" \
-        --arg dts_helm_chart_version "${DTS_HELM_CHART_VERSION:-}" \
-        --arg dts_image "${DTS_IMAGE:-}")
-
-    if [[ "${overrides}" == "null" ]]; then
-        log [INFO] "No DPUServiceTemplate overrides to apply"
-        return
+function update_service_templates() {
+    log [INFO] "Updating service template versions..."
+    
+    # Validate DPF_VERSION is set
+    if [ -z "$DPF_VERSION" ]; then
+        log [ERROR] "DPF_VERSION is not set. Required for service template updates"
+        return 1
     fi
-
-    log [INFO] "Creating DPUServiceTemplate overrides configmap in namespace ${DPF_HCP_PROVISIONER_OPERATOR_NAMESPACE}"
-    oc create configmap dpuservicetemplate-overrides \
-        -n "${DPF_HCP_PROVISIONER_OPERATOR_NAMESPACE}" \
-        --from-literal=overrides.json="${overrides}" \
-        --dry-run=client -o yaml | oc apply -f -
-}
-
-function update_ipam_controller() {
+    
+    # Update all service templates with DPF_VERSION if they exist
+    local templates=("hbn-template.yaml" "dts-template.yaml" "blueman-template.yaml")
+    
+    for template in "${templates[@]}"; do
+        if [ -f "${POST_INSTALL_DIR}/${template}" ]; then
+            # HBN template needs helm repo URL, version, and image configuration
+            if [[ "${template}" == "hbn-template.yaml" ]]; then
+                update_file_multi_replace \
+                    "${POST_INSTALL_DIR}/${template}" \
+                    "${GENERATED_POST_INSTALL_DIR}/${template}" \
+                    "<HBN_HELM_REPO_URL>" "${HBN_HELM_REPO_URL}" \
+                    "<HBN_HELM_CHART_VERSION>" "${HBN_HELM_CHART_VERSION}" \
+                    "<HBN_IMAGE_REPO>" "${HBN_IMAGE_REPO}" \
+                    "<HBN_IMAGE_TAG>" "${HBN_IMAGE_TAG}"
+                log [INFO] "Updated ${template} with HBN helm and image configuration"
+            # DTS template needs helm repo URL and version
+            elif [[ "${template}" == "dts-template.yaml" ]]; then
+                update_file_multi_replace \
+                    "${POST_INSTALL_DIR}/${template}" \
+                    "${GENERATED_POST_INSTALL_DIR}/${template}" \
+                    "<DTS_HELM_REPO_URL>" "${DTS_HELM_REPO_URL}" \
+                    "<DTS_HELM_CHART_VERSION>" "${DTS_HELM_CHART_VERSION}" \
+                    "<DTS_IMAGE>" "${DTS_IMAGE}"
+                log [INFO] "Updated ${template} with DTS helm and image configuration"
+            else
+                update_file_multi_replace \
+                    "${POST_INSTALL_DIR}/${template}" \
+                    "${GENERATED_POST_INSTALL_DIR}/${template}" \
+                    "<DPF_VERSION>" "${DPF_VERSION}"
+                log [INFO] "Updated ${template} with DPF_VERSION"
+            fi
+        fi
+    done
+    
     # Update IPAM controller manifest (skip for OCP >= 4.22 where Hypershift handles node CIDR allocation natively)
     if ocp_version_gte "${OPENSHIFT_VERSION}" "4.22"; then
         log [INFO] "OCP ${OPENSHIFT_VERSION} >= 4.22: skipping dpu-node-ipam-controller (node CIDR allocation handled by Hypershift)"
@@ -188,6 +262,8 @@ function update_ipam_controller() {
             "<HOSTED_CLUSTER_NAME>" "${HOSTED_CLUSTER_NAME}"
         log [INFO] "Updated dpu-node-ipam-controller.yaml with namespace and cluster name"
     fi
+    
+    log [INFO] "Service template versions updated successfully"
 }
 
 
@@ -218,9 +294,8 @@ function prepare_post_installation() {
     update_bfb_manifest
     update_hbn_ovn_manifests
     update_vf_configuration
-    update_ipam_controller
+    update_service_templates
     update_dpu_service_nad
-    generate_dpuservicetemplate_overrides
     
     # Process DPUDeployment template
     if [ -f "${POST_INSTALL_DIR}/dpudeployment.yaml" ]; then
@@ -405,7 +480,7 @@ function redeploy() {
 # If script is executed directly (not sourced), run the appropriate function
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     if [ $# -lt 1 ]; then
-        log [ERROR] "Usage: $0 <prepare|apply|redeploy|observability|generate-overrides>"
+        log [ERROR] "Usage: $0 <prepare|apply|redeploy|observability>"
         exit 1
     fi
 
@@ -422,12 +497,9 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         observability)
             apply_observability
             ;;
-        generate-overrides)
-            generate_dpuservicetemplate_overrides
-            ;;
         *)
             log [ERROR] "Unknown command: $1"
-            log [ERROR] "Available commands: prepare, apply, redeploy, observability, generate-overrides"
+            log [ERROR] "Available commands: prepare, apply, redeploy, observability"
             exit 1
             ;;
     esac

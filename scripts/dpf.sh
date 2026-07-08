@@ -182,8 +182,7 @@ function deploy_dpf_hcp_provisioner_operator() {
         ${version_flag} \
         --set image.repository=${DPF_HCP_PROVISIONER_OPERATOR_IMAGE_REPO} \
         --set image.pullPolicy=Always \
-        --set image.tag=${DPF_HCP_PROVISIONER_OPERATOR_IMAGE_TAG} \
-        --set provisionerConfig.manageDPUServiceTemplates=true; then
+        --set image.tag=${DPF_HCP_PROVISIONER_OPERATOR_IMAGE_TAG}; then
 
         log [INFO] "Helm release 'dpf-hcp-provisioner-operator' deployed successfully"
         log [INFO] "DPF HCP Provisioner Operator deployment initiated. Use 'oc get pods -n ${DPF_HCP_PROVISIONER_OPERATOR_NAMESPACE}' to monitor progress."
