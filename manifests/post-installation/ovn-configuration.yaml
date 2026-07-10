@@ -15,6 +15,7 @@ spec:
         k8sAPIServer: https://<HOST_CLUSTER_API>:6443
         podNetwork: 10.128.0.0/14/23
         serviceNetwork: 172.30.0.0/16
+        hostNetworkNamespace: "openshift-host-network"
         mtu: <NODES_MTU>
         dpuManifests:
           ovnMultiNetworkEnable: "<OVN_MULTI_NETWORK_ENABLE_VALUE>"
