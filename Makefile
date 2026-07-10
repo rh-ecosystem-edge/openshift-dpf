@@ -24,26 +24,12 @@ TFT_SCRIPT := scripts/traffic-flow-tests.sh
 # Worker provisioning script
 WORKER_SCRIPT := scripts/worker.sh
 
-.PHONY: all clean check-cluster create-cluster prepare-manifests generate-ovn update-paths help delete-cluster verify-files \
-        download-iso fix-yaml-spacing create-vms delete-vms enable-storage cluster-install wait-for-ready \
-        wait-for-installed wait-for-status cluster-start clean-all deploy-dpf kubeconfig kubeadmin-password deploy-nfd \
-        install-hypershift install-helm deploy-dpu-services prepare-dpu-files upgrade-dpf create-day2-cluster get-day2-iso \
-        download-day2-iso create-worker-vms delete-worker-vms add-vm-workers install-day2-hosts \
-        upgrade-management \
-        redeploy-dpu enable-ovn-injector deploy-argocd deploy-maintenance-operator configure-flannel \
-        deploy-core-operator-sources deploy-metallb deploy-lso deploy-odf deploy-lvms run-dpf-sanity \
-        add-worker-nodes worker-status approve-worker-csrs \
-        deploy-csr-approver delete-csr-approver \
-        delete-dpf-hcp-provisioner-operator \
-        verify-deployment verify-workers verify-dpu-nodes verify-dpudeployment \
-        run-traffic-flow-tests tft-setup tft-cleanup tft-show-config tft-results aicli-list \
-        validate-env-files generate-env deploy-observability \
-        test-go-e2e
-
-all: 
+.PHONY: all
+all:
 	@mkdir -p logs
 	@bash -o pipefail -c '$(MAKE) _all 2>&1 | tee "logs/make_all_$(shell date +%Y%m%d_%H%M%S).log"'
 
+.PHONY: _all
 _all: verify-files check-cluster create-vms prepare-manifests cluster-install update-etc-hosts kubeconfig add-worker-nodes deploy-dpf prepare-dpu-files deploy-dpu-services enable-ovn-injector deploy-observability
 	@echo ""
 	@echo "================================================================================"
@@ -51,58 +37,76 @@ _all: verify-files check-cluster create-vms prepare-manifests cluster-install up
 	@echo "================================================================================"
 	@$(VERIFY_SCRIPT) verify-deployment
 
+.PHONY: verify-files
 verify-files:
 	@$(UTILS_SCRIPT) verify-files
 
+.PHONY: clean
 clean:
 	@$(CLUSTER_SCRIPT) clean
 
+.PHONY: aicli-list
 aicli-list:
 	@bash -c 'source scripts/env.sh && aicli list clusters'
 	
+.PHONY: delete-cluster
 delete-cluster:
 	@$(CLUSTER_SCRIPT) delete-cluster
 
+.PHONY: check-cluster
 check-cluster:
 	@$(CLUSTER_SCRIPT) check-create-cluster
 
+.PHONY: create-cluster
 create-cluster:
 	@$(CLUSTER_SCRIPT) check-create-cluster
 
+.PHONY: create-day2-cluster
 create-day2-cluster:
 	@$(CLUSTER_SCRIPT) create-day2-cluster
 
+.PHONY: get-day2-iso
 get-day2-iso: create-day2-cluster
 	@$(CLUSTER_SCRIPT) get-day2-iso
 
+.PHONY: prepare-manifests
 prepare-manifests:
 	@$(MANIFESTS_SCRIPT) prepare-manifests
 
+.PHONY: generate-ovn
 generate-ovn:
 	@$(MANIFESTS_SCRIPT) generate-ovn-manifests
 
+.PHONY: update-paths
 update-paths:
 	@$(MANIFESTS_SCRIPT) prepare-manifests
 
+.PHONY: download-iso
 download-iso:
 	@$(CLUSTER_SCRIPT) download-iso
 
+.PHONY: create-vms
 create-vms: download-iso
 	@$(VM_SCRIPT) create
 
+.PHONY: delete-vms
 delete-vms:
 	@$(VM_SCRIPT) delete
 
 
+.PHONY: download-day2-iso
 download-day2-iso: create-day2-cluster
 	@$(CLUSTER_SCRIPT) download-day2-iso
 
+.PHONY: create-worker-vms
 create-worker-vms: download-day2-iso
 	@$(VM_SCRIPT) create-worker-vms
 
+.PHONY: delete-worker-vms
 delete-worker-vms:
 	@$(VM_SCRIPT) delete-worker-vms
 
+.PHONY: add-vm-workers
 add-vm-workers:
 	@if [ "$(VM_WORKER_COUNT)" = "0" ] || [ -z "$(VM_WORKER_COUNT)" ]; then \
 		echo "VM_WORKER_COUNT=0, skipping VM worker provisioning"; \
@@ -127,109 +131,144 @@ add-vm-workers:
 		echo "================================================================================"; \
 	fi
 
+.PHONY: install-day2-hosts
 install-day2-hosts:
 	@$(CLUSTER_SCRIPT) install-day2-hosts
 
+.PHONY: cluster-start
 cluster-start:
 	@$(CLUSTER_SCRIPT) start-cluster-installation
 
+.PHONY: cluster-install
 cluster-install:
 	@$(CLUSTER_SCRIPT) cluster-install
 
+.PHONY: wait-for-status
 wait-for-status:
 	@$(CLUSTER_SCRIPT) wait-for-status "$(STATUS)"
 
+.PHONY: wait-for-ready
 wait-for-ready:
 	@$(MAKE) wait-for-status STATUS=ready
 
+.PHONY: wait-for-installed
 wait-for-installed:
 	@$(MAKE) wait-for-status STATUS=installed
 
+.PHONY: enable-storage
 enable-storage:
 	@$(MANIFESTS_SCRIPT) enable-storage
 
+.PHONY: prepare-dpf-manifests
 prepare-dpf-manifests:
 	@$(MANIFESTS_SCRIPT) prepare-dpf-manifests
 
+.PHONY: upgrade-management
 upgrade-management:
 	@scripts/upgrade-management.sh
 
+.PHONY: upgrade-dpf
 upgrade-dpf: install-helm
 	@scripts/dpf-upgrade.sh interactive
 
+.PHONY: deploy-argocd
 deploy-argocd: install-helm
 	@$(DPF_SCRIPT) deploy-argocd
 
+.PHONY: deploy-maintenance-operator
 deploy-maintenance-operator: install-helm
 	@$(DPF_SCRIPT) deploy-maintenance-operator
 
+.PHONY: deploy-dpf
 deploy-dpf: prepare-dpf-manifests
 	@$(DPF_SCRIPT) apply-dpf
 
+.PHONY: prepare-dpu-files
 prepare-dpu-files:
 	@$(POST_INSTALL_SCRIPT) prepare
 
+.PHONY: generate-overrides
 generate-overrides:
 	@$(POST_INSTALL_SCRIPT) generate-overrides
 
+.PHONY: deploy-dpu-services
 deploy-dpu-services: prepare-dpu-files
 	@$(POST_INSTALL_SCRIPT) apply
 
+.PHONY: deploy-observability
 deploy-observability:
 	@$(POST_INSTALL_SCRIPT) observability
 
+.PHONY: deploy-hypershift
 deploy-hypershift: install-helm
 	@$(DPF_SCRIPT) deploy-hypershift
 
+.PHONY: create-ignition-template
 create-ignition-template:
 	@$(DPF_SCRIPT) create-ignition-template
 
+.PHONY: redeploy-dpu
 redeploy-dpu:
 	@$(POST_INSTALL_SCRIPT) redeploy
 
+.PHONY: configure-flannel
 configure-flannel: deploy-dpu-services
 	@echo "✅ Flannel IPAM controller is deployed as part of DPU services"
 
+.PHONY: enable-ovn-injector
 enable-ovn-injector: install-helm
 	@scripts/enable-ovn-injector.sh
 
+.PHONY: deploy-core-operator-sources
 deploy-core-operator-sources:
 	@$(MANIFESTS_SCRIPT) deploy-core-operator-sources
 
+.PHONY: update-etc-hosts
 update-etc-hosts:
 	@scripts/update-etc-hosts.sh update_etc_hosts
 
+.PHONY: clean-all
 clean-all:
 	@$(CLUSTER_SCRIPT) clean-all
 	@$(VM_SCRIPT) delete
 
+.PHONY: kubeconfig
 kubeconfig:
 	@$(CLUSTER_SCRIPT) get-kubeconfig
 
+.PHONY: kubeadmin-password
 kubeadmin-password:
 	@$(CLUSTER_SCRIPT) get-kubeadmin-password
 
+.PHONY: deploy-nfd
 deploy-nfd:
 	@$(DPF_SCRIPT) deploy-nfd
 
+.PHONY: deploy-metallb
 deploy-metallb:
 	@$(DPF_SCRIPT) deploy-metallb
 
+.PHONY: deploy-lso
 deploy-lso:
 	@$(CLUSTER_SCRIPT) deploy-lso
 
+.PHONY: deploy-odf
 deploy-odf:
 	@$(CLUSTER_SCRIPT) deploy-odf
 
+.PHONY: deploy-lvms
 deploy-lvms:
 	@$(CLUSTER_SCRIPT) deploy-lvm
 
+.PHONY: install-hypershift
 install-hypershift:
 	@$(TOOLS_SCRIPT) install-hypershift
 
+.PHONY: install-helm
 install-helm:
 	@$(TOOLS_SCRIPT) install-helm
 
+.PHONY: run-dpf-sanity
 run-dpf-sanity:
 	@echo "Running $(SANITY_CHECKS_SCRIPT) ..."
 	@chmod +x $(SANITY_CHECKS_SCRIPT)
@@ -258,26 +297,32 @@ test-go-e2e:
 		-dpu-deployment-name="$(DPU_DEPLOYMENT_NAME)"
 
 # Traffic Flow Tests
+.PHONY: run-traffic-flow-tests
 run-traffic-flow-tests:
 	@echo "================================================================================"
 	@echo "Running Traffic Flow Tests..."
 	@echo "================================================================================"
 	@$(TFT_SCRIPT) run-full
 
+.PHONY: tft-setup
 tft-setup:
 	@echo "Setting up Traffic Flow Tests environment..."
 	@$(TFT_SCRIPT) setup
 
+.PHONY: tft-cleanup
 tft-cleanup:
 	@echo "Cleaning up Traffic Flow Tests..."
 	@$(TFT_SCRIPT) cleanup
 
+.PHONY: tft-show-config
 tft-show-config:
 	@$(TFT_SCRIPT) show-config
 
+.PHONY: tft-results
 tft-results:
 	@$(TFT_SCRIPT) show-results
 
+.PHONY: add-worker-nodes
 add-worker-nodes:
 	@echo "================================================================================"
 	@echo "Adding worker nodes via BMO/Redfish provisioning..."
@@ -299,43 +344,55 @@ add-worker-nodes:
 	@echo "Run 'make worker-status' to monitor progress."
 	@echo "================================================================================"
 
+.PHONY: worker-status
 worker-status:
 	@$(WORKER_SCRIPT) display-worker-status
 
+.PHONY: approve-worker-csrs
 approve-worker-csrs:
 	@$(WORKER_SCRIPT) approve-worker-csrs
 
+.PHONY: deploy-csr-approver
 deploy-csr-approver:
 	@echo "Deploying CSR auto-approver for host cluster workers..."
 	@$(WORKER_SCRIPT) deploy-csr-auto-approver
 
+.PHONY: delete-csr-approver
 delete-csr-approver:
 	@$(WORKER_SCRIPT) delete-csr-auto-approver
 
+.PHONY: delete-dpf-hcp-provisioner-operator
 delete-dpf-hcp-provisioner-operator:
 	@echo "Deleting DPF HCP Provisioner Operator..."
 	@$(DPF_SCRIPT) delete-dpf-hcp-provisioner-operator
 
 # Verification targets
+.PHONY: verify-deployment
 verify-deployment:
 	@$(VERIFY_SCRIPT) verify-deployment
 
+.PHONY: verify-workers
 verify-workers:
 	@$(VERIFY_SCRIPT) verify-workers
 
+.PHONY: verify-dpu-nodes
 verify-dpu-nodes:
 	@$(VERIFY_SCRIPT) verify-dpu-nodes
 
+.PHONY: verify-dpudeployment
 verify-dpudeployment:
 	@$(VERIFY_SCRIPT) verify-dpudeployment
 
+.PHONY: validate-env-files
 validate-env-files:
 	@$(ENV_SCRIPT) validate-env-files
 
 FORCE ?= false
+.PHONY: generate-env
 generate-env: validate-env-files
 	@$(ENV_SCRIPT) generate-env $(FORCE)
 
+.PHONY: help
 help:
 	@echo "Available targets:"
 	@echo "Cluster Management:"
@@ -409,7 +466,7 @@ help:
 	@echo "  tft-show-config        - Display current TFT configuration"
 	@echo "  tft-results            - Show results from the most recent test run"
 	@echo ""
-	@echo "Hypershift Management:
+	@echo "Hypershift Management:"
 	@echo "  install-hypershift - Install Hypershift binary and operator"
 	@echo "  create-hypershift-cluster - Create a new Hypershift hosted cluster"
 	@echo "  configure-hypershift-dpucluster - Configure DPF to use Hypershift hosted cluster"
