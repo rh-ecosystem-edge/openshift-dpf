@@ -7,16 +7,17 @@ import (
 )
 
 type TestConfig struct {
-	Kubeconfig        string
-	HostedClusterName string
-	ClustersNamespace string
-	DPFNamespace      string
-	WorkloadNamespace string
-	DPUClusterName    string
-	DPUDeploymentName string
-	PingCount         int
-	PingHBNToHBN      bool
-	WorkerCount       int
+	Kubeconfig          string
+	HostedClusterName   string
+	ClustersNamespace   string
+	DPFNamespace        string
+	WorkloadNamespace   string
+	DPUClusterName      string
+	DPUDeploymentName   string
+	UpgradeReleaseImage string
+	PingCount           int
+	PingHBNToHBN        bool
+	WorkerCount         int
 }
 
 var cfg TestConfig
@@ -29,6 +30,7 @@ func init() {
 	flag.StringVar(&cfg.WorkloadNamespace, "workload-namespace", envOrDefault("SANITY_TESTS_WORKLOAD_NAMESPACE", "workload"), "workload test namespace")
 	flag.StringVar(&cfg.DPUClusterName, "dpu-cluster-name", envOrDefault("DPU_CLUSTER_NAME", "doca"), "DPU cluster name (used for ignition ConfigMap naming)")
 	flag.StringVar(&cfg.DPUDeploymentName, "dpu-deployment-name", envOrDefault("DPU_DEPLOYMENT_NAME", "dpudeployment"), "DPUDeployment name in the DPF namespace")
+	flag.StringVar(&cfg.UpgradeReleaseImage, "upgrade-release-image", envOrDefault("UPGRADE_RELEASE_IMAGE", ""), "OCP release image for hosted cluster upgrade test")
 	flag.IntVar(&cfg.PingCount, "ping-count", envOrDefaultInt("SANITY_TESTS_PING_COUNT", 20), "ping count for connectivity tests")
 	flag.BoolVar(&cfg.PingHBNToHBN, "ping-hbn-to-hbn", envOrDefaultBool("SANITY_TESTS_PING_HBN_TO_HBN_PODS", false), "enable HBN-to-HBN pod ping tests")
 	flag.IntVar(&cfg.WorkerCount, "worker-count", envOrDefaultInt("WORKER_COUNT", 0), "expected number of DPU worker nodes")
