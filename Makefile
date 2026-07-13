@@ -38,7 +38,6 @@ WORKER_SCRIPT := scripts/worker.sh
         verify-deployment verify-workers verify-dpu-nodes verify-dpudeployment \
         run-traffic-flow-tests tft-setup tft-cleanup tft-show-config tft-results aicli-list \
         validate-env-files generate-env deploy-observability \
-        test-e2e test-e2e-setup test-e2e-clean \
         test-go-e2e
 
 all: 
@@ -236,19 +235,7 @@ run-dpf-sanity:
 	@chmod +x $(SANITY_CHECKS_SCRIPT)
 	@$(SANITY_CHECKS_SCRIPT)
 
-# E2E Tests (upstream NVIDIA DPF)
-E2E_SCRIPT := scripts/e2e.sh
-
-test-e2e-setup:
-	@$(E2E_SCRIPT) setup
-
-test-e2e: test-e2e-setup
-	@$(E2E_SCRIPT) run
-
-test-e2e-clean:
-	@$(E2E_SCRIPT) clean
-
-# Go E2E Tests (library-import based, runs against pre-existing deployment)
+# E2E Tests (library-import based, runs against pre-existing deployment)
 E2E_GO_LABEL_FILTER ?= dpudeployment-lifecycle
 E2E_GO_TIMEOUT ?= 90m
 DPU_CLUSTER_NAME ?= $(HOSTED_CLUSTER_NAME)
@@ -412,10 +399,8 @@ help:
 	@echo "  verify-dpu-nodes      - Wait for DPU nodes to be Ready in DPUCluster"
 	@echo "  verify-dpudeployment  - Wait for DPUDeployment to be Ready"
 	@echo ""
-	@echo "E2E Tests (upstream NVIDIA DPF):"
-	@echo "  test-e2e               - Setup and run upstream e2e tests (default: leader election)"
-	@echo "  test-e2e-setup         - Clone upstream repo and apply patch only"
-	@echo "  test-e2e-clean         - Remove cloned upstream repo"
+	@echo "E2E Tests:"
+	@echo "  test-go-e2e            - Run Go e2e tests (E2E_GO_LABEL_FILTER=dpudeployment-lifecycle)"
 	@echo ""
 	@echo "Traffic Flow Tests:"
 	@echo "  run-traffic-flow-tests - Run kubernetes-traffic-flow-tests for network validation"
