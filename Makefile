@@ -29,7 +29,7 @@ WORKER_SCRIPT := scripts/worker.sh
         wait-for-installed wait-for-status cluster-start clean-all deploy-dpf kubeconfig kubeadmin-password deploy-nfd \
         install-hypershift install-helm deploy-dpu-services prepare-dpu-files upgrade-dpf create-day2-cluster get-day2-iso \
         download-day2-iso create-worker-vms delete-worker-vms add-vm-workers install-day2-hosts \
-        upgrade-management \
+        upgrade-management upgrade-hosted \
         redeploy-dpu enable-ovn-injector deploy-argocd deploy-maintenance-operator configure-flannel \
         deploy-core-operator-sources deploy-metallb deploy-lso deploy-odf deploy-lvms run-dpf-sanity \
         add-worker-nodes worker-status approve-worker-csrs \
@@ -152,6 +152,9 @@ prepare-dpf-manifests:
 
 upgrade-management:
 	@scripts/upgrade-management.sh
+
+upgrade-hosted:
+	@scripts/upgrade-hosted.sh
 
 upgrade-dpf: install-helm
 	@scripts/dpf-upgrade.sh interactive
@@ -359,6 +362,7 @@ help:
 	@echo "  deploy-odf       - Deploy OpenShift Data Foundation for distributed storage (multi-node only, requires STORAGE_TYPE=odf)"
 	@echo "  SKIP_DEPLOY_STORAGE=true - Use existing StorageClasses; set ETCD_STORAGE_CLASS to your StorageClass name"
 	@echo "  upgrade-management - Upgrade management cluster OCP version (optional: MANAGEMENT_UPGRADE_TARGET_VERSION, defaults to z+1)"
+	@echo "  upgrade-hosted    - Upgrade hosted cluster via DPFHCPProvisioner (optional: UPGRADE_HOSTED_CLUSTER_NAME, HOSTED_UPGRADE_TARGET_VERSION)"
 	@echo "  upgrade-dpf       - Interactive DPF operator upgrade (user-friendly wrapper for prepare-dpf-manifests)"
 	@echo "  prepare-dpu-files - Prepare post-installation manifests with custom values"
 	@echo "  deploy-dpu-services - Deploy DPU services to the cluster"
