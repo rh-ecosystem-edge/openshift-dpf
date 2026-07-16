@@ -37,7 +37,8 @@ WORKER_SCRIPT := scripts/worker.sh
         delete-dpf-hcp-provisioner-operator \
         verify-deployment verify-workers verify-dpu-nodes verify-dpudeployment \
         run-traffic-flow-tests tft-setup tft-cleanup tft-show-config tft-results aicli-list \
-        validate-env-files generate-env deploy-observability
+        validate-env-files generate-env deploy-observability \
+        run-e2e-bat run-e2e-networking run-e2e-resiliency run-e2e-stability run-e2e-tests
 
 all: 
 	@mkdir -p logs
@@ -233,6 +234,53 @@ run-dpf-sanity:
 	@echo "Running $(SANITY_CHECKS_SCRIPT) ..."
 	@chmod +x $(SANITY_CHECKS_SCRIPT)
 	@$(SANITY_CHECKS_SCRIPT)
+
+# E2E Test Suite (Go+Ginkgo)
+E2E_CONFIG ?= test/e2e/config/config-bat.yaml
+GINKGO_LABELS ?= bat
+E2E_JUNIT_DIR ?= logs
+E2E_TIMEOUT ?= 120m
+
+run-e2e-bat: ## Run BAT/Urgent tests only (CI gate before GA)
+	@mkdir -p $(E2E_JUNIT_DIR)
+	@echo "Running DPF BAT e2e tests..."
+	go test -v ./test/e2e/... \
+		-e2e.config=$(E2E_CONFIG) \
+		--ginkgo.label-filter="bat" \
+		--ginkgo.junit-report=$(E2E_JUNIT_DIR)/e2e-bat-results.xml \
+		-timeout $(E2E_TIMEOUT)
+
+run-e2e-networking: ## Run networking tests
+	@mkdir -p $(E2E_JUNIT_DIR)
+	go test -v ./test/e2e/... \
+		-e2e.config=test/e2e/config/config-full.yaml \
+		--ginkgo.label-filter="networking" \
+		--ginkgo.junit-report=$(E2E_JUNIT_DIR)/e2e-networking-results.xml \
+		-timeout $(E2E_TIMEOUT)
+
+run-e2e-resiliency: ## Run resiliency tests (requires SSH and optionally BMC)
+	@mkdir -p $(E2E_JUNIT_DIR)
+	go test -v ./test/e2e/... \
+		-e2e.config=test/e2e/config/config-full.yaml \
+		--ginkgo.label-filter="resiliency" \
+		--ginkgo.junit-report=$(E2E_JUNIT_DIR)/e2e-resiliency-results.xml \
+		-timeout 180m
+
+run-e2e-stability: ## Run overnight stability tests (dedicated slot, 10h+)
+	@mkdir -p $(E2E_JUNIT_DIR)
+	go test -v ./test/e2e/... \
+		-e2e.config=test/e2e/config/config-full.yaml \
+		--ginkgo.label-filter="stability" \
+		--ginkgo.junit-report=$(E2E_JUNIT_DIR)/e2e-stability-results.xml \
+		-timeout 12h
+
+run-e2e-tests: ## Run full e2e suite with configurable label filter
+	@mkdir -p $(E2E_JUNIT_DIR)
+	go test -v ./test/e2e/... \
+		-e2e.config=test/e2e/config/config-full.yaml \
+		--ginkgo.label-filter="$(GINKGO_LABELS)" \
+		--ginkgo.junit-report=$(E2E_JUNIT_DIR)/e2e-results.xml \
+		-timeout 180m
 
 # Traffic Flow Tests
 run-traffic-flow-tests:
