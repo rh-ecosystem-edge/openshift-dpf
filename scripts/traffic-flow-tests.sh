@@ -45,13 +45,97 @@ TFT_CONNECTION_TYPE="${TFT_CONNECTION_TYPE:-iperf-tcp}"
 # Kubeconfig path (relative to working directory by default)
 TFT_KUBECONFIG="${TFT_KUBECONFIG:-$(pwd)/kubeconfig.${CLUSTER_NAME}}"
 
-# Node names for TFT (server and client)
-# These are the actual Kubernetes node names, NOT BareMetalHost names
-# Priority: TFT_*_NODE > HBN_HOSTNAME_NODE* (minus wildcard) > WORKER_*_NAME
-_hbn_node1="${HBN_HOSTNAME_NODE1%\*}"
-_hbn_node2="${HBN_HOSTNAME_NODE2%\*}"
-TFT_SERVER_NODE="${TFT_SERVER_NODE:-${_hbn_node1:-${WORKER_1_NAME}}}"
-TFT_CLIENT_NODE="${TFT_CLIENT_NODE:-${_hbn_node2:-${WORKER_2_NAME}}}"
+# Optional explicit overrides. When unset, discover_tft_nodes() scans the cluster
+# for Ready DPU workers (k8s.ovn.org/dpu-host) and assigns:
+#   - 2+ DPU workers: first as server, second as client
+#   - 1 DPU worker:   that worker as server, a Ready master as client
+# Do NOT use BareMetalHost / HBN / WORKER_*_NAME values — those are not node names.
+TFT_SERVER_NODE="${TFT_SERVER_NODE:-}"
+TFT_CLIENT_NODE="${TFT_CLIENT_NODE:-}"
+
+# -----------------------------------------------------------------------------
+# Resolve kubeconfig to an absolute path (sets TFT_KUBECONFIG_ABS)
+# -----------------------------------------------------------------------------
+resolve_kubeconfig() {
+    if [[ -f "${TFT_KUBECONFIG}" ]]; then
+        TFT_KUBECONFIG_ABS="$(cd "$(dirname "${TFT_KUBECONFIG}")" && pwd)/$(basename "${TFT_KUBECONFIG}")"
+    elif [[ -n "${KUBECONFIG:-}" ]] && [[ -f "${KUBECONFIG}" ]]; then
+        TFT_KUBECONFIG_ABS="$(cd "$(dirname "${KUBECONFIG}")" && pwd)/$(basename "${KUBECONFIG}")"
+        log "INFO" "Using KUBECONFIG from environment: ${TFT_KUBECONFIG_ABS}"
+    else
+        log "ERROR" "Kubeconfig not found at ${TFT_KUBECONFIG}"
+        return 1
+    fi
+    return 0
+}
+
+# -----------------------------------------------------------------------------
+# Discover TFT server/client nodes from the live cluster
+# -----------------------------------------------------------------------------
+discover_tft_nodes() {
+    local kubeconfig_path="$1"
+
+    if [[ -n "${TFT_SERVER_NODE}" ]] && [[ -n "${TFT_CLIENT_NODE}" ]]; then
+        log "INFO" "Using explicitly set TFT nodes: server=${TFT_SERVER_NODE}, client=${TFT_CLIENT_NODE}"
+        return 0
+    fi
+
+    if ! command -v oc &>/dev/null; then
+        log "ERROR" "oc is required to discover TFT nodes from the cluster"
+        return 1
+    fi
+
+    log "INFO" "Discovering DPU worker nodes from the cluster..."
+
+    local -a workers=()
+    mapfile -t workers < <(oc get nodes --no-headers \
+        -l 'k8s.ovn.org/dpu-host' \
+        --kubeconfig="${kubeconfig_path}" 2>/dev/null \
+        | awk '$2 == "Ready" { print $1 }')
+
+    if [[ ${#workers[@]} -eq 0 ]]; then
+        log "ERROR" "No Ready DPU worker nodes found in the cluster"
+        log "ERROR" "Looked for label: k8s.ovn.org/dpu-host"
+        oc get nodes --kubeconfig="${kubeconfig_path}" 2>/dev/null || true
+        return 1
+    fi
+
+    log "INFO" "Found ${#workers[@]} Ready DPU worker(s): ${workers[*]}"
+
+    if [[ -z "${TFT_SERVER_NODE}" ]]; then
+        TFT_SERVER_NODE="${workers[0]}"
+        log "INFO" "Selected server node (DPU worker): ${TFT_SERVER_NODE}"
+    fi
+
+    if [[ -z "${TFT_CLIENT_NODE}" ]]; then
+        if [[ ${#workers[@]} -ge 2 ]]; then
+            TFT_CLIENT_NODE="${workers[1]}"
+        else
+            log "INFO" "Only one DPU worker available; selecting a master node as client"
+            local master_node
+            master_node=$(oc get nodes --no-headers \
+                -l 'node-role.kubernetes.io/control-plane' \
+                --kubeconfig="${kubeconfig_path}" 2>/dev/null \
+                | awk -v server="${TFT_SERVER_NODE}" '$2 == "Ready" && $1 != server { print $1; exit }') || true
+
+            if [[ -z "${master_node}" ]]; then
+                log "ERROR" "Could not find a Ready control-plane node to use as TFT client"
+                return 1
+            fi
+
+            TFT_CLIENT_NODE="${master_node}"
+        fi
+
+        log "INFO" "Selected client node: ${TFT_CLIENT_NODE}"
+    fi
+
+    if [[ "${TFT_SERVER_NODE}" == "${TFT_CLIENT_NODE}" ]]; then
+        log "ERROR" "Server and client nodes must be different (both resolved to ${TFT_SERVER_NODE})"
+        return 1
+    fi
+
+    return 0
+}
 
 # -----------------------------------------------------------------------------
 # Ensure Python 3.11 is available (install if missing)
@@ -180,22 +264,15 @@ generate_config() {
         log "ERROR" "Configuration template not found: ${TFT_CONFIG_TEMPLATE}"
         return 1
     fi
-    
-    # Validate required node names
+
+    resolve_kubeconfig || return 1
+
+    # Discover actual Kubernetes node names unless explicitly overridden
+    discover_tft_nodes "${TFT_KUBECONFIG_ABS}" || return 1
+
     if [[ -z "${TFT_SERVER_NODE}" ]] || [[ -z "${TFT_CLIENT_NODE}" ]]; then
-        log "ERROR" "TFT_SERVER_NODE and TFT_CLIENT_NODE must be set"
-        log "ERROR" "These are derived from HBN_HOSTNAME_NODE1/NODE2 or can be set directly"
-        log "ERROR" "They should match actual Kubernetes node names (not BareMetalHost names)"
+        log "ERROR" "TFT_SERVER_NODE and TFT_CLIENT_NODE must be set after discovery"
         return 1
-    fi
-    
-    # Resolve kubeconfig path to absolute path
-    local kubeconfig_path
-    if [[ -f "${TFT_KUBECONFIG}" ]]; then
-        kubeconfig_path="$(cd "$(dirname "${TFT_KUBECONFIG}")" && pwd)/$(basename "${TFT_KUBECONFIG}")"
-    else
-        log "WARN" "Kubeconfig not found at ${TFT_KUBECONFIG}"
-        kubeconfig_path="${TFT_KUBECONFIG}"
     fi
     
     log "INFO" "Test configuration:"
@@ -204,7 +281,7 @@ generate_config() {
     log "INFO" "  Connection type: ${TFT_CONNECTION_TYPE}"
     log "INFO" "  Server node: ${TFT_SERVER_NODE}"
     log "INFO" "  Client node: ${TFT_CLIENT_NODE}"
-    log "INFO" "  Kubeconfig: ${kubeconfig_path}"
+    log "INFO" "  Kubeconfig: ${TFT_KUBECONFIG_ABS}"
     
     # Process template
     cp "${TFT_CONFIG_TEMPLATE}" "${TFT_CONFIG_OUTPUT}"
@@ -215,7 +292,7 @@ generate_config() {
     sed -i "s|__TFT_CONNECTION_TYPE__|${TFT_CONNECTION_TYPE}|g" "${TFT_CONFIG_OUTPUT}"
     sed -i "s|__TFT_SERVER_NODE__|${TFT_SERVER_NODE}|g" "${TFT_CONFIG_OUTPUT}"
     sed -i "s|__TFT_CLIENT_NODE__|${TFT_CLIENT_NODE}|g" "${TFT_CONFIG_OUTPUT}"
-    sed -i "s|__TFT_KUBECONFIG__|${kubeconfig_path}|g" "${TFT_CONFIG_OUTPUT}"
+    sed -i "s|__TFT_KUBECONFIG__|${TFT_KUBECONFIG_ABS}|g" "${TFT_CONFIG_OUTPUT}"
     
     log "INFO" "Configuration generated: ${TFT_CONFIG_OUTPUT}"
 }
@@ -395,14 +472,15 @@ show_config() {
     echo "  TFT_CONNECTION_TYPE: ${TFT_CONNECTION_TYPE}"
     echo ""
     echo "Cluster:"
-    echo "  TFT_SERVER_NODE:    ${TFT_SERVER_NODE:-<not set>}"
-    echo "  TFT_CLIENT_NODE:    ${TFT_CLIENT_NODE:-<not set>}"
+    echo "  TFT_SERVER_NODE:    ${TFT_SERVER_NODE:-<auto-discover from cluster>}"
+    echo "  TFT_CLIENT_NODE:    ${TFT_CLIENT_NODE:-<auto-discover from cluster>}"
     echo "  TFT_KUBECONFIG:     ${TFT_KUBECONFIG}"
     echo ""
-    echo "Node name sources (priority order):"
-    echo "  1. TFT_SERVER_NODE / TFT_CLIENT_NODE (if set)"
-    echo "  2. HBN_HOSTNAME_NODE1/2 (minus wildcard): ${HBN_HOSTNAME_NODE1:-<not set>} / ${HBN_HOSTNAME_NODE2:-<not set>}"
-    echo "  3. WORKER_1_NAME / WORKER_2_NAME: ${WORKER_1_NAME:-<not set>} / ${WORKER_2_NAME:-<not set>}"
+    echo "Node selection:"
+    echo "  1. Explicit TFT_SERVER_NODE / TFT_CLIENT_NODE (if set)"
+    echo "  2. Otherwise scan cluster for Ready nodes with k8s.ovn.org/dpu-host label"
+    echo "     - 2+ DPU workers: first=server, second=client"
+    echo "     - 1 DPU worker:   worker=server, Ready master=client"
     echo ""
     echo "Excluded Test Cases (known failures):"
     echo "  4  - POD_TO_HOST_DIFF_NODE"
@@ -455,14 +533,15 @@ case "${1:-}" in
         echo "  TFT_DURATION        - Duration per test in seconds (default: 10)"
         echo "  TFT_CONNECTION_TYPE - Connection type: iperf-tcp, iperf-udp, etc. (default: iperf-tcp)"
         echo "  TFT_KUBECONFIG      - Path to cluster kubeconfig"
-        echo "  TFT_SERVER_NODE     - Kubernetes node name for server (default: from HBN_HOSTNAME_NODE1)"
-        echo "  TFT_CLIENT_NODE     - Kubernetes node name for client (default: from HBN_HOSTNAME_NODE2)"
+        echo "  TFT_SERVER_NODE     - Kubernetes node name for server (default: auto-discover DPU worker)"
+        echo "  TFT_CLIENT_NODE     - Kubernetes node name for client (default: auto-discover)"
         echo "  TFT_PYTHON          - Python interpreter (default: python3.11)"
         echo ""
         echo "Note: Python 3.11 is required. If not installed, the script will attempt"
         echo "      to install it automatically using dnf/yum/apt."
         echo ""
-        echo "Node names fallback: TFT_*_NODE > HBN_HOSTNAME_NODE* > WORKER_*_NAME"
+        echo "Node selection: TFT_*_NODE override, else discover Ready nodes with"
+        echo "k8s.ovn.org/dpu-host label. With one DPU worker, a Ready master is used as the client."
         exit 1
         ;;
 esac
