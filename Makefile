@@ -167,6 +167,14 @@ prepare-dpf-manifests:
 upgrade-management:
 	@scripts/upgrade-management.sh
 
+.PHONY: upgrade-hosted
+upgrade-hosted:
+	@scripts/upgrade-hosted.sh
+
+.PHONY: upgrade-dpu
+upgrade-dpu:
+	@scripts/upgrade-dpu.sh
+
 .PHONY: upgrade-dpf
 upgrade-dpf: install-helm
 	@scripts/dpf-upgrade.sh interactive
@@ -467,6 +475,8 @@ help:
 	@echo "  deploy-odf       - Deploy OpenShift Data Foundation for distributed storage (multi-node only, requires STORAGE_TYPE=odf)"
 	@echo "  SKIP_DEPLOY_STORAGE=true - Use existing StorageClasses; set ETCD_STORAGE_CLASS to your StorageClass name"
 	@echo "  upgrade-management - Upgrade management cluster OCP version (optional: MANAGEMENT_UPGRADE_TARGET_VERSION, defaults to z+1)"
+	@echo "  upgrade-hosted    - Upgrade hosted cluster via DPFHCPProvisioner (optional: UPGRADE_HOSTED_CLUSTER_NAME, HOSTED_UPGRADE_TARGET_VERSION)"
+	@echo "  upgrade-dpu       - Upgrade DPUs by creating a new BFB and patching DPUDeployment (optional: DPU_UPGRADE_BFB_URL)"
 	@echo "  upgrade-dpf       - Interactive DPF operator upgrade (user-friendly wrapper for prepare-dpf-manifests)"
 	@echo "  prepare-dpu-files - Prepare post-installation manifests with custom values"
 	@echo "  deploy-dpu-services - Deploy DPU services to the cluster"
