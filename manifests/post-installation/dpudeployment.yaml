@@ -5,6 +5,7 @@ metadata:
   namespace: dpf-operator-system
 spec:
   dpus:
+    secureBoot: true
     nodeEffect:
       drain: true
     dpuSetStrategy:
