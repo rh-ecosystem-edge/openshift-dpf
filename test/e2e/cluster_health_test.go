@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"fmt"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -28,6 +29,29 @@ var _ = Describe("Cluster Health Verification", Label("cluster-health"), func() 
 		})
 	})
 })
+
+// waitForClusterHealth waits for the full cluster to be healthy after a
+// disruptive operation. Operator health checks are retried for up to 15 minutes
+// to allow transient flapping (e.g. network pods restarting after DPU
+// reprovisioning) to settle before asserting.
+func waitForClusterHealth() {
+	By("Waiting for cluster operators to be healthy on management cluster")
+	Eventually(func() []string {
+		return InterceptGomegaFailures(func() {
+			checkClusterOperatorsHealthy(mgmtClient, "management")
+		})
+	}).WithTimeout(15 * time.Minute).WithPolling(30 * time.Second).Should(BeEmpty())
+
+	By("Waiting for cluster operators to be healthy on hosted cluster")
+	Eventually(func() []string {
+		return InterceptGomegaFailures(func() {
+			checkClusterOperatorsHealthy(hostedClient, "hosted")
+		})
+	}).WithTimeout(15 * time.Minute).WithPolling(30 * time.Second).Should(BeEmpty())
+
+	By("Verifying all pods on DPU worker nodes are Running")
+	checkPodsHealthyOnNodes(mgmtClient, dpuHostWorkers)
+}
 
 // checkPodsHealthyOnNodes verifies that all pods on the given nodes are Running
 // and not in CrashLoopBackOff. Completed (Succeeded) pods are ignored.

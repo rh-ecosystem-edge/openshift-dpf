@@ -6,12 +6,23 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/openshift-dpf/test/utils"
 )
+
+// isReady reports whether the given conditions slice contains a Ready=True condition.
+func isReady(conditions []metav1.Condition) bool {
+	for _, c := range conditions {
+		if c.Type == "Ready" && c.Status == metav1.ConditionTrue {
+			return true
+		}
+	}
+	return false
+}
 
 type PodInfo struct {
 	Name      string
@@ -55,9 +66,9 @@ func discoverHBNPods(ctx context.Context, c client.Client, restCfg *rest.Config,
 }
 
 type WorkloadPods struct {
-	Master          corev1.Pod
-	Workers         []corev1.Pod
-	HostNetWorkers  []corev1.Pod
+	Master         corev1.Pod
+	Workers        []corev1.Pod
+	HostNetWorkers []corev1.Pod
 }
 
 func discoverWorkloadPods(ctx context.Context, c client.Client, namespace string, dpuHostNodes []corev1.Node) (*WorkloadPods, error) {
