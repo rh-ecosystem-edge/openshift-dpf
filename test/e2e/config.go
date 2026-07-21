@@ -15,7 +15,13 @@ type TestConfig struct {
 	DPUClusterName      string
 	DPUDeploymentName   string
 	UpgradeReleaseImage string
-	PingCount           int
+	NewBFBURL          string
+	NewBFBFileName     string
+	NewBFBVersionsBSP  string
+	NewBFBVersionsDOCA string
+	NewBFBVersionsUEFI string
+	NewBFBVersionsATF  string
+	PingCount          int
 	PingHBNToHBN        bool
 	WorkerCount         int
 }
@@ -31,6 +37,12 @@ func init() {
 	flag.StringVar(&cfg.DPUClusterName, "dpu-cluster-name", envOrDefault("DPU_CLUSTER_NAME", "doca"), "DPU cluster name (used for ignition ConfigMap naming)")
 	flag.StringVar(&cfg.DPUDeploymentName, "dpu-deployment-name", envOrDefault("DPU_DEPLOYMENT_NAME", "dpudeployment"), "DPUDeployment name in the DPF namespace")
 	flag.StringVar(&cfg.UpgradeReleaseImage, "upgrade-release-image", envOrDefault("UPGRADE_RELEASE_IMAGE", ""), "OCP release image for hosted cluster upgrade test")
+	flag.StringVar(&cfg.NewBFBURL, "new-bfb-url", envOrDefault("NEW_BFB_URL", ""), "URL of the new BFB image for TC-DPUD-002 (required to run that test)")
+	flag.StringVar(&cfg.NewBFBFileName, "new-bfb-filename", envOrDefault("NEW_BFB_FILENAME", ""), "BFB filename for TC-DPUD-002 (optional, derived from URL if empty)")
+	flag.StringVar(&cfg.NewBFBVersionsBSP, "new-bfb-bsp", envOrDefault("NEW_BFB_BSP", ""), "BSP version of the new BFB (required for TC-DPUD-002)")
+	flag.StringVar(&cfg.NewBFBVersionsDOCA, "new-bfb-doca", envOrDefault("NEW_BFB_DOCA", ""), "DOCA version of the new BFB (required for TC-DPUD-002)")
+	flag.StringVar(&cfg.NewBFBVersionsUEFI, "new-bfb-uefi", envOrDefault("NEW_BFB_UEFI", ""), "UEFI version of the new BFB (required for TC-DPUD-002)")
+	flag.StringVar(&cfg.NewBFBVersionsATF, "new-bfb-atf", envOrDefault("NEW_BFB_ATF", ""), "ATF version of the new BFB (required for TC-DPUD-002)")
 	flag.IntVar(&cfg.PingCount, "ping-count", envOrDefaultInt("SANITY_TESTS_PING_COUNT", 20), "ping count for connectivity tests")
 	flag.BoolVar(&cfg.PingHBNToHBN, "ping-hbn-to-hbn", envOrDefaultBool("SANITY_TESTS_PING_HBN_TO_HBN_PODS", false), "enable HBN-to-HBN pod ping tests")
 	flag.IntVar(&cfg.WorkerCount, "worker-count", envOrDefaultInt("WORKER_COUNT", 0), "expected number of DPU worker nodes")
