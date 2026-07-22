@@ -71,24 +71,6 @@ function update_hbn_ovn_manifests() {
         "<HBN_OVN_NETWORK>" \
         "${HBN_OVN_NETWORK}"
 
-    # OVN feature flags are only enabled on OCP >= 4.22.2
-    local ovn_configuration_features=""
-    local ovn_multi_network_enable_value="false"
-    if ocp_version_gte "${OPENSHIFT_VERSION}" "4.22.2"; then
-        ovn_configuration_features="enableEgressIP: \"true\"
-          enableEgressFirewall: \"true\"
-          enableEgressQoS: \"true\"
-          enableEgressService: \"true\"
-          enableMultiNetwork: \"false\"
-          enableMultiNetworkPolicy: \"true\"
-          enableAdminNetworkPolicy: \"true\"
-          enableNetworkSegmentation: \"true\""
-        ovn_multi_network_enable_value="true"
-        log "INFO" "OCP ${OPENSHIFT_VERSION} >= 4.22.2: enabling OVN feature flags"
-    else
-        log "INFO" "OCP ${OPENSHIFT_VERSION} < 4.22.2: skipping OVN feature flags"
-    fi
-
     # Update ovn-configuration.yaml for DPUDeployment
     if [ -f "${POST_INSTALL_DIR}/ovn-configuration.yaml" ]; then
         local ovn_mtu=""
@@ -106,9 +88,7 @@ function update_hbn_ovn_manifests() {
             "<HBN_OVN_NETWORK>" "${HBN_OVN_NETWORK}" \
             "<HOST_CLUSTER_API>" "${HOST_CLUSTER_API}" \
             "<DPU_HOST_CIDR>" "${DPU_HOST_CIDR}" \
-            "<NODES_MTU>" "${ovn_mtu}" \
-            "<OVN_CONFIGURATION_FEATURES>" "${ovn_configuration_features}" \
-            "<OVN_MULTI_NETWORK_ENABLE_VALUE>" "${ovn_multi_network_enable_value}"
+            "<NODES_MTU>" "${ovn_mtu}"
     fi
 
     # Update hbn-configuration.yaml
