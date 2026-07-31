@@ -93,8 +93,8 @@ tft:
         #   - measure_cpu      : Measure CPU usage during test
         #   - measure_power    : Measure power consumption
         #   - validate_offload : Verify OvS hardware offload (requires DPU mode)
-        # plugins:
-        #   - name: "measure_cpu"
+        plugins:
+          - ping_mgmt_port
 
         # Secondary Network Configuration (optional)
         # ------------------------------------------
