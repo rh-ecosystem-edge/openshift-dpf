@@ -13,7 +13,9 @@ set -e
 set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+set -a
 source "$(dirname "${SCRIPT_DIR}")/.env"
+set +a
 source "${SCRIPT_DIR}/utils.sh"
 
 # -----------------------------------------------------------------------------
