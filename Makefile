@@ -27,7 +27,7 @@ WORKER_SCRIPT := scripts/worker.sh
 .PHONY: all clean check-cluster create-cluster prepare-manifests generate-ovn update-paths help delete-cluster verify-files \
         download-iso fix-yaml-spacing create-vms delete-vms enable-storage cluster-install wait-for-ready \
         wait-for-installed wait-for-status cluster-start clean-all deploy-dpf kubeconfig kubeadmin-password deploy-nfd \
-        install-hypershift install-helm deploy-dpu-services prepare-dpu-files upgrade-dpf create-day2-cluster get-day2-iso \
+        install-hypershift install-hypershift-mce install-helm deploy-dpu-services prepare-dpu-files upgrade-dpf create-day2-cluster get-day2-iso \
         download-day2-iso create-worker-vms delete-worker-vms add-vm-workers install-day2-hosts \
         redeploy-dpu enable-ovn-injector deploy-argocd deploy-maintenance-operator configure-flannel \
         deploy-core-operator-sources deploy-metallb deploy-lso deploy-odf deploy-lvms run-dpf-sanity \
@@ -222,6 +222,9 @@ deploy-lvms:
 install-hypershift:
 	@$(TOOLS_SCRIPT) install-hypershift
 
+install-hypershift-mce:
+	@$(TOOLS_SCRIPT) install-hypershift-mce
+
 install-helm:
 	@$(TOOLS_SCRIPT) install-helm
 
@@ -378,8 +381,9 @@ help:
 	@echo "  tft-show-config        - Display current TFT configuration"
 	@echo "  tft-results            - Show results from the most recent test run"
 	@echo ""
-	@echo "Hypershift Management:
-	@echo "  install-hypershift - Install Hypershift binary and operator"
+	@echo "Hypershift Management:"
+	@echo "  install-hypershift     - Install Hypershift binary and operator (direct method)"
+	@echo "  install-hypershift-mce - Install Hypershift via MultiCluster Engine (MCE) operator"
 	@echo "  create-hypershift-cluster - Create a new Hypershift hosted cluster"
 	@echo "  configure-hypershift-dpucluster - Configure DPF to use Hypershift hosted cluster"
 	@echo ""
@@ -394,7 +398,8 @@ help:
 	@echo "  DISABLE_NFD       - Skip NFD deployment (default: $(DISABLE_NFD))"
 	@echo ""
 	@echo "Hypershift Configuration:"
-	@echo "  HYPERSHIFT_IMAGE  - Hypershift operator image (default: $(HYPERSHIFT_IMAGE))"
+	@echo "  HYPERSHIFT_INSTALL_METHOD - How to install HyperShift operator: 'binary' (default) or 'mce' (via MultiCluster Engine)"
+	@echo "  HYPERSHIFT_IMAGE  - Hypershift operator image (default: $(HYPERSHIFT_IMAGE)) [used only with binary method]"
 	@echo "  HOSTED_CLUSTER_NAME - Name of the hosted cluster (default: $(HOSTED_CLUSTER_NAME))"
 	@echo "  CLUSTERS_NAMESPACE - Namespace for clusters (default: $(CLUSTERS_NAMESPACE))"
 	@echo "  OCP_RELEASE_IMAGE - OCP release image for hosted cluster (default: $(OCP_RELEASE_IMAGE))"

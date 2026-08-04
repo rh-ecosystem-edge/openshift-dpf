@@ -332,9 +332,21 @@ function deploy_hypershift() {
     if oc get deployment -n hypershift operator &>/dev/null; then
         log [INFO] "Hypershift operator already installed. Skipping deployment."
     else
-        log [INFO] "Installing latest hypershift operator"
-        install_hypershift
-        wait_for_pods "hypershift" "app=operator" 30 5
+        case "${HYPERSHIFT_INSTALL_METHOD:-binary}" in
+            mce)
+                log [INFO] "Installing Hypershift via MultiCluster Engine (MCE)..."
+                install_hypershift_via_mce
+                ;;
+            binary)
+                log [INFO] "Installing latest hypershift operator via binary..."
+                install_hypershift
+                wait_for_pods "hypershift" "app=operator" 60 10
+                ;;
+            *)
+                log [ERROR] "Unknown HYPERSHIFT_INSTALL_METHOD: ${HYPERSHIFT_INSTALL_METHOD}. Valid values: binary, mce"
+                return 1
+                ;;
+        esac
     fi
 
     # Step 4: Deploy MetalLB operator if HYPERSHIFT_API_IP is configured (multi-node clusters only)
