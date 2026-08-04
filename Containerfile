@@ -7,6 +7,7 @@ USER root
 
 # Copying oc binary
 COPY --from=oc-cli /usr/bin/oc /usr/bin/oc
+RUN ln -s /usr/bin/oc /usr/bin/kubectl
 
 RUN dnf install -y make git jq findutils openssh-clients rsync && dnf clean all
 
