@@ -6,6 +6,7 @@ set -e
 
 # Source common utilities
 source "$(dirname "${BASH_SOURCE[0]}")/utils.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
 
 # -----------------------------------------------------------------------------
 # Tool installation functions
@@ -88,6 +89,66 @@ function install_hypershift() {
     log "INFO" "Hypershift installation completed successfully!"
 }
 
+function install_hypershift_via_mce() {
+    log "INFO" "Installing Hypershift via MultiCluster Engine (MCE)..."
+
+    local manifests_dir="${MANIFESTS_DIR:-manifests}"
+    local generated_dir="${GENERATED_DIR:-manifests/generated}"
+    mkdir -p "${generated_dir}"
+
+    # Step 1: Deploy MCE operator subscription
+    if oc get subscription -n multicluster-engine multicluster-engine &>/dev/null; then
+        log "INFO" "MCE subscription already exists. Skipping subscription deployment."
+    else
+        log "INFO" "Deploying MCE operator subscription..."
+        process_template \
+            "${manifests_dir}/mce/mce-subscription.yaml" \
+            "${generated_dir}/mce-subscription.yaml" \
+            "<CATALOG_SOURCE_NAME>" "${CATALOG_SOURCE_NAME}"
+
+        apply_manifest "${generated_dir}/mce-subscription.yaml" true
+    fi
+
+    # Step 2: Wait for MCE operator CSV to succeed
+    log "INFO" "Waiting for MultiCluster Engine operator to be ready..."
+    if ! retry 60 10 bash -c 'oc get csv -n multicluster-engine -o jsonpath="{.items[*].status.phase}" 2>/dev/null | grep -q "Succeeded"'; then
+        log "ERROR" "Timeout: MCE operator CSV did not reach Succeeded phase"
+        return 1
+    fi
+    log "INFO" "MCE operator is ready"
+
+    # Step 3: Create MultiClusterEngine instance with hypershift enabled
+    if oc get multiclusterengine multiclusterengine &>/dev/null; then
+        log "INFO" "MultiClusterEngine instance already exists. Ensuring hypershift is enabled..."
+        oc patch multiclusterengine multiclusterengine --type=merge \
+            -p '{"spec":{"overrides":{"components":[{"name":"hypershift","enabled":true}]}}}'
+    else
+        log "INFO" "Creating MultiClusterEngine instance with hypershift enabled..."
+        apply_manifest "${manifests_dir}/mce/multiclusterengine.yaml" true
+    fi
+
+    # Step 4: Wait for MultiClusterEngine to become Available
+    log "INFO" "Waiting for MultiClusterEngine to become Available..."
+    if ! retry 60 10 bash -c 'oc get multiclusterengine multiclusterengine -o jsonpath="{.status.phase}" 2>/dev/null | grep -q "Available"'; then
+        log "ERROR" "Timeout: MultiClusterEngine did not reach Available status"
+        oc get multiclusterengine multiclusterengine -o yaml 2>/dev/null || true
+        return 1
+    fi
+    log "INFO" "MultiClusterEngine is Available"
+
+    # Step 5: Verify hypershift operator pods are running
+    log "INFO" "Waiting for Hypershift operator pods (deployed by MCE)..."
+    if ! retry 30 10 bash -c 'oc get pods -n hypershift -l app=operator --no-headers 2>/dev/null | grep -q "Running"'; then
+        log "WARN" "Hypershift operator pods not yet running in hypershift namespace, checking multicluster-engine namespace..."
+        if ! retry 15 10 bash -c 'oc get pods -n multicluster-engine -l app=operator --no-headers 2>/dev/null | grep -q "Running"'; then
+            log "ERROR" "Hypershift operator pods not found in either namespace"
+            return 1
+        fi
+    fi
+
+    log "INFO" "Hypershift installation via MCE completed successfully!"
+}
+
 function install_oc() {
     # Download the OpenShift CLI
     log "INFO" "Downloading OpenShift CLI..."
@@ -117,9 +178,12 @@ function main() {
         install-hypershift)
             install_hypershift
             ;;
+        install-hypershift-mce)
+            install_hypershift_via_mce
+            ;;
         *)
             log "Unknown command: $command"
-            log "Available commands: install-helm, install-hypershift"
+            log "Available commands: install-helm, install-hypershift, install-hypershift-mce"
             exit 1
             ;;
     esac

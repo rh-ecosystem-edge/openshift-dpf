@@ -268,6 +268,10 @@ deploy-lvms:
 install-hypershift:
 	@$(TOOLS_SCRIPT) install-hypershift
 
+.PHONY: install-hypershift-mce
+install-hypershift-mce:
+	@$(TOOLS_SCRIPT) install-hypershift-mce
+
 .PHONY: install-helm
 install-helm:
 	@$(TOOLS_SCRIPT) install-helm
@@ -504,7 +508,8 @@ help:
 	@echo "  tft-results            - Show results from the most recent test run"
 	@echo ""
 	@echo "Hypershift Management:"
-	@echo "  install-hypershift - Install Hypershift binary and operator"
+	@echo "  install-hypershift     - Install Hypershift binary and operator (direct method)"
+	@echo "  install-hypershift-mce - Install Hypershift via MultiCluster Engine (MCE) operator"
 	@echo "  create-hypershift-cluster - Create a new Hypershift hosted cluster"
 	@echo "  configure-hypershift-dpucluster - Configure DPF to use Hypershift hosted cluster"
 	@echo ""
@@ -519,7 +524,8 @@ help:
 	@echo "  DISABLE_NFD       - Skip NFD deployment (default: $(DISABLE_NFD))"
 	@echo ""
 	@echo "Hypershift Configuration:"
-	@echo "  HYPERSHIFT_IMAGE  - Hypershift operator image (default: $(HYPERSHIFT_IMAGE))"
+	@echo "  HYPERSHIFT_INSTALL_METHOD - How to install HyperShift operator: 'binary' (default) or 'mce' (via MultiCluster Engine)"
+	@echo "  HYPERSHIFT_IMAGE  - Hypershift operator image (default: $(HYPERSHIFT_IMAGE)) [used only with binary method]"
 	@echo "  HOSTED_CLUSTER_NAME - Name of the hosted cluster (default: $(HOSTED_CLUSTER_NAME))"
 	@echo "  CLUSTERS_NAMESPACE - Namespace for clusters (default: $(CLUSTERS_NAMESPACE))"
 	@echo "  OCP_RELEASE_IMAGE - OCP release image for hosted cluster (default: $(OCP_RELEASE_IMAGE))"
