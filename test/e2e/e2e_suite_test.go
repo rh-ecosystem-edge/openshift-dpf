@@ -54,6 +54,7 @@ func TestE2E(t *testing.T) {
 
 var _ = BeforeSuite(func() {
 	ctx = context.Background()
+	Expect(LoadConfig()).To(Succeed())
 
 	By("Creating management cluster clients")
 	mgmt, err := utils.NewClusterClients(cfg.Kubeconfig)

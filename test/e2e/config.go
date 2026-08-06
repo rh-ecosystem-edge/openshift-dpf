@@ -1,12 +1,16 @@
 package e2e
 
 import (
+	"bufio"
 	"flag"
+	"fmt"
 	"os"
 	"strconv"
+	"strings"
 )
 
 type TestConfig struct {
+	EnvFile             string
 	Kubeconfig          string
 	HostedClusterName   string
 	ClustersNamespace   string
@@ -15,13 +19,13 @@ type TestConfig struct {
 	DPUClusterName      string
 	DPUDeploymentName   string
 	UpgradeReleaseImage string
-	NewBFBURL          string
-	NewBFBFileName     string
-	NewBFBVersionsBSP  string
-	NewBFBVersionsDOCA string
-	NewBFBVersionsUEFI string
-	NewBFBVersionsATF  string
-	PingCount          int
+	NewBFBURL           string
+	NewBFBFileName      string
+	NewBFBVersionsBSP   string
+	NewBFBVersionsDOCA  string
+	NewBFBVersionsUEFI  string
+	NewBFBVersionsATF   string
+	PingCount           int
 	PingHBNToHBN        bool
 	WorkerCount         int
 }
@@ -29,23 +33,70 @@ type TestConfig struct {
 var cfg TestConfig
 
 func init() {
-	flag.StringVar(&cfg.Kubeconfig, "e2e.kubeconfig", envOrDefault("KUBECONFIG", "./kubeconfig"), "path to management cluster kubeconfig")
-	flag.StringVar(&cfg.HostedClusterName, "hosted-cluster-name", envOrDefault("HOSTED_CLUSTER_NAME", "doca"), "hosted cluster name")
-	flag.StringVar(&cfg.ClustersNamespace, "clusters-namespace", envOrDefault("CLUSTERS_NAMESPACE", "clusters"), "namespace for hosted clusters")
-	flag.StringVar(&cfg.DPFNamespace, "dpf-namespace", envOrDefault("DPF_NAMESPACE", "dpf-operator-system"), "DPF operator namespace")
-	flag.StringVar(&cfg.WorkloadNamespace, "workload-namespace", envOrDefault("SANITY_TESTS_WORKLOAD_NAMESPACE", "workload"), "workload test namespace")
-	flag.StringVar(&cfg.DPUClusterName, "dpu-cluster-name", envOrDefault("DPU_CLUSTER_NAME", "doca"), "DPU cluster name (used for ignition ConfigMap naming)")
-	flag.StringVar(&cfg.DPUDeploymentName, "dpu-deployment-name", envOrDefault("DPU_DEPLOYMENT_NAME", "dpudeployment"), "DPUDeployment name in the DPF namespace")
-	flag.StringVar(&cfg.UpgradeReleaseImage, "upgrade-release-image", envOrDefault("UPGRADE_RELEASE_IMAGE", ""), "OCP release image for hosted cluster upgrade test")
-	flag.StringVar(&cfg.NewBFBURL, "new-bfb-url", envOrDefault("NEW_BFB_URL", ""), "URL of the new BFB image for TC-DPUD-002 (required to run that test)")
-	flag.StringVar(&cfg.NewBFBFileName, "new-bfb-filename", envOrDefault("NEW_BFB_FILENAME", ""), "BFB filename for TC-DPUD-002 (optional, derived from URL if empty)")
-	flag.StringVar(&cfg.NewBFBVersionsBSP, "new-bfb-bsp", envOrDefault("NEW_BFB_BSP", ""), "BSP version of the new BFB (required for TC-DPUD-002)")
-	flag.StringVar(&cfg.NewBFBVersionsDOCA, "new-bfb-doca", envOrDefault("NEW_BFB_DOCA", ""), "DOCA version of the new BFB (required for TC-DPUD-002)")
-	flag.StringVar(&cfg.NewBFBVersionsUEFI, "new-bfb-uefi", envOrDefault("NEW_BFB_UEFI", ""), "UEFI version of the new BFB (required for TC-DPUD-002)")
-	flag.StringVar(&cfg.NewBFBVersionsATF, "new-bfb-atf", envOrDefault("NEW_BFB_ATF", ""), "ATF version of the new BFB (required for TC-DPUD-002)")
-	flag.IntVar(&cfg.PingCount, "ping-count", envOrDefaultInt("SANITY_TESTS_PING_COUNT", 20), "ping count for connectivity tests")
-	flag.BoolVar(&cfg.PingHBNToHBN, "ping-hbn-to-hbn", envOrDefaultBool("SANITY_TESTS_PING_HBN_TO_HBN_PODS", false), "enable HBN-to-HBN pod ping tests")
-	flag.IntVar(&cfg.WorkerCount, "worker-count", envOrDefaultInt("WORKER_COUNT", 0), "expected number of DPU worker nodes")
+	flag.StringVar(&cfg.EnvFile, "env-file", ".env.test", "path to env file (KEY=VALUE format) with test configuration")
+}
+
+// LoadConfig loads the env file pointed to by cfg.EnvFile and populates cfg from env vars.
+// Must be called after flag.Parse() runs — i.e., at the start of BeforeSuite.
+func LoadConfig() error {
+	if err := loadEnvFile(cfg.EnvFile); err != nil {
+		return err
+	}
+	cfg.Kubeconfig = os.Getenv("KUBECONFIG")
+	if cfg.Kubeconfig == "" {
+		return fmt.Errorf("KUBECONFIG must be set in %q or the process environment", cfg.EnvFile)
+	}
+	cfg.HostedClusterName = envOrDefault("HOSTED_CLUSTER_NAME", "doca")
+	cfg.ClustersNamespace = envOrDefault("CLUSTERS_NAMESPACE", "clusters")
+	cfg.DPFNamespace = envOrDefault("DPF_NAMESPACE", "dpf-operator-system")
+	cfg.WorkloadNamespace = envOrDefault("SANITY_TESTS_WORKLOAD_NAMESPACE", "workload")
+	cfg.DPUClusterName = envOrDefault("DPU_CLUSTER_NAME", "doca")
+	cfg.DPUDeploymentName = envOrDefault("DPU_DEPLOYMENT_NAME", "dpudeployment")
+	cfg.UpgradeReleaseImage = envOrDefault("UPGRADE_RELEASE_IMAGE", "")
+	cfg.NewBFBURL = envOrDefault("NEW_BFB_URL", "")
+	cfg.NewBFBFileName = envOrDefault("NEW_BFB_FILENAME", "")
+	cfg.NewBFBVersionsBSP = envOrDefault("NEW_BFB_BSP", "")
+	cfg.NewBFBVersionsDOCA = envOrDefault("NEW_BFB_DOCA", "")
+	cfg.NewBFBVersionsUEFI = envOrDefault("NEW_BFB_UEFI", "")
+	cfg.NewBFBVersionsATF = envOrDefault("NEW_BFB_ATF", "")
+	cfg.PingCount = envOrDefaultInt("SANITY_TESTS_PING_COUNT", 20)
+	cfg.PingHBNToHBN = envOrDefaultBool("SANITY_TESTS_PING_HBN_TO_HBN_PODS", false)
+	cfg.WorkerCount = envOrDefaultInt("WORKER_COUNT", 0)
+	return nil
+}
+
+// loadEnvFile reads a KEY=VALUE file and calls os.Setenv for each entry.
+// Lines starting with '#' and blank lines are ignored.
+// A missing file is not an error — returns nil.
+func loadEnvFile(path string) error {
+	f, err := os.Open(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("opening env file %q: %w", path, err)
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		idx := strings.IndexByte(line, '=')
+		if idx < 0 {
+			continue
+		}
+		key := strings.TrimSpace(line[:idx])
+		value := strings.TrimSpace(line[idx+1:])
+		if key != "" {
+			if err := os.Setenv(key, value); err != nil {
+				return fmt.Errorf("setting %q: %w", key, err)
+			}
+		}
+	}
+	return scanner.Err()
 }
 
 func envOrDefault(key, fallback string) string {

@@ -1,5 +1,5 @@
 # Include environment variables (skip for targets that don't need a .env)
-ifeq ($(filter generate-env validate-env-files help,$(MAKECMDGOALS)),)
+ifeq ($(filter generate-env validate-env-files generate-env-test validate-env-test-files test-go-e2e help,$(MAKECMDGOALS)),)
 include .env
 export
 endif
@@ -277,24 +277,18 @@ run-dpf-sanity:
 # E2E Tests (library-import based, runs against pre-existing deployment)
 E2E_GO_LABEL_FILTER ?= dpudeployment-lifecycle
 E2E_GO_TIMEOUT ?= 90m
-DPU_CLUSTER_NAME ?= $(HOSTED_CLUSTER_NAME)
-DPU_DEPLOYMENT_NAME ?= dpudeployment
-E2E_KUBECONFIG := $(abspath $(KUBECONFIG))
+E2E_ENV_FILE ?= .env.test
+E2E_ENV_FILE := $(abspath $(E2E_ENV_FILE))
 
 test-go-e2e:
 	@echo "================================================================================"
 	@echo "Running Go E2E tests (label-filter: $(E2E_GO_LABEL_FILTER))..."
-	@echo "  KUBECONFIG: $(E2E_KUBECONFIG)"
-	@echo "  HOSTED_CLUSTER_NAME: $(HOSTED_CLUSTER_NAME)"
-	@echo "  DPU_CLUSTER_NAME: $(DPU_CLUSTER_NAME)"
+	@echo "  ENV_FILE: $(E2E_ENV_FILE)"
 	@echo "================================================================================"
 	cd test && GOTOOLCHAIN=auto go test -v -count=1 -timeout $(E2E_GO_TIMEOUT) ./e2e/ \
 		-ginkgo.v \
 		-ginkgo.label-filter="$(E2E_GO_LABEL_FILTER)" \
-		-e2e.kubeconfig="$(E2E_KUBECONFIG)" \
-		-hosted-cluster-name="$(HOSTED_CLUSTER_NAME)" \
-		-dpu-cluster-name="$(DPU_CLUSTER_NAME)" \
-		-dpu-deployment-name="$(DPU_DEPLOYMENT_NAME)"
+		-env-file="$(E2E_ENV_FILE)"
 
 # Traffic Flow Tests
 .PHONY: run-traffic-flow-tests
@@ -412,6 +406,14 @@ FORCE ?= false
 .PHONY: generate-env
 generate-env: validate-env-files
 	@$(ENV_SCRIPT) generate-env $(FORCE)
+
+.PHONY: validate-env-test-files
+validate-env-test-files:
+	@$(ENV_SCRIPT) validate-env-test-files
+
+.PHONY: generate-env-test
+generate-env-test: validate-env-test-files
+	@$(ENV_SCRIPT) generate-env-test $(FORCE)
 
 .PHONY: help
 help:

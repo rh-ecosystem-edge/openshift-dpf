@@ -38,65 +38,95 @@ load_env() {
     done < "$env_file"
 }
 
-validate_env_files() {
-    local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    local ci_dir="${script_dir}/../ci"
+# _do_validate_env_files <defaults_file> <template_file> <required_file> <output_file>
+_do_validate_env_files() {
+    local defaults_file="$1" template_file="$2" required_file="$3" output_file="$4"
 
-    defaults=$(grep -oP "^\w+" "$ci_dir/env.defaults" | sort)
-    template=$(grep -oP "^\w+" "$ci_dir/env.template" | sort)
-    required=$(grep -oP "\w+(?=:)" "$ci_dir/env.required" | sort)
-    known=$(echo "$defaults"; echo "$required")
+    local defaults template required known missing extra count
+    defaults=$(grep -oP "^\w+" "$defaults_file" | sort)
+    template=$(grep -oP "^\w+" "$template_file" | sort)
+    required=$(grep -v '^\s*#' "$required_file" | grep -oP '(?<=\$\{)\w+(?=:\?)' | sort)
+    known=$(printf '%s\n%s' "$defaults" "$required")
 
     missing=""
-    for var in $defaults; do
-        if ! echo "$template" | grep -qx "$var"; then
-            missing="$missing $var"
-        fi
+    for var in $defaults $required; do
+        echo "$template" | grep -qx "$var" || missing="$missing $var"
     done
 
     extra=""
     for var in $template; do
-        if ! echo "$known" | grep -qx "$var"; then
-            extra="$extra $var"
-        fi
+        echo "$known" | grep -qx "$var" || extra="$extra $var"
     done
 
     if [ -n "$missing" ]; then
-        echo "ERROR: variables in ci/env.defaults that are missing from ci/env.template:"
+        echo "ERROR: variables in $(basename "$defaults_file") that are missing from $(basename "$template_file"):"
         for var in $missing; do echo "  - $var"; done
         echo ""
-        echo "These variables will be silently dropped from .env."
-        echo "Fix: add a line  VAR_NAME=\${VAR_NAME}  to ci/env.template for each."
+        echo "These variables will be silently dropped from $output_file."
+        echo "Fix: add a line  VAR_NAME=\${VAR_NAME}  to $(basename "$template_file") for each."
         exit 1
     fi
 
     if [ -n "$extra" ]; then
-        count=$(echo $extra | wc -w | tr -d " ")
+        count=$(echo "$extra" | wc -w | tr -d " ")
         echo "OK  $count template-only variable(s) have no default (set per-environment):${extra}"
     fi
 
-    echo "OK  all ci/env.defaults variables are present in ci/env.template"
+    echo "OK  all $(basename "$defaults_file") variables are present in $(basename "$template_file")"
 }
 
-generate_env() {
-    local force="${1:-false}"
-    local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    local root_dir="${script_dir}/.."
-    local ci_dir="${root_dir}/ci"
+validate_env_files() {
+    local script_dir ci_dir
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    ci_dir="${script_dir}/../ci"
+    _do_validate_env_files "$ci_dir/env.defaults" "$ci_dir/env.template" "$ci_dir/env.required" ".env"
+}
 
-    if [ -f "${root_dir}/.env" ] && [ "$force" != "true" ]; then
-        echo "ERROR: .env already exists. To overwrite, run:  make generate-env FORCE=true"
+validate_env_test_files() {
+    local script_dir ci_dir
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    ci_dir="${script_dir}/../ci"
+    _do_validate_env_files "$ci_dir/env.test.defaults" "$ci_dir/env.test.template" "$ci_dir/env.test.required" ".env.test"
+}
+
+# _do_generate_env <defaults_file> <required_file> <template_file> <output_file> <force>
+_do_generate_env() {
+    local defaults_file="$1" required_file="$2" template_file="$3"
+    local output_file="$4" force="${5:-false}"
+
+    if [ -f "$output_file" ] && [ "$force" != "true" ]; then
+        echo "ERROR: $output_file already exists. To overwrite, run with FORCE=true"
         exit 1
     fi
 
-    echo "Generating .env from ci/env.defaults + ci/env.template..."
+    echo "Generating $output_file..."
     (
         set -a
-        source "$ci_dir/env.defaults"
+        source "$defaults_file"
         set +a
-        source "$ci_dir/env.required"
-        envsubst < "$ci_dir/env.template" > "${root_dir}/.env"
+        source "$required_file"
+        envsubst < "$template_file" > "$output_file"
     )
+}
+
+generate_env() {
+    local script_dir root_dir ci_dir
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    root_dir="${script_dir}/.."
+    ci_dir="${root_dir}/ci"
+    _do_generate_env \
+        "$ci_dir/env.defaults" "$ci_dir/env.required" "$ci_dir/env.template" \
+        "${root_dir}/.env" "${1:-false}"
+}
+
+generate_env_test() {
+    local script_dir root_dir ci_dir
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    root_dir="${script_dir}/.."
+    ci_dir="${root_dir}/ci"
+    _do_generate_env \
+        "$ci_dir/env.test.defaults" "$ci_dir/env.test.required" "$ci_dir/env.test.template" \
+        "${root_dir}/.env.test" "${1:-false}"
 }
 
 validate_mtu() {
@@ -185,9 +215,15 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         generate-env)
             generate_env "${2:-false}"
             ;;
+        validate-env-test-files)
+            validate_env_test_files
+            ;;
+        generate-env-test)
+            generate_env_test "${2:-false}"
+            ;;
         *)
             echo "ERROR: Unknown command: $command"
-            echo "Available commands: validate-env-files, generate-env"
+            echo "Available commands: validate-env-files, generate-env, validate-env-test-files, generate-env-test"
             exit 1
             ;;
     esac
