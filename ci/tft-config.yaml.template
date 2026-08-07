@@ -42,6 +42,7 @@ tft:
     #   27 - POD_TO_POD_2ND_INTERFACE_SAME_NODE
     #   28 - POD_TO_POD_2ND_INTERFACE_DIFF_NODE
     #   29 - POD_TO_POD_MULTI_NETWORK_POLICY
+    #   68 - POD_TO_EXTERNAL_EGRESS
     #   69 - HOST_TO_POD_NP_NS_SELECTOR_ALLOW
     #
     test_cases: "__TFT_TEST_CASES__"
@@ -108,6 +109,29 @@ tft:
         # Resource name for SR-IOV pods (resource limits/requests).
         # Auto-detected from secondary_network_nad if not set.
         # resource_name: ""
+
+  # __TFT_EGRESS_BLOCK_START__
+  # EgressIP Test (test case 68 - POD_TO_EXTERNAL_EGRESS)
+  # Separate entry to avoid egress_ip config affecting other test cases.
+  - name: "DPF EgressIP Test"
+    namespace: "default"
+    test_cases: "68"
+    duration: "__TFT_DURATION__"
+    connections:
+      - name: "Connection_EgressIP"
+        type: "__TFT_CONNECTION_TYPE__"
+        instances: 1
+        egress_ip:
+          ip: "__TFT_EGRESS_IP__"
+          node: "__TFT_SERVER_NODE__"
+        server:
+          - name: "__TFT_SERVER_NODE__"
+            persistent: "false"
+        client:
+          - name: "__TFT_CLIENT_NODE__"
+        plugins:
+          - ping_mgmt_port
+  # __TFT_EGRESS_BLOCK_END__
 
 # Kubeconfig Files
 # ----------------

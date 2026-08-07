@@ -38,20 +38,27 @@ TFT_CONFIG_TEMPLATE="${SCRIPT_DIR}/../ci/tft-config.yaml.template"
 TFT_CONFIG_OUTPUT="${TFT_WORK_DIR}/tft-config.yaml"
 
 # Test Parameters (can be overridden via environment)
-TFT_TEST_CASES="${TFT_TEST_CASES:-1-25}"
+TFT_TEST_CASES="${TFT_TEST_CASES:-1-25,68,69}"
 TFT_DURATION="${TFT_DURATION:-10}"
 TFT_CONNECTION_TYPE="${TFT_CONNECTION_TYPE:-iperf-tcp}"
+TFT_EGRESS_IP="${TFT_EGRESS_IP:-10.6.135.100}"
 
 # Kubeconfig path (relative to working directory by default)
 TFT_KUBECONFIG="${TFT_KUBECONFIG:-$(pwd)/kubeconfig.${CLUSTER_NAME}}"
 
 # Node names for TFT (server and client)
 # These are the actual Kubernetes node names, NOT BareMetalHost names
-# Priority: TFT_*_NODE > HBN_HOSTNAME_NODE* (minus wildcard) > WORKER_*_NAME
+# Priority: TFT_*_NODE > HBN_HOSTNAME_NODE* (minus wildcard) > auto-detect from cluster
 _hbn_node1="${HBN_HOSTNAME_NODE1%\*}"
 _hbn_node2="${HBN_HOSTNAME_NODE2%\*}"
-TFT_SERVER_NODE="${TFT_SERVER_NODE:-${_hbn_node1:-${WORKER_1_NAME}}}"
-TFT_CLIENT_NODE="${TFT_CLIENT_NODE:-${_hbn_node2:-${WORKER_2_NAME}}}"
+if [[ -z "${TFT_SERVER_NODE:-}" ]] && [[ -z "${_hbn_node1}" ]]; then
+    TFT_SERVER_NODE=$(oc get nodes --no-headers 2>/dev/null | grep worker-dpu | awk 'NR==1 {print $1}') || true
+fi
+if [[ -z "${TFT_CLIENT_NODE:-}" ]] && [[ -z "${_hbn_node2}" ]]; then
+    TFT_CLIENT_NODE=$(oc get nodes --no-headers 2>/dev/null | grep worker-dpu | awk 'NR==2 {print $1}') || true
+fi
+TFT_SERVER_NODE="${TFT_SERVER_NODE:-${_hbn_node1}}"
+TFT_CLIENT_NODE="${TFT_CLIENT_NODE:-${_hbn_node2}}"
 
 # -----------------------------------------------------------------------------
 # Ensure Python 3.11 is available (install if missing)
@@ -202,20 +209,35 @@ generate_config() {
     log "INFO" "  Test cases: ${TFT_TEST_CASES}"
     log "INFO" "  Duration: ${TFT_DURATION}s"
     log "INFO" "  Connection type: ${TFT_CONNECTION_TYPE}"
+    log "INFO" "  Egress IP: ${TFT_EGRESS_IP}"
     log "INFO" "  Server node: ${TFT_SERVER_NODE}"
     log "INFO" "  Client node: ${TFT_CLIENT_NODE}"
     log "INFO" "  Kubeconfig: ${kubeconfig_path}"
     
     # Process template
     cp "${TFT_CONFIG_TEMPLATE}" "${TFT_CONFIG_OUTPUT}"
-    
+
+    # Handle EgressIP test (case 68) — runs in a separate tft entry
+    local main_test_cases="${TFT_TEST_CASES}"
+    if echo ",${TFT_TEST_CASES}," | grep -q ',68,'; then
+        # Strip 68 from main entry (it has its own tft block with egress_ip config)
+        main_test_cases=$(echo "${TFT_TEST_CASES}" | sed -E 's/,68(,|$)/\1/; s/^68,//; s/^68$//')
+        log "INFO" "EgressIP test (case 68) enabled with IP ${TFT_EGRESS_IP}"
+    else
+        # Remove the entire EgressIP tft block
+        sed -i '/__TFT_EGRESS_BLOCK_START__/,/__TFT_EGRESS_BLOCK_END__/d' "${TFT_CONFIG_OUTPUT}"
+    fi
+
     # Replace placeholders
-    sed -i "s|__TFT_TEST_CASES__|${TFT_TEST_CASES}|g" "${TFT_CONFIG_OUTPUT}"
+    sed -i "s|__TFT_TEST_CASES__|${main_test_cases}|g" "${TFT_CONFIG_OUTPUT}"
     sed -i "s|__TFT_DURATION__|${TFT_DURATION}|g" "${TFT_CONFIG_OUTPUT}"
     sed -i "s|__TFT_CONNECTION_TYPE__|${TFT_CONNECTION_TYPE}|g" "${TFT_CONFIG_OUTPUT}"
+    sed -i "s|__TFT_EGRESS_IP__|${TFT_EGRESS_IP}|g" "${TFT_CONFIG_OUTPUT}"
     sed -i "s|__TFT_SERVER_NODE__|${TFT_SERVER_NODE}|g" "${TFT_CONFIG_OUTPUT}"
     sed -i "s|__TFT_CLIENT_NODE__|${TFT_CLIENT_NODE}|g" "${TFT_CONFIG_OUTPUT}"
     sed -i "s|__TFT_KUBECONFIG__|${kubeconfig_path}|g" "${TFT_CONFIG_OUTPUT}"
+    # Clean up block markers
+    sed -i '/__TFT_EGRESS_BLOCK_/d' "${TFT_CONFIG_OUTPUT}"
     
     log "INFO" "Configuration generated: ${TFT_CONFIG_OUTPUT}"
 }
@@ -393,6 +415,7 @@ show_config() {
     echo "  TFT_TEST_CASES:     ${TFT_TEST_CASES}"
     echo "  TFT_DURATION:       ${TFT_DURATION}s"
     echo "  TFT_CONNECTION_TYPE: ${TFT_CONNECTION_TYPE}"
+    echo "  TFT_EGRESS_IP:      ${TFT_EGRESS_IP}"
     echo ""
     echo "Cluster:"
     echo "  TFT_SERVER_NODE:    ${TFT_SERVER_NODE:-<not set>}"
@@ -402,7 +425,7 @@ show_config() {
     echo "Node name sources (priority order):"
     echo "  1. TFT_SERVER_NODE / TFT_CLIENT_NODE (if set)"
     echo "  2. HBN_HOSTNAME_NODE1/2 (minus wildcard): ${HBN_HOSTNAME_NODE1:-<not set>} / ${HBN_HOSTNAME_NODE2:-<not set>}"
-    echo "  3. WORKER_1_NAME / WORKER_2_NAME: ${WORKER_1_NAME:-<not set>} / ${WORKER_2_NAME:-<not set>}"
+    echo "  3. Auto-detect from cluster (oc get nodes | grep worker-dpu)"
     echo ""
     echo "Excluded Test Cases (known failures):"
     echo "  4  - POD_TO_HOST_DIFF_NODE"
@@ -451,18 +474,19 @@ case "${1:-}" in
         echo "Environment Variables:"
         echo "  TFT_REPO_URL        - Repository URL (default: https://github.com/ovn-kubernetes/kubernetes-traffic-flow-tests.git)"
         echo "  TFT_REPO_REV        - Git revision to checkout (default: main)"
-        echo "  TFT_TEST_CASES      - Test cases to run (default: 1-25)"
+        echo "  TFT_TEST_CASES      - Test cases to run (default: 1-25,68,69)"
         echo "  TFT_DURATION        - Duration per test in seconds (default: 10)"
         echo "  TFT_CONNECTION_TYPE - Connection type: iperf-tcp, iperf-udp, etc. (default: iperf-tcp)"
+        echo "  TFT_EGRESS_IP       - EgressIP for test case 68 (default: 10.6.135.100)"
         echo "  TFT_KUBECONFIG      - Path to cluster kubeconfig"
-        echo "  TFT_SERVER_NODE     - Kubernetes node name for server (default: from HBN_HOSTNAME_NODE1)"
-        echo "  TFT_CLIENT_NODE     - Kubernetes node name for client (default: from HBN_HOSTNAME_NODE2)"
+        echo "  TFT_SERVER_NODE     - Kubernetes node name for server (default: auto-detected)"
+        echo "  TFT_CLIENT_NODE     - Kubernetes node name for client (default: auto-detected)"
         echo "  TFT_PYTHON          - Python interpreter (default: python3.11)"
         echo ""
         echo "Note: Python 3.11 is required. If not installed, the script will attempt"
         echo "      to install it automatically using dnf/yum/apt."
         echo ""
-        echo "Node names fallback: TFT_*_NODE > HBN_HOSTNAME_NODE* > WORKER_*_NAME"
+        echo "Node names fallback: TFT_*_NODE > HBN_HOSTNAME_NODE* > auto-detect from cluster"
         exit 1
         ;;
 esac
