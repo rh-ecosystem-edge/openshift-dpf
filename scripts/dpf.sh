@@ -570,29 +570,6 @@ function apply_dpf() {
         return 1
     fi
     
-    # Validate required DPF_PULL_SECRET exists
-    if [ ! -f "$DPF_PULL_SECRET" ]; then
-        log "ERROR" "DPF_PULL_SECRET file not found: $DPF_PULL_SECRET"
-        log "ERROR" "Please ensure the pull secret file exists and contains valid NGC credentials"
-        return 1
-    fi
-    
-    # Authenticate helm with NGC registry using pull secret
-    NGC_USERNAME=$(jq -r '.auths."nvcr.io".username // empty' "$DPF_PULL_SECRET" 2>/dev/null)
-    NGC_PASSWORD=$(jq -r '.auths."nvcr.io".password // empty' "$DPF_PULL_SECRET" 2>/dev/null)
-    
-    # Validate credentials were extracted (check for empty or 'null' string)
-    if [ -z "$NGC_USERNAME" ] || [ -z "$NGC_PASSWORD" ] || [ "$NGC_USERNAME" = "null" ] || [ "$NGC_PASSWORD" = "null" ]; then
-        log "ERROR" "Failed to extract NGC credentials from pull secret. Please check the file format."
-        return 1
-    fi
-    log "INFO" "Authenticating helm with NGC registry..."
-    # Use stdin to avoid password in process list
-    echo "$NGC_PASSWORD" | helm registry login nvcr.io --username "$NGC_USERNAME" --password-stdin >/dev/null 2>&1 || {
-        log "ERROR" "Failed to authenticate with NGC registry. Please check your pull secret credentials."
-        return 1
-    }
-    
     # Determine chart URL and args based on format
     if [[ "$DPF_HELM_REPO_URL" == oci://* ]]; then
         # OCI registry format (v25.7+)

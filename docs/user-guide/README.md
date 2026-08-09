@@ -65,7 +65,6 @@ cp .env.example .env
 
 # 2. Add your credentials
 cp ~/Downloads/openshift-pull-secret.json openshift_pull.json
-# Add NGC credentials to pull-secret.txt
 
 # 3. Deploy everything
 make all

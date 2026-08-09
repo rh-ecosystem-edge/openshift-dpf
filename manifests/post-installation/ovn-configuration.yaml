@@ -10,7 +10,6 @@ spec:
       values:
         global:
           enableOvnKubeIdentity: false
-          imagePullSecretName: "dpf-pull-secret"
         k8sAPIServer: https://<HOST_CLUSTER_API>:6443
         podNetwork: 10.128.0.0/14/23
         serviceNetwork: 172.30.0.0/16

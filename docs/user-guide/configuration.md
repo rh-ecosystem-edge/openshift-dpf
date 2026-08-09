@@ -31,7 +31,6 @@ OPENSHIFT_VERSION=4.20.0                 # Supported versions: 4.20.x
 
 # Credentials (Required)
 OPENSHIFT_PULL_SECRET=openshift_pull.json   # Red Hat pull secret
-DPF_PULL_SECRET=pull-secret.txt             # NGC registry credentials
 SSH_KEY=~/.ssh/id_ed25519                   # SSH key for access
 ```
 
@@ -211,7 +210,6 @@ bash -n .env
 | `BASE_DOMAIN` | DNS domain | `example.com` |
 | `OPENSHIFT_VERSION` | OpenShift version | `4.20.0` |
 | `OPENSHIFT_PULL_SECRET` | Red Hat pull secret file | `openshift_pull.json` |
-| `DPF_PULL_SECRET` | NGC registry credentials | `pull-secret.txt` |
 
 ### Commonly Changed Variables
 

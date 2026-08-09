@@ -105,28 +105,6 @@ chmod 600 ~/.aicli/offlinetoken.txt
 To use a different user's token (e.g. when running as root but using tokens under `/root/xyz`), set `AICLI_HOME` in your `.env` or environment (e.g. `export AICLI_HOME=/root/xyz`). The automation will use `$AICLI_HOME/.aicli/offlinetoken.txt` and will check that this file exists when `AICLI_HOME` is set.
 **When using `AICLI_HOME`, your `OPENSHIFT_PULL_SECRET` file must contain a pull secret for the same Red Hat account** as the offline token (otherwise the API returns "pull secret token does not match current user").
 
-### NVIDIA NGC API Key
-
-1. Create account at [NVIDIA NGC](https://ngc.nvidia.com/)
-2. Go to Account → Setup → Generate API Key
-3. Create NGC pull secret:
-
-```bash
-cat > pull-secret.txt << 'EOF'
-{
-  "auths": {
-    "nvcr.io": {
-      "username": "$oauthtoken",
-      "password": "YOUR_NGC_API_KEY",
-      "auth": "BASE64_ENCODED_TOKEN_PAIR"
-    }
-  }
-}
-EOF
-```
-
-**Note**: Replace `YOUR_NGC_API_KEY` with your actual API key and generate the base64 auth string.
-
 ### SSH Key
 
 Generate an SSH key for cluster access:
@@ -197,7 +175,6 @@ make verify-files
 
 # This should show:
 # ✓ openshift_pull.json exists
-# ✓ pull-secret.txt exists
 # ✓ SSH public key exists
 # ✓ .env configuration exists
 ```
@@ -269,7 +246,7 @@ vm-dpf-2            Ready    control-plane   45m   v1.29.0+xxx
 
 ### Issue: Pull Secret Errors
 **Symptom**: Errors downloading container images
-**Solution**: Verify both `openshift_pull.json` and `pull-secret.txt` are valid JSON
+**Solution**: Verify `openshift_pull.json` is valid JSON
 
 ### Issue: VM Creation Fails
 **Symptom**: "Cannot create VM" errors
