@@ -4,8 +4,6 @@ metadata:
   name: dpfoperatorconfig
   namespace: dpf-operator-system
 spec:
-  imagePullSecrets:
-    - dpf-pull-secret
   # Kamaji is permanently disabled - only Hypershift is supported
   kamajiClusterManager:
     disable: true
