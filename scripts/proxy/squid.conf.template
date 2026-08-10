@@ -1,0 +1,5 @@
+acl cluster dstdomain .${CLUSTER_DOMAIN}
+acl CONNECT method CONNECT
+http_access allow CONNECT cluster
+http_access deny all
+http_port ${PROXY_PORT}

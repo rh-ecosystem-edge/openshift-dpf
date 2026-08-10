@@ -387,6 +387,11 @@ delete-dpf-hcp-provisioner-operator:
 	@echo "Deleting DPF HCP Provisioner Operator..."
 	@$(DPF_SCRIPT) delete-dpf-hcp-provisioner-operator
 
+# Proxy for remote cluster access
+.PHONY: deploy-proxy
+deploy-proxy:
+	@scripts/proxy/deploy.sh
+
 # Verification targets
 .PHONY: verify-deployment
 verify-deployment:
@@ -471,6 +476,9 @@ help:
 	@echo "  deploy-csr-approver - Deploy CSR auto-approver CronJob for host cluster workers"
 	@echo "  delete-csr-approver - Remove CSR auto-approver from host cluster"
 	@echo "  delete-dpf-hcp-provisioner-operator - Remove DPF HCP Provisioner Operator and related resources"
+	@echo ""
+	@echo "Remote Access:"
+	@echo "  deploy-proxy      - Deploy squid proxy on hypervisor for remote cluster access"
 	@echo ""
 	@echo "Verification:"
 	@echo "  verify-deployment     - Full verification: workers + DPU nodes + DPUDeployment"
