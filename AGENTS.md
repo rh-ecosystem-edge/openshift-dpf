@@ -53,7 +53,7 @@ Templates use placeholder strings (e.g., `<CLUSTER_FQDN>`, `<BFB_URL>`) that are
 
 ## Key Make Targets
 
-```
+```text
 make all                  # Full deployment (logs to logs/)
 make generate-env         # Generate .env from ci/ source files
 make validate-env-files   # Check env.defaults ↔ env.template consistency
