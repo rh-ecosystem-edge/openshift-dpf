@@ -19,3 +19,6 @@ spec:
         - pfIndex: 0
           start: 2
           end: <NUM_VFS_END>
+        - pfIndex: 1
+          start: 0
+          end: <NUM_VFS_END>
