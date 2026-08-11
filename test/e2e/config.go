@@ -25,6 +25,7 @@ type TestConfig struct {
 	NewBFBVersionsDOCA  string
 	NewBFBVersionsUEFI  string
 	NewBFBVersionsATF   string
+	UpgradeMachineOSURL string
 	PingCount           int
 	PingHBNToHBN        bool
 	WorkerCount         int
@@ -59,6 +60,7 @@ func LoadConfig() error {
 	cfg.NewBFBVersionsDOCA = envOrDefault("NEW_BFB_DOCA", "")
 	cfg.NewBFBVersionsUEFI = envOrDefault("NEW_BFB_UEFI", "")
 	cfg.NewBFBVersionsATF = envOrDefault("NEW_BFB_ATF", "")
+	cfg.UpgradeMachineOSURL = envOrDefault("UPGRADE_MACHINE_OS_URL", "")
 	cfg.PingCount = envOrDefaultInt("SANITY_TESTS_PING_COUNT", 20)
 	cfg.PingHBNToHBN = envOrDefaultBool("SANITY_TESTS_PING_HBN_TO_HBN_PODS", false)
 	cfg.WorkerCount = envOrDefaultInt("WORKER_COUNT", 0)
