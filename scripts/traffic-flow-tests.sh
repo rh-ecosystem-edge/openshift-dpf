@@ -196,6 +196,17 @@ generate_config() {
         kubeconfig_path="${TFT_KUBECONFIG}"
     fi
     
+    # Resolve hosted cluster kubeconfig (needed for validate_offload plugin)
+    local hosted_kubeconfig="${HOSTED_CLUSTER_NAME}.kubeconfig"
+    local hosted_kubeconfig_path
+    local install_dir="${SCRIPT_DIR}/.."
+    if [[ -f "${install_dir}/${hosted_kubeconfig}" ]]; then
+        hosted_kubeconfig_path="$(cd "${install_dir}" && pwd)/${hosted_kubeconfig}"
+    else
+        log "WARN" "Hosted cluster kubeconfig not found at ${install_dir}/${hosted_kubeconfig}"
+        hosted_kubeconfig_path=""
+    fi
+
     log "INFO" "Test configuration:"
     log "INFO" "  Test cases: ${TFT_TEST_CASES}"
     log "INFO" "  Duration: ${TFT_DURATION}s"
@@ -203,6 +214,7 @@ generate_config() {
     log "INFO" "  Server node: ${TFT_SERVER_NODE}"
     log "INFO" "  Client node: ${TFT_CLIENT_NODE}"
     log "INFO" "  Kubeconfig: ${kubeconfig_path}"
+    log "INFO" "  Kubeconfig infra: ${hosted_kubeconfig_path:-<not found>}"
     
     # Process template
     cp "${TFT_CONFIG_TEMPLATE}" "${TFT_CONFIG_OUTPUT}"
@@ -214,7 +226,10 @@ generate_config() {
     sed -i "s|__TFT_SERVER_NODE__|${TFT_SERVER_NODE}|g" "${TFT_CONFIG_OUTPUT}"
     sed -i "s|__TFT_CLIENT_NODE__|${TFT_CLIENT_NODE}|g" "${TFT_CONFIG_OUTPUT}"
     sed -i "s|__TFT_KUBECONFIG__|${kubeconfig_path}|g" "${TFT_CONFIG_OUTPUT}"
-    
+
+    # needed for validate_offload plugin
+    sed -i "s|__TFT_KUBECONFIG_INFRA__|${hosted_kubeconfig_path}|g" "${TFT_CONFIG_OUTPUT}"
+
     log "INFO" "Configuration generated: ${TFT_CONFIG_OUTPUT}"
 }
 
