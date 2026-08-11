@@ -1,0 +1,55 @@
+# Deployment: connectivity-test-regular-worker
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: connectivity-test-regular-worker
+  namespace: workload
+  labels:
+    app: connectivity-test-regular-worker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: connectivity-test-regular-worker
+  template:
+    metadata:
+      labels:
+        app: connectivity-test-regular-worker
+    spec:
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: DoNotSchedule
+        labelSelector:
+          matchLabels:
+            app: connectivity-test-regular-worker
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: node-role.kubernetes.io/worker
+                operator: Exists
+              - key: feature.node.kubernetes.io/dpu-enabled
+                operator: DoesNotExist
+              - key: node-role.kubernetes.io/control-plane
+                operator: DoesNotExist
+      containers:
+      - name: netshoot
+        securityContext:
+          capabilities:
+            add:
+            - NET_RAW
+        image: quay.io/wabouham/ecosys-nvidia/nicolaka-netshoot:latest
+        command: ["nc", "-kl", "5000"]
+        ports:
+        - containerPort: 5000
+          name: tcp-server
+        resources:
+          requests:
+            cpu: 1
+            memory: 1Gi
+          limits:
+            cpu: 1
+            memory: 1Gi

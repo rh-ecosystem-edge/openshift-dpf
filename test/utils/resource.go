@@ -62,6 +62,9 @@ func ApplyManifests(ctx context.Context, c client.Client, manifestBytes []byte) 
 		if err := yaml.NewYAMLOrJSONDecoder(bytes.NewReader(doc), len(doc)).Decode(obj); err != nil {
 			return fmt.Errorf("decoding YAML: %w", err)
 		}
+		if obj.GetKind() == "" {
+			continue
+		}
 
 		existing := obj.DeepCopy()
 		err = c.Get(ctx, client.ObjectKeyFromObject(obj), existing)
@@ -76,6 +79,39 @@ func ApplyManifests(ctx context.Context, c client.Client, manifestBytes []byte) 
 			if err := c.Update(ctx, obj); err != nil {
 				return fmt.Errorf("updating %s %s/%s: %w", obj.GetKind(), obj.GetNamespace(), obj.GetName(), err)
 			}
+		}
+	}
+	return nil
+}
+
+// DeleteManifests deletes each object described in manifestBytes. Namespace objects are skipped
+// to avoid cascading deletion of other test resources sharing the same namespace.
+// Not-found errors are silently ignored so the function is idempotent.
+func DeleteManifests(ctx context.Context, c client.Client, manifestBytes []byte) error {
+	reader := yaml.NewYAMLReader(bufio.NewReader(bytes.NewReader(manifestBytes)))
+	for {
+		doc, err := reader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("reading YAML document: %w", err)
+		}
+		doc = bytes.TrimSpace(doc)
+		if len(doc) == 0 {
+			continue
+		}
+
+		obj := &unstructured.Unstructured{}
+		if err := yaml.NewYAMLOrJSONDecoder(bytes.NewReader(doc), len(doc)).Decode(obj); err != nil {
+			return fmt.Errorf("decoding YAML: %w", err)
+		}
+		if obj.GetKind() == "" || obj.GetKind() == "Namespace" {
+			continue
+		}
+
+		if err := c.Delete(ctx, obj); err != nil && !errors.IsNotFound(err) {
+			return fmt.Errorf("deleting %s %s/%s: %w", obj.GetKind(), obj.GetNamespace(), obj.GetName(), err)
 		}
 	}
 	return nil
