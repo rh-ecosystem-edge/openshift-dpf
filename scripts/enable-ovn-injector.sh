@@ -31,6 +31,9 @@ if ! helm upgrade --install -n "${OVNK_NAMESPACE}" ovn-kubernetes \
     --set ovn-kubernetes-resource-injector.enabled=true \
     --set ovn-kubernetes-resource-injector.resourceName="${INJECTOR_RESOURCE_NAME}" \
     --set ovn-kubernetes-resource-injector.prioritizeOffloading=false \
+    --set "ovn-kubernetes-resource-injector.runtimeClassMappings[0].runtimeClass=${KATA_RUNTIME_CLASS}" \
+    --set "ovn-kubernetes-resource-injector.runtimeClassMappings[0].nadName=${KATA_NAD_NAME}" \
+    --set "ovn-kubernetes-resource-injector.runtimeClassMappings[0].resourceName=${KATA_INJECTOR_RESOURCE_NAME}" \
     --set ovn-kubernetes-resource-injector.controllerManager.hostNetwork=true \
     --set ovn-kubernetes-resource-injector.controllerManager.webhookPort="${INJECTOR_WEBHOOK_PORT}" \
     --set ovn-kubernetes-resource-injector.controllerManager.healthProbeBindAddress=":${INJECTOR_HEALTH_PROBE_PORT}" \
@@ -70,4 +73,12 @@ else
     exit 1
 fi
 
-log [INFO] "OVN resource injector enabled successfully"
+# Verify Kata NAD creation
+if oc get net-attach-def -n "${OVNK_NAMESPACE}" "${KATA_NAD_NAME}" &>/dev/null; then
+    log [INFO] "NetworkAttachmentDefinition '${KATA_NAD_NAME}' created successfully"
+else
+    log [ERROR] "NetworkAttachmentDefinition '${KATA_NAD_NAME}' was not created"
+    exit 1
+fi
+
+log [INFO] "OVN resource injector enabled successfully (with Kata runtime class mapping)"
