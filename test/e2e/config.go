@@ -28,6 +28,7 @@ type TestConfig struct {
 	PingCount           int
 	PingHBNToHBN        bool
 	WorkerCount         int
+	ExternalRouterIP    string
 }
 
 var cfg TestConfig
@@ -62,6 +63,7 @@ func LoadConfig() error {
 	cfg.PingCount = envOrDefaultInt("SANITY_TESTS_PING_COUNT", 20)
 	cfg.PingHBNToHBN = envOrDefaultBool("SANITY_TESTS_PING_HBN_TO_HBN_PODS", false)
 	cfg.WorkerCount = envOrDefaultInt("WORKER_COUNT", 0)
+	cfg.ExternalRouterIP = envOrDefault("EXTERNAL_ROUTER_IP", "")
 	return nil
 }
 
