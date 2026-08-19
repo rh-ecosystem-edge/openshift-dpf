@@ -5,7 +5,7 @@ metadata:
   namespace: dpf-operator-system
 spec:
   devicePluginResources:
-    - name: <SRIOV_DP_CONFIG_NAME>-mgmt
+    - name: <SRIOV_DP_MGMT_POOL_NAME>
       type: vf
       ranges:
         - pfIndex: 0
@@ -18,4 +18,7 @@ spec:
       ranges:
         - pfIndex: 0
           start: 2
+          end: <NUM_VFS_END>
+        - pfIndex: 1
+          start: 0
           end: <NUM_VFS_END>
