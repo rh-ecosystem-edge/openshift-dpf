@@ -16,5 +16,5 @@ spec:
   rootDeviceHints:
     deviceName: <ROOT_DEVICE>
   userData:
-    name: worker-user-data-managed
+    name: <USER_DATA_SECRET>
     namespace: openshift-machine-api

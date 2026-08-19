@@ -53,13 +53,6 @@ function prepare_cluster_manifests() {
         "openshift-cert-manager.yaml"
     )
 
-    # In SNO mode (VM_COUNT=1), exclude worker-dpu MachineConfigPool
-    # SNO uses platform "None" with Machine API in NoOp mode, so MachineSet/MCP not needed
-    if [[ "${VM_COUNT:-0}" -eq 1 ]]; then
-        log "INFO" "SNO mode detected (VM_COUNT=1), excluding worker-dpu MachineConfigPool"
-        excluded_files+=("99-worker-dpu-mcp.yaml")
-    fi
-
     excluded_files+=("olm-catalogsource-template.yaml")
 
     if [[ "${OLM_WORKAROUND}" == "true" ]]; then
@@ -144,12 +137,7 @@ update_worker_manifest() {
 
     # Detect SNO environment (VM_COUNT=1): use 'worker' role, otherwise 'worker-dpu'
     local worker_role="worker-dpu"
-    if [[ "${VM_COUNT:-0}" -eq 1 ]]; then
-        worker_role="worker"
-        log "INFO" "SNO environment detected (VM_COUNT=1), using worker role for MachineConfigs"
-    else
-        log "INFO" "Multi-node environment, using worker-dpu role with MachineConfigPool"
-    fi
+    log "INFO" "Using worker-dpu role for DPU MachineConfigs"
 
     # Process worker performance configurations (optional - for manual application by user)
     mkdir -p "$GENERATED_DIR/worker-perfomance-configurations"

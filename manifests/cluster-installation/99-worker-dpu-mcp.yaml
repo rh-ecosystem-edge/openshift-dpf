@@ -3,6 +3,7 @@ kind: MachineConfigPool
 metadata:
   name: worker-dpu
 spec:
+  filterCustomPoolBootedNodes: true
   machineConfigSelector:
     matchExpressions:
       - {key: machineconfiguration.openshift.io/role, operator: In, values: [worker, worker-dpu]}

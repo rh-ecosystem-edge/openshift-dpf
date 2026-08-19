@@ -99,11 +99,17 @@ provision_all_workers() {
             "<BMC_USER_BASE64>" "$(printf '%s' "$bmc_user" | base64)" \
             "<BMC_PASSWORD_BASE64>" "$(printf '%s' "$bmc_pass" | base64)"
 
-        # In SNO mode, always use basic baremetalhost.yaml (no MachineSet integration)
-        # In non-SNO mode, use baremetalhost-dpu.yaml for DPU workers (with dpu-capable label)
+        # In non-SNO mode, DPU workers use baremetalhost-dpu.yaml (MachineSet provides userData)
+        # In SNO mode (or non-DPU workers), use baremetalhost.yaml with direct userData reference
         local filename="baremetalhost.yaml"
         if [[ "$is_sno" == "false" ]] && [[ "$is_dpu" == "true" ]]; then
             filename="baremetalhost-dpu.yaml"
+        fi
+
+        # Determine userData secret: DPU workers boot into worker-dpu pool
+        local user_data_secret="worker-user-data-managed"
+        if [[ "$is_dpu" == "true" ]]; then
+            user_data_secret="worker-dpu-user-data-managed"
         fi
 
         # Generate BareMetalHost using appropriate template
@@ -113,7 +119,8 @@ provision_all_workers() {
             "<WORKER_NAME>" "$name" \
             "<BOOT_MAC>" "$boot_mac" \
             "<BMC_IP>" "$bmc_ip" \
-            "<ROOT_DEVICE>" "$root_dev"
+            "<ROOT_DEVICE>" "$root_dev" \
+            "<USER_DATA_SECRET>" "$user_data_secret"
 	
         # Apply manifests (retry for transient API/controller or network failures)
         retry 5 10 apply_manifest "${WORKER_GENERATED_DIR}/${name}-bmc-secret.yaml" false
@@ -123,6 +130,378 @@ provision_all_workers() {
     done
 
     log "INFO" "Worker provisioning initiated"
+}
+
+# -----------------------------------------------------------------------------
+# Assisted Installer Day-2 provisioning for physical workers
+# -----------------------------------------------------------------------------
+# This flow boots workers from the Day-2 discovery ISO (via Redfish virtual media),
+# waits for them to register with the Assisted Installer service, sets
+# mcp=worker-dpu so they boot directly into the worker-dpu MachineConfigPool,
+# then triggers installation.
+#
+# Pre-requisites:
+#   - Cluster must be in day2 mode (run: make create-day2-cluster)
+#   - Day-2 discovery ISO must be available (run: make download-day2-iso)
+#   - WORKER_COUNT and WORKER_N_* variables must be set
+# -----------------------------------------------------------------------------
+
+provision_workers_assisted() {
+    local target="${1:-}"
+    local count="${WORKER_COUNT:-0}"
+    [[ "$count" -eq 0 ]] && { log "INFO" "WORKER_COUNT=0, skipping"; return 0; }
+
+    log "INFO" "Provisioning worker(s) via Assisted Installer Day-2 flow..."
+
+    # Ensure cluster is in day2 mode
+    source "${SCRIPT_DIR}/cluster.sh"
+    create_day2_cluster
+
+    # Get day2 cluster and infraenv IDs
+    local cluster_id infra_env_id
+    cluster_id=$(get_day2_cluster_id) || return 1
+    infra_env_id=$(get_day2_infra_env_id "${ARCH}") || return 1
+
+    # Boot workers from Day-2 ISO via Redfish virtual media
+    local iso_url
+    if [[ -n "${WORKER_ISO_URL:-}" ]]; then
+        iso_url="${WORKER_ISO_URL}"
+        log "INFO" "Using override ISO URL (WORKER_ISO_URL): ${iso_url}"
+    else
+        # get_iso logs to stdout (log "INFO" goes to stdout in this codebase),
+        # so grab only the last line which is the actual URL
+        iso_url=$(get_iso "${CLUSTER_NAME}" "day2" "url" | tail -1) || return 1
+        # Strip any ANSI color codes that might leak through
+        iso_url=$(echo "$iso_url" | sed 's/\x1b\[[0-9;]*m//g')
+        log "INFO" "Day-2 ISO URL: ${iso_url}"
+    fi
+
+    # Build list of worker indices to provision
+    local indices=()
+    if [[ -n "$target" ]]; then
+        # Target can be an index (e.g. "1") or a name (e.g. "perf-worker-27")
+        if [[ "$target" =~ ^[0-9]+$ ]]; then
+            indices=("$target")
+        else
+            # Find index by name
+            for i in $(seq 1 "$count"); do
+                local name_var="WORKER_${i}_NAME"
+                if [[ "${!name_var}" == "$target" ]]; then
+                    indices=("$i")
+                    break
+                fi
+            done
+            [[ ${#indices[@]} -eq 0 ]] && { log "ERROR" "Worker '$target' not found in WORKER_1..${count}_NAME"; return 1; }
+        fi
+    else
+        for i in $(seq 1 "$count"); do indices+=("$i"); done
+    fi
+
+    local expected_count=${#indices[@]}
+    log "INFO" "Provisioning ${expected_count} worker(s): ${indices[*]}"
+
+    # Collect MAC addresses for target workers
+    local target_macs=()
+    for i in "${indices[@]}"; do
+        local name_var="WORKER_${i}_NAME"; local name="${!name_var}"
+        local mac_var="WORKER_${i}_BOOT_MAC"; local mac="${!mac_var}"
+        [[ -z "$name" ]] && { log "ERROR" "WORKER_${i}_NAME not set"; return 1; }
+        [[ -z "$mac" ]] && { log "ERROR" "WORKER_${i}_BOOT_MAC not set"; return 1; }
+        target_macs+=("${mac,,}")  # lowercase for comparison
+        log "INFO" "Worker ${name}: MAC=${mac}"
+    done
+
+    # Helper: find host ID by MAC address in the AI hosts list
+    _find_host_by_mac() {
+        local mac="$1" hosts_json="$2"
+        echo "$hosts_json" \
+            | jq -r --arg ieid "${infra_env_id}" --arg mac "${mac}" \
+              '.[] | select(.infra_env_id == $ieid and (.inventory // "" | ascii_downcase | contains($mac))) | .id' \
+            | head -1
+    }
+
+    # Helper: get host status by MAC
+    _get_host_status_by_mac() {
+        local mac="$1" hosts_json="$2"
+        echo "$hosts_json" \
+            | jq -r --arg ieid "${infra_env_id}" --arg mac "${mac}" \
+              '.[] | select(.infra_env_id == $ieid and (.inventory // "" | ascii_downcase | contains($mac))) | .status' \
+            | head -1
+    }
+
+    # Check current state of each target host by MAC
+    local current_hosts_json
+    current_hosts_json=$(aicli -o json list hosts 2>/dev/null) || current_hosts_json="[]"
+
+    local hosts_to_boot=()
+    local hosts_already_registered=0
+    local hosts_already_done=0
+
+    for i in "${!indices[@]}"; do
+        local idx="${indices[$i]}"
+        local mac="${target_macs[$i]}"
+        local name_var="WORKER_${idx}_NAME"; local name="${!name_var}"
+        local status
+        status=$(_get_host_status_by_mac "$mac" "$current_hosts_json")
+
+        case "$status" in
+            installed|added-to-existing-cluster)
+                log "INFO" "Host ${name} (${mac}) already installed, skipping"
+                ((hosts_already_done++)) || true
+                ;;
+            known|insufficient|pending-for-input|installing|installing-in-progress)
+                log "INFO" "Host ${name} (${mac}) already registered (status: ${status}), skipping boot"
+                ((hosts_already_registered++)) || true
+                ;;
+            *)
+                log "INFO" "Host ${name} (${mac}) not found in infra-env, will boot from ISO"
+                hosts_to_boot+=("$idx")
+                ;;
+        esac
+    done
+
+    # Calculate how many hosts still need work
+    expected_count=$((expected_count - hosts_already_done))
+    if [[ "$expected_count" -le 0 ]]; then
+        log "INFO" "All targeted hosts are already installed, nothing to do"
+        return 0
+    fi
+
+    # Boot only hosts that aren't registered yet
+    if [[ ${#hosts_to_boot[@]} -gt 0 ]]; then
+        if [[ "${SKIP_REDFISH_BOOT:-false}" == "true" ]]; then
+            log "INFO" "SKIP_REDFISH_BOOT=true — skipping Redfish virtual media boot (assuming manual boot)"
+        else
+            for i in "${hosts_to_boot[@]}"; do
+                local name_var="WORKER_${i}_NAME"; local name="${!name_var}"
+                local bmc_ip_var="WORKER_${i}_BMC_IP"; local bmc_ip="${!bmc_ip_var}"
+                local bmc_user_var="WORKER_${i}_BMC_USER"; local bmc_user="${!bmc_user_var}"
+                local bmc_pass_var="WORKER_${i}_BMC_PASSWORD"; local bmc_pass="${!bmc_pass_var}"
+                local redfish_path_var="WORKER_${i}_REDFISH_SYSTEM_PATH"; local redfish_path="${!redfish_path_var:-}"
+
+                [[ -z "$bmc_ip" ]] && { log "ERROR" "WORKER_${i}_BMC_IP not set"; return 1; }
+                [[ -z "$bmc_user" ]] && { log "ERROR" "WORKER_${i}_BMC_USER not set"; return 1; }
+                [[ -z "$bmc_pass" ]] && { log "ERROR" "WORKER_${i}_BMC_PASSWORD not set"; return 1; }
+
+                log "INFO" "Booting $name from Day-2 ISO via Redfish virtual media..."
+                boot_from_iso_via_redfish "$bmc_ip" "$bmc_user" "$bmc_pass" "$iso_url" "$redfish_path"
+            done
+        fi
+    else
+        log "INFO" "All hosts already registered, skipping boot phase"
+    fi
+
+    # Wait for all target hosts to register (by MAC)
+    log "INFO" "Waiting for ${expected_count} host(s) to register with Assisted Installer..."
+    _check_hosts_registered() {
+        local hosts_json
+        hosts_json=$(aicli -o json list hosts 2>/dev/null) || hosts_json="[]"
+        local registered=0
+        for mac in "${target_macs[@]}"; do
+            local status
+            status=$(_get_host_status_by_mac "$mac" "$hosts_json")
+            case "$status" in
+                known|insufficient|installing|installing-in-progress|installed|added-to-existing-cluster)
+                    ((registered++)) || true ;;
+            esac
+        done
+        log "INFO" "Hosts registered: ${registered}/${expected_count}"
+        [ "${registered}" -ge "${expected_count}" ]
+    }
+    if ! retry 60 30 _check_hosts_registered; then
+        log "ERROR" "Timeout waiting for hosts to register"
+        return 1
+    fi
+
+    # Resolve host IDs by MAC
+    local target_host_ids=()
+    local all_hosts_json
+    all_hosts_json=$(aicli -o json list hosts 2>/dev/null) || all_hosts_json="[]"
+    for i in "${!target_macs[@]}"; do
+        local mac="${target_macs[$i]}"
+        local idx="${indices[$i]}"
+        local name_var="WORKER_${idx}_NAME"; local name="${!name_var}"
+        local host_id
+        host_id=$(_find_host_by_mac "$mac" "$all_hosts_json")
+        if [[ -n "$host_id" ]]; then
+            target_host_ids+=("$host_id")
+            log "INFO" "Host ${name} (${mac}) → ID ${host_id}"
+        else
+            log "WARN" "Could not resolve host ID for ${name} (MAC: ${mac})"
+        fi
+    done
+
+    if [[ ${#target_host_ids[@]} -eq 0 ]]; then
+        log "ERROR" "No host IDs resolved, cannot proceed"
+        return 1
+    fi
+
+    # Bind hosts, set MCP, and start installation
+    local day2_mcp="worker-dpu"
+    log "INFO" "Setting mcp=${day2_mcp} on ${#target_host_ids[@]} host(s) and starting installation..."
+
+    _set_mcp_and_install() {
+        all_hosts_json=$(aicli -o json list hosts 2>/dev/null) || all_hosts_json="[]"
+        for host_id in "${target_host_ids[@]}"; do
+            local status
+            status=$(echo "$all_hosts_json" | jq -r --arg hid "$host_id" '.[] | select(.id == $hid) | .status') || status=""
+            case "$status" in
+                known)
+                    log "INFO" "Setting mcp=${day2_mcp} on host ${host_id}..."
+                    aicli update host "${host_id}" -P mcp="${day2_mcp}" || true
+                    log "INFO" "Starting installation for host ${host_id}..."
+                    aicli start host "${host_id}" || true
+                    ;;
+                installed|added-to-existing-cluster)
+                    log "INFO" "Host ${host_id} already installed, skipping"
+                    ;;
+                installing|installing-in-progress)
+                    log "INFO" "Host ${host_id} already installing, skipping"
+                    ;;
+            esac
+        done
+    }
+
+    _set_mcp_and_install
+
+    # Wait for installation to complete — check exact host IDs
+    log "INFO" "Waiting for ${#target_host_ids[@]} host(s) to complete installation..."
+    _check_hosts_installed() {
+        _set_mcp_and_install
+        all_hosts_json=$(aicli -o json list hosts 2>/dev/null) || all_hosts_json="[]"
+        local installed_count=0
+        for host_id in "${target_host_ids[@]}"; do
+            local status
+            status=$(echo "$all_hosts_json" | jq -r --arg hid "$host_id" '.[] | select(.id == $hid) | .status') || status=""
+            case "$status" in
+                installed|added-to-existing-cluster) ((installed_count++)) || true ;;
+            esac
+        done
+        log "INFO" "Hosts installed: ${installed_count}/${#target_host_ids[@]}"
+        [ "${installed_count}" -ge "${#target_host_ids[@]}" ]
+    }
+    if ! retry 120 60 _check_hosts_installed; then
+        log "ERROR" "Timeout waiting for hosts to complete installation"
+        return 1
+    fi
+
+    log "INFO" "All ${#target_host_ids[@]} worker(s) installed via Assisted Installer"
+}
+
+# Boot a host from ISO via Redfish virtual media
+# Supports Dell iDRAC and generic Redfish BMCs.
+# Args: bmc_ip bmc_user bmc_pass iso_url [redfish_system_path]
+boot_from_iso_via_redfish() {
+    local bmc_ip="$1" bmc_user="$2" bmc_pass="$3" iso_url="$4"
+    local system_path="${5:-}"
+    local bmc_base="https://${bmc_ip}"
+
+    # Dell iDRAC paths (default); override system_path if provided
+    local manager_path="Managers/iDRAC.Embedded.1"
+    local vm_resource="VirtualMedia/CD"
+    if [[ -z "$system_path" ]]; then
+        system_path="Systems/System.Embedded.1"
+    fi
+
+    local system_endpoint="${bmc_base}/redfish/v1/${system_path}"
+    local reset_endpoint="${system_endpoint}/Actions/ComputerSystem.Reset"
+    local vm_endpoint="${bmc_base}/redfish/v1/${manager_path}/${vm_resource}"
+
+    # --- Step 1: Force power off (ensures clean boot from virtual media) ---
+    log "INFO" "[${bmc_ip}] Powering off host..."
+    local http_code
+    http_code=$(curl -sk -o /dev/null -w '%{http_code}' -X POST "${reset_endpoint}" \
+        -u "${bmc_user}:${bmc_pass}" \
+        -H "Content-Type: application/json" \
+        -d '{"ResetType": "ForceOff"}') || true
+    if [[ "$http_code" == "200" || "$http_code" == "204" ]]; then
+        log "INFO" "[${bmc_ip}] ForceOff accepted, waiting 10s for host to power down..."
+        sleep 10
+    else
+        log "INFO" "[${bmc_ip}] ForceOff returned HTTP ${http_code} (host may already be off)"
+    fi
+
+    # --- Step 2: Eject any existing virtual media ---
+    log "INFO" "[${bmc_ip}] Ejecting existing virtual media..."
+    curl -sk -X POST "${vm_endpoint}/Actions/VirtualMedia.EjectMedia" \
+        -u "${bmc_user}:${bmc_pass}" \
+        -H "Content-Type: application/json" \
+        -d '{}' 2>/dev/null || true
+    sleep 2
+
+    # --- Step 3: Insert ISO via virtual media ---
+    log "INFO" "[${bmc_ip}] Inserting virtual media ISO..."
+    local insert_response
+    insert_response=$(curl -sk -w '\n%{http_code}' -X POST \
+        "${vm_endpoint}/Actions/VirtualMedia.InsertMedia" \
+        -u "${bmc_user}:${bmc_pass}" \
+        -H "Content-Type: application/json" \
+        -d "{\"Image\": \"${iso_url}\", \"Inserted\": true, \"WriteProtected\": true}") || true
+
+    http_code=$(echo "$insert_response" | tail -1)
+    local insert_body
+    insert_body=$(echo "$insert_response" | sed '$d')
+
+    if [[ "$http_code" != "200" && "$http_code" != "204" ]]; then
+        log "ERROR" "[${bmc_ip}] Insert virtual media failed (HTTP ${http_code}): ${insert_body}"
+        return 1
+    fi
+    log "INFO" "[${bmc_ip}] Insert returned HTTP ${http_code}"
+
+    # --- Step 4: Verify ISO is actually mounted ---
+    sleep 3
+    log "INFO" "[${bmc_ip}] Verifying virtual media status..."
+    local vm_status
+    vm_status=$(curl -sk -u "${bmc_user}:${bmc_pass}" "${vm_endpoint}" | jq -r '.Inserted // "null"') || vm_status="unknown"
+    if [[ "$vm_status" != "true" ]]; then
+        log "ERROR" "[${bmc_ip}] Virtual media NOT mounted (Inserted=${vm_status}). The BMC may not be able to reach the ISO URL."
+        log "ERROR" "[${bmc_ip}] ISO URL: ${iso_url}"
+        log "ERROR" "[${bmc_ip}] Consider downloading the ISO and serving it via a local HTTP server reachable by the BMC."
+        return 1
+    fi
+    log "INFO" "[${bmc_ip}] Virtual media verified: Inserted=true"
+
+    # --- Step 5: Set one-time boot override to virtual CD (UEFI) ---
+    log "INFO" "[${bmc_ip}] Setting boot override to Cd (UEFI, once)..."
+    http_code=$(curl -sk -o /dev/null -w '%{http_code}' -X PATCH "${system_endpoint}" \
+        -u "${bmc_user}:${bmc_pass}" \
+        -H "Content-Type: application/json" \
+        -d '{"Boot": {"BootSourceOverrideTarget": "Cd", "BootSourceOverrideMode": "UEFI", "BootSourceOverrideEnabled": "Once"}}') || true
+    if [[ "$http_code" != "200" && "$http_code" != "204" ]]; then
+        log "WARN" "[${bmc_ip}] Boot override returned HTTP ${http_code} (may still work)"
+    fi
+
+    # --- Step 6: Power on ---
+    log "INFO" "[${bmc_ip}] Powering on host..."
+    http_code=$(curl -sk -o /dev/null -w '%{http_code}' -X POST "${reset_endpoint}" \
+        -u "${bmc_user}:${bmc_pass}" \
+        -H "Content-Type: application/json" \
+        -d '{"ResetType": "On"}') || true
+    if [[ "$http_code" != "200" && "$http_code" != "204" ]]; then
+        log "ERROR" "[${bmc_ip}] PowerOn failed (HTTP ${http_code})"
+        return 1
+    fi
+
+    log "INFO" "[${bmc_ip}] Boot from virtual media initiated successfully"
+}
+
+# Dispatcher: choose provisioning method based on WORKER_PROVISIONING_METHOD
+provision_workers() {
+    local method="${WORKER_PROVISIONING_METHOD:-bmh}"
+    case "$method" in
+        bmh)
+            log "INFO" "Using BMH/Redfish provisioning method"
+            provision_all_workers
+            ;;
+        assisted)
+            log "INFO" "Using Assisted Installer Day-2 provisioning method"
+            provision_workers_assisted
+            ;;
+        *)
+            log "ERROR" "Unknown WORKER_PROVISIONING_METHOD: $method (valid: bmh, assisted)"
+            return 1
+            ;;
+    esac
 }
 
 approve_worker_csrs() {
@@ -387,6 +766,8 @@ delete_worker() {
 # Command dispatcher
 case "${1:-}" in
     provision-all-workers) provision_all_workers ;;
+    provision-workers-assisted) provision_workers_assisted "${2:-}" ;;
+    provision-workers) provision_workers ;;
     approve-worker-csrs) approve_worker_csrs ;;
     display-worker-status) display_worker_status ;;
     display-manual-csr-instructions) display_manual_csr_instructions ;;
@@ -395,7 +776,7 @@ case "${1:-}" in
     delete-csr-auto-approver) delete_csr_auto_approver ;;
     delete-worker) delete_worker "${2:-}" ;;
     *)
-        echo "Usage: $0 {provision-all-workers|approve-worker-csrs|display-worker-status|display-manual-csr-instructions|apply-short-worker-hostnames|deploy-csr-auto-approver|delete-csr-auto-approver|delete-worker <bmh-name|machine-name>}"
+        echo "Usage: $0 {provision-workers|provision-all-workers|provision-workers-assisted|approve-worker-csrs|display-worker-status|display-manual-csr-instructions|apply-short-worker-hostnames|deploy-csr-auto-approver|delete-csr-auto-approver|delete-worker <name>}"
         exit 1
         ;;
 esac
