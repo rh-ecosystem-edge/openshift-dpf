@@ -669,6 +669,14 @@ function deploy_odf() {
 # ISO management functions
 # -----------------------------------------------------------------------------
 
+_create_alt_arch_infraenv_if_multi() {
+    if is_multi_arch_version; then
+        create_infraenv "$(get_alt_arch "$ARCH")"
+    else
+        log "INFO" "Skipping alternative-architecture InfraEnv (OPENSHIFT_VERSION=${OPENSHIFT_VERSION} is not multi-arch)"
+    fi
+}
+
 function create_day2_cluster() {
     # Move cluster to day2 mode for adding worker nodes to existing cluster
     log "INFO" "Checking cluster ${CLUSTER_NAME} for day2 transition..."
@@ -687,7 +695,7 @@ function create_day2_cluster() {
     # Check if cluster is already in adding-hosts status (day2 mode)
     if [ "${cluster_status}" = "adding-hosts" ]; then
         log "INFO" "Cluster ${CLUSTER_NAME} was already moved to day2 mode"
-        create_infraenv "$(get_alt_arch "$ARCH")"
+        _create_alt_arch_infraenv_if_multi
         return 0
     fi
 
@@ -705,7 +713,7 @@ function create_day2_cluster() {
     fi
 
     log "INFO" "Cluster ${CLUSTER_NAME} successfully moved to day2 mode"
-    create_infraenv "$(get_alt_arch "$ARCH")"
+    _create_alt_arch_infraenv_if_multi
     return 0
 }
 
@@ -914,12 +922,14 @@ function main() {
             get_iso "${CLUSTER_NAME}_infra-env" "day1" "download"
             ;;
         get-day2-iso)
-            local _alt_arch
-            _alt_arch=$(get_alt_arch "$ARCH")
             log "INFO" "${ARCH} ISO:"
             get_iso "${CLUSTER_NAME}_infra-env" "day2" "url"
-            log "INFO" "${_alt_arch} ISO:"
-            get_iso "${CLUSTER_NAME}_infra-env_alt_${_alt_arch}" "day2" "url"
+            if is_multi_arch_version; then
+                local _alt_arch
+                _alt_arch=$(get_alt_arch "$ARCH")
+                log "INFO" "${_alt_arch} ISO:"
+                get_iso "${CLUSTER_NAME}_infra-env_alt_${_alt_arch}" "day2" "url"
+            fi
             ;;
         download-day2-iso)
             # Apply worker NMState (MTU) to InfraEnv before downloading the ISO

@@ -470,6 +470,11 @@ arch_for_aicli() {
     esac
 }
 
+# Check whether OPENSHIFT_VERSION denotes a multi-arch release (e.g. "4.22.7-multi").
+is_multi_arch_version() {
+    [[ "${OPENSHIFT_VERSION}" == *-multi ]]
+}
+
 # Return the complementary architecture (aarch64 <-> x86_64).
 get_alt_arch() {
     case "$1" in
