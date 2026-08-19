@@ -327,10 +327,10 @@ tft-results:
 .PHONY: add-worker-nodes
 add-worker-nodes:
 	@echo "================================================================================"
-	@echo "Adding worker nodes via BMO/Redfish provisioning..."
+	@echo "Adding worker nodes (method: $(WORKER_PROVISIONING_METHOD))..."
 	@echo "================================================================================"
 	@mkdir -p $(GENERATED_DIR)/worker-provisioning
-	@$(WORKER_SCRIPT) provision-all-workers
+	@$(WORKER_SCRIPT) provision-workers
 	@if [ "$(AUTO_APPROVE_WORKER_CSR)" = "true" ]; then \
 		echo ""; \
 		echo "AUTO_APPROVE_WORKER_CSR=true - Deploying CSR auto-approver CronJob..."; \
@@ -342,7 +342,6 @@ add-worker-nodes:
 	@echo ""
 	@echo "================================================================================"
 	@echo "Worker node provisioning initiated!"
-	@echo "Generated manifests: $(GENERATED_DIR)/worker-provisioning/"
 	@echo "Run 'make worker-status' to monitor progress."
 	@echo "================================================================================"
 
