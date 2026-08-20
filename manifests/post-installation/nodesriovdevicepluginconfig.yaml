@@ -1,7 +1,7 @@
 apiVersion: noderesources.dpu.nvidia.com/v1alpha1
 kind: NodeSRIOVDevicePluginConfig
 metadata:
-  name: <SRIOV_DP_CONFIG_NAME>
+  name: <SRIOV_DP_CONFIG_CR_NAME>
   namespace: dpf-operator-system
 spec:
   devicePluginResources:

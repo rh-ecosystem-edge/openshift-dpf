@@ -14,7 +14,7 @@ spec:
     dpuSets:
     - nameSuffix: "dpuset1"
       dpuAnnotations:
-        noderesources.dpu.nvidia.com/nodesriovdevicepluginconfig: <SRIOV_DP_CONFIG_NAME>
+        noderesources.dpu.nvidia.com/nodesriovdevicepluginconfig: <SRIOV_DP_CONFIG_CR_NAME>
       nodeSelector:
         matchLabels:
           feature.node.kubernetes.io/dpu-enabled: ""
