@@ -578,6 +578,7 @@ help:
 	@echo "  WORKER_n_BOOT_MAC     - Boot NIC MAC address"
 	@echo "  WORKER_n_ROOT_DEVICE  - Target installation disk (e.g., /dev/sda)"
 	@echo "  WORKER_n_DPU          - Set to 'false' for regular workers, defualt is true (worker-dpu)"
+	@echo "  WORKER_n_ARCHITECTURE - CPU architecture of the worker (x86_64 or aarch64, default: libvirt host arch)"
 	@echo "  WORKER_NODE_LABELS    - Comma-separated labels for kubelet --node-labels (e.g., node.openshift.io/dpu-host=true)"
 	@echo ""
 	@echo "CSR Auto-Approval Configuration:"

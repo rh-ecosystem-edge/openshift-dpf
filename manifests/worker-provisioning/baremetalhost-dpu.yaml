@@ -8,6 +8,7 @@ metadata:
     dpu-capable: "true"
 spec:
   online: false
+  architecture: <ARCHITECTURE>
   bootMACAddress: <BOOT_MAC>
   rootDeviceHints:
     deviceName: <ROOT_DEVICE>

@@ -462,6 +462,9 @@ libvirt_host_cmd() {
     fi
 }
 
+# CPU architecture of the libvirt host (x86_64 or aarch64).
+libvirt_arch() { libvirt_host_cmd uname -m; }
+
 # Map uname -m to the value aicli expects for cpu_architecture.
 arch_for_aicli() {
     case "$1" in
@@ -517,7 +520,7 @@ libvirt_host_script() {
 LIBVIRT_URI=$(libvirt_uri)
 
 if [ -z "${ARCH:-}" ]; then
-    ARCH=$(libvirt_host_cmd uname -m)
+    ARCH=$(libvirt_arch)
 fi
 
 generate_mac_from_machine_id() {

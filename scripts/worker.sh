@@ -64,6 +64,9 @@ provision_all_workers() {
         log "INFO" "SNO environment detected (VM_COUNT=1), skipping MachineSet creation (Machine API in NoOp mode)"
     fi
 
+    local host_arch
+    host_arch=$(libvirt_arch)
+
     for i in $(seq 1 "$count"); do
         local name_var="WORKER_${i}_NAME"
         local name="${!name_var}"
@@ -82,14 +85,23 @@ provision_all_workers() {
         local boot_mac_var="WORKER_${i}_BOOT_MAC"; local boot_mac="${!boot_mac_var}"
         local root_dev_var="WORKER_${i}_ROOT_DEVICE"; local root_dev="${!root_dev_var:-/dev/sda}"
         local dpu_var="WORKER_${i}_DPU"; local is_dpu="${!dpu_var:-true}"
+        local arch_var="WORKER_${i}_ARCHITECTURE"; local architecture="${!arch_var:-$host_arch}"
 
         # Validate required vars
         [[ -z "$bmc_ip" ]] && { log "ERROR" "WORKER_${i}_BMC_IP not set"; return 1; }
         [[ -z "$bmc_user" ]] && { log "ERROR" "WORKER_${i}_BMC_USER not set"; return 1; }
         [[ -z "$bmc_pass" ]] && { log "ERROR" "WORKER_${i}_BMC_PASSWORD not set"; return 1; }
         [[ -z "$boot_mac" ]] && { log "ERROR" "WORKER_${i}_BOOT_MAC not set"; return 1; }
+        case "$architecture" in
+            x86_64|aarch64) ;;
+            *) log "ERROR" "WORKER_${i}_ARCHITECTURE must be x86_64 or aarch64 (got: $architecture)"; return 1 ;;
+        esac
+        if [[ "$architecture" != "$host_arch" ]] && ! is_multi_arch_version; then
+            log "ERROR" "WORKER_${i}_ARCHITECTURE=${architecture} differs from libvirt host architecture ${host_arch}; OPENSHIFT_VERSION must end in -multi (got: ${OPENSHIFT_VERSION})"
+            return 1
+        fi
 
-        log "INFO" "Creating manifests for $name (DPU: $is_dpu)..."
+        log "INFO" "Creating manifests for $name (DPU: $is_dpu, arch: $architecture)..."
 
         # Generate BMC secret using process_template
         process_template \
@@ -113,7 +125,8 @@ provision_all_workers() {
             "<WORKER_NAME>" "$name" \
             "<BOOT_MAC>" "$boot_mac" \
             "<BMC_IP>" "$bmc_ip" \
-            "<ROOT_DEVICE>" "$root_dev"
+            "<ROOT_DEVICE>" "$root_dev" \
+            "<ARCHITECTURE>" "$architecture"
 	
         # Apply manifests (retry for transient API/controller or network failures)
         retry 5 10 apply_manifest "${WORKER_GENERATED_DIR}/${name}-bmc-secret.yaml" false
