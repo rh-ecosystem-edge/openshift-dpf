@@ -799,6 +799,24 @@ function get_day2_cluster_id() {
     echo "${cluster_id}"
 }
 
+function get_day2_infra_env_id() {
+    local target_arch="${1:-${ARCH}}"
+    local aicli_arch
+    aicli_arch=$(arch_for_aicli "$target_arch")
+
+    local infra_env_id
+    infra_env_id=$(aicli -o json list infraenvs 2>/dev/null \
+        | jq -r --arg cluster "${CLUSTER_NAME}" --arg arch "${aicli_arch}" \
+          '.[] | select((.name | contains($cluster)) and .cpu_architecture == $arch) | .id' \
+        | head -1)
+
+    if [ -z "${infra_env_id}" ]; then
+        log "ERROR" "No InfraEnv found for cluster ${CLUSTER_NAME} with cpu_architecture=${aicli_arch}"
+        return 1
+    fi
+    echo "${infra_env_id}"
+}
+
 function get_infra_env_id() {
     local infraenv_name="${1:-${CLUSTER_NAME}_infra-env}"
     local infra_env_id
