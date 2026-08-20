@@ -218,8 +218,7 @@ function deploy_dpu_worker_config() {
         --namespace ${DPF_HCP_PROVISIONER_OPERATOR_NAMESPACE} \
         --create-namespace \
         --disable-openapi-validation \
-        ${version_flag} \
-        ${mtu_flag}; then
+        ${version_flag}; then
         log [INFO] "Helm release 'dpu-worker-config' deployed successfully"
     else
         log [ERROR] "Helm deployment of dpu-worker-config failed"
