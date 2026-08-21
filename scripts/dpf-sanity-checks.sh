@@ -37,7 +37,7 @@ if [ -z "${CLUSTER_NAME}" ]; then
     exit 1
 fi
 
-
+# output variables
 echo -e "\nVariables from sourced .env file or default values used in the script:"
 echo -e "- KUBECONFIG: '${KUBECONFIG}'"
 echo -e "- HOSTED_CLUSTER_NAME: '${HOSTED_CLUSTER_NAME}'"
