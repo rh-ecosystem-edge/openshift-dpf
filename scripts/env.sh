@@ -142,17 +142,19 @@ if [ -z "${MAKELEVEL:-}" ]; then
     load_env
     validate_mtu
 
-    # aicli uses HOME to find ~/.aicli/offlinetoken.txt. Default: $HOME. Override with AICLI_HOME (e.g. in .env).
-    # When using AICLI_HOME, OPENSHIFT_PULL_SECRET must be a pull secret for the same Red Hat account as that token.
-    AICLI_HOME=${AICLI_HOME:-$HOME}
-    if [[ "$AICLI_HOME" != "$HOME" ]] && [[ ! -f "${AICLI_HOME}/.aicli/offlinetoken.txt" ]]; then
-        echo "Error: ${AICLI_HOME}/.aicli/offlinetoken.txt not found." >&2
-        exit 1
-    fi
-    export HOME="${AICLI_HOME}"
-    if ! aicli list clusters &>/dev/null; then
-        echo "Error: aicli list clusters failed. Check token at ${AICLI_HOME}/.aicli/offlinetoken.txt and connectivity." >&2
-        exit 1
+    if [ -z "${PAYLOAD_URL:-}" ]; then
+        # aicli uses HOME to find ~/.aicli/offlinetoken.txt. Default: $HOME. Override with AICLI_HOME (e.g. in .env).
+        # When using AICLI_HOME, OPENSHIFT_PULL_SECRET must be a pull secret for the same Red Hat account as that token.
+        AICLI_HOME=${AICLI_HOME:-$HOME}
+        if [[ "$AICLI_HOME" != "$HOME" ]] && [[ ! -f "${AICLI_HOME}/.aicli/offlinetoken.txt" ]]; then
+            echo "Error: ${AICLI_HOME}/.aicli/offlinetoken.txt not found." >&2
+            exit 1
+        fi
+        export HOME="${AICLI_HOME}"
+        if ! aicli list clusters &>/dev/null; then
+            echo "Error: aicli list clusters failed. Check token at ${AICLI_HOME}/.aicli/offlinetoken.txt and connectivity." >&2
+            exit 1
+        fi
     fi
 fi
 
@@ -163,6 +165,36 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     HELM_CHARTS_DIR=${HELM_CHARTS_DIR:-"$MANIFESTS_DIR/helm-charts-values"}
     HOST_CLUSTER_API=${HOST_CLUSTER_API:-"api.$CLUSTER_NAME.$BASE_DOMAIN"}
     HOSTED_CONTROL_PLANE_NAMESPACE=${HOSTED_CONTROL_PLANE_NAMESPACE:-"${CLUSTERS_NAMESPACE}-${HOSTED_CLUSTER_NAME}"}
+
+    # When PAYLOAD_URL is set (e.g. by Prow), derive OPENSHIFT_VERSION and
+    # OCP_RELEASE_IMAGE from the release payload instead of using .env defaults.
+    if [ -n "${PAYLOAD_URL:-}" ]; then
+        export AI_URL="http://127.0.0.1:8090"
+        if ! command -v oc &>/dev/null; then
+            echo "Error: PAYLOAD_URL is set but 'oc' is not available" >&2
+            exit 1
+        fi
+        if ! _release_info=$(oc adm release info "$PAYLOAD_URL" 2>&1); then
+            echo "Error: 'oc adm release info' failed for ${PAYLOAD_URL}:" >&2
+            echo "$_release_info" >&2
+            exit 1
+        fi
+        _payload_version=$(echo "$_release_info" | awk '/^Name:/{print $2}')
+        if [ -z "$_payload_version" ]; then
+            echo "Error: could not parse version from release info for ${PAYLOAD_URL}" >&2
+            exit 1
+        fi
+        OPENSHIFT_VERSION="$_payload_version"
+        _multi_image="quay.io/openshift-release-dev/ocp-release:${_payload_version}-multi"
+        if ! oc adm release info "$_multi_image" &>/dev/null; then
+            echo "Error: multi-arch release image not found: ${_multi_image}" >&2
+            exit 1
+        fi
+        OCP_RELEASE_IMAGE="$_multi_image"
+        echo "PAYLOAD_URL set: OPENSHIFT_VERSION=${OPENSHIFT_VERSION}, OCP_RELEASE_IMAGE=${OCP_RELEASE_IMAGE}"
+        unset _multi_image
+        unset _payload_version _release_info
+    fi
 
     # OLM Catalog Source — when OLM_WORKAROUND=true, use the previous OCP
     # minor version's catalog (e.g. 4.20→4.19, 4.22→4.21).
