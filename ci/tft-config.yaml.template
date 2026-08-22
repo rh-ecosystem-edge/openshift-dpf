@@ -95,7 +95,8 @@ tft:
         #   - measure_power    : Measure power consumption
         #   - validate_offload : Verify OvS hardware offload (requires DPU mode)
         plugins:
-          - ping_mgmt_port
+          - name: ping_mgmt_port
+          - name: validate_offload
 
         # Secondary Network Configuration (optional)
         # ------------------------------------------
@@ -118,5 +119,5 @@ kubeconfig: __TFT_KUBECONFIG__
 # ---------------------------------
 # Uncomment the following lines to enable DPU mode with validate_offload plugin:
 #
-# kubeconfig_infra: __TFT_KUBECONFIG_INFRA__
-# dpu_node_host_label: "provisioning.dpu.nvidia.com/host"
+kubeconfig_infra: __TFT_KUBECONFIG_INFRA__
+dpu_node_host_label: "provisioning.dpu.nvidia.com/dpunode-name"
