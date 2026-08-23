@@ -231,6 +231,10 @@ configure-flannel: deploy-dpu-services
 enable-ovn-injector: install-helm
 	@scripts/enable-ovn-injector.sh
 
+.PHONY: enable-kata
+enable-kata:
+	@scripts/enable-kata.sh
+
 .PHONY: deploy-core-operator-sources
 deploy-core-operator-sources:
 	@$(MANIFESTS_SCRIPT) deploy-core-operator-sources
@@ -491,6 +495,7 @@ help:
 	@echo "  prepare-dpu-files - Prepare post-installation manifests with custom values"
 	@echo "  generate-overrides - Write DPUServiceTemplate overrides ConfigMap (also via GENERATE_DPUSERVICETEMPLATE_OVERRIDES=true)"
 	@echo "  deploy-dpu-services - Deploy DPU services to the cluster"
+	@echo "  enable-kata       - Install OSC + kata-coldplug on worker-dpu (optional; run after enable-ovn-injector)"
 	@echo "  configure-flannel - Deploy flannel IPAM controller for automatic podCIDR assignment"
 	@echo "  add-worker-nodes  - Provision worker nodes via BMO/Redfish (uses WORKER_* env vars)"
 	@echo "  worker-status     - Display provisioning status for all configured workers"

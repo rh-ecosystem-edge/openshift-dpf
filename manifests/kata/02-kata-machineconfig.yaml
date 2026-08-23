@@ -1,0 +1,33 @@
+# Single MachineConfig for Kata DPU cold-plug on the existing worker-dpu
+# (or worker on SNO) MCP — not kata-oc.
+#
+# Combines CRI-O/kata config, IOMMU kargs, and optional RHCOS layer
+# (osImageURL). The layer MUST match the cluster RHCOS digest or MCO will
+# fail / drift. KATA_SKIP_RHCOS_LAYER=true leaves osImageURL unset (z-stream
+# kata-containers 3.31.0-5+ already on the node).
+apiVersion: machineconfiguration.openshift.io/v1
+kind: MachineConfig
+metadata:
+  labels:
+    machineconfiguration.openshift.io/role: <WORKER_ROLE>
+  name: 99-kata-dpu
+spec:
+  <KATA_OS_IMAGE_URL>
+  kernelArguments:
+    - intel_iommu=on
+    - iommu=pt
+  config:
+    ignition:
+      version: 3.2.0
+    storage:
+      files:
+      - path: /etc/crio/crio.conf.d/50-kata-coldplug
+        mode: 0644
+        overwrite: true
+        contents:
+          source: data:text/plain;charset=utf-8;base64,W2NyaW8ucnVudGltZS5ydW50aW1lcy5rYXRhLWNvbGRwbHVnXQogIHJ1bnRpbWVfcGF0aCA9ICIvdXNyL2Jpbi9jb250YWluZXJkLXNoaW0ta2F0YS12MiIKICBydW50aW1lX3R5cGUgPSAidm0iCiAgcnVudGltZV9yb290ID0gIi9ydW4vdmMiCiAgcnVudGltZV9jb25maWdfcGF0aCA9ICIvZXRjL2thdGEtY29udGFpbmVycy9jb25maWd1cmF0aW9uLnRvbWwiCiAgcHJpdmlsZWdlZF93aXRob3V0X2hvc3RfZGV2aWNlcyA9IHRydWUKICBhbGxvd2VkX2Fubm90YXRpb25zID0gWwoJImlvLmt1YmVybmV0ZXMuY3JpLW8uRGV2aWNlcyIsCiAgXQo=
+      - path: /etc/kata-containers/config.d/50-coldplug.toml
+        mode: 0644
+        overwrite: true
+        contents:
+          source: data:text/plain;charset=utf-8;base64,W2h5cGVydmlzb3IucWVtdV0KY29sZF9wbHVnX3ZmaW8gPSAicm9vdC1wb3J0Igpob3RfcGx1Z192ZmlvID0gIm5vLXBvcnQiCnBjaWVfcm9vdF9wb3J0ID0gMgoKW3J1bnRpbWVdCnZmaW9fbW9kZSA9ICJndWVzdC1rZXJuZWwiCnN0YXRpY19zYW5kYm94X3Jlc291cmNlX21nbXQgPSB0cnVlCnNhbmRib3hfY2dyb3VwX29ubHkgPSB0cnVlCg==

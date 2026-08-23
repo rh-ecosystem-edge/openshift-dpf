@@ -1,0 +1,19 @@
+# Smoke-test pod for DPU kata cold-plug validation.
+# Prerequisites: make enable-kata, make enable-ovn-injector, PF1 VF pool ready.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: kata-dpu-test
+spec:
+  runtimeClassName: <KATA_RUNTIME_CLASS>
+  nodeSelector:
+    node-role.kubernetes.io/<WORKER_ROLE>: ""
+  containers:
+  - name: test
+    image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+    command: ["sleep", "300"]
+    resources:
+      limits:
+        "<KATA_INJECTOR_RESOURCE_NAME>": "1"
+      requests:
+        "<KATA_INJECTOR_RESOURCE_NAME>": "1"
