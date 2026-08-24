@@ -1,5 +1,10 @@
 # Smoke-test pod for DPU kata cold-plug validation.
-# Prerequisites: make enable-kata, make enable-ovn-injector, PF1 VF pool ready.
+# Matches jensfr/rhcos-layer-kata-dpu 05-test-pod.yaml (single kata VF pool).
+#
+# Prerequisites: make enable-kata, make enable-ovn-injector, PF1 kata VF pool ready.
+# The OVN injector webhook must set v1.multus-cni.io/default-network to the kata
+# NAD (dpf-ovn-kubernetes-kata-coldplug) so CNI uses the VF netdev path, not
+# ovn-primary with a stale/vfio VF PCI.
 apiVersion: v1
 kind: Pod
 metadata:
