@@ -5,7 +5,6 @@ metadata:
   name: bf-bundle
   namespace: dpf-operator-system
 spec:
-  fileName: <BFB_FILENAME>
   url: <BFB_URL>
   versions:
     atf: 4.15.0-4-g419fbf393

@@ -44,13 +44,10 @@ SPECIAL_FILES=(
 # Function to update BFB manifest
 function update_bfb_manifest() {
     log [INFO] "Updating BFB manifest..."
-    # Extract filename from URL
-    local bfb_filename=$(basename "${BFB_URL}")
     # Update the manifest with custom values using update_file_multi_replace
     update_file_multi_replace \
         "${POST_INSTALL_DIR}/bfb.yaml" \
         "${GENERATED_POST_INSTALL_DIR}/bfb.yaml" \
-        "<BFB_FILENAME>" "${bfb_filename}" \
         "<BFB_URL>" "\"${BFB_URL}\""
     log [INFO] "BFB manifest updated successfully"
 }
