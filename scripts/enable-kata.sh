@@ -123,30 +123,6 @@ function wait_for_mcp() {
     return 1
 }
 
-function validate_mcp() {
-    local pool=$1
-    local ready total updated degraded
-    ready=$(oc get mcp "${pool}" -o jsonpath='{.status.readyMachineCount}' 2>/dev/null || echo "")
-    total=$(oc get mcp "${pool}" -o jsonpath='{.status.machineCount}' 2>/dev/null || echo "")
-    updated=$(oc get mcp "${pool}" -o jsonpath='{.status.updatedMachineCount}' 2>/dev/null || echo "")
-    degraded=$(oc get mcp "${pool}" -o jsonpath='{.status.degradedMachineCount}' 2>/dev/null || echo "0")
-
-    if [ "${degraded:-0}" != "0" ]; then
-        log [ERROR] "MachineConfigPool ${pool} is degraded"
-        oc get mcp "${pool}" -o jsonpath='{.status.conditions[?(@.type=="Degraded")].message}' || true
-        echo
-        return 1
-    fi
-    if [ -n "$ready" ] && [ -n "$total" ] && [ "$total" != "0" ] \
-        && [ "$ready" = "$total" ] && [ "$updated" = "$total" ]; then
-        log [INFO] "MachineConfigPool ${pool} is ready (${ready}/${total})"
-        return 0
-    fi
-    log [ERROR] "MachineConfigPool ${pool} is not ready: ready=${ready:-?}/${total:-?} updated=${updated:-?}"
-    oc get mcp "${pool}" || true
-    return 1
-}
-
 function render_kata_manifest() {
     local src=$1
     local dest=$2
@@ -232,11 +208,10 @@ ensure_machineconfig
 if [ "${KATA_MC_APPLIED}" = "true" ]; then
     log [INFO] "Waiting for MCO to pick up new MachineConfigs..."
     sleep 20
-    wait_for_mcp "${worker_role}"
 else
-    log [INFO] "No new MachineConfigs created, validating MCP ${worker_role}"
-    validate_mcp "${worker_role}"
+    log [INFO] "MachineConfig 99-kata-dpu already exists; waiting for MCP ${worker_role} rollout if needed"
 fi
+wait_for_mcp "${worker_role}"
 
 ensure_runtimeclass "${KATA_RUNTIME_CLASS}"
 
