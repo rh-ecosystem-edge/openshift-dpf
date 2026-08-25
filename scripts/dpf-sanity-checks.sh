@@ -50,21 +50,19 @@ echo -e "- SANITY_TESTS_PING_HBN_TO_HBN_PODS: '${SANITY_TESTS_PING_HBN_TO_HBN_PO
 mgmt_kubecfg="${KUBECONFIG}"
 echo -e "\n- mgmt_kubecfg: '${mgmt_kubecfg}'"
 
-# Get the hosted cluster kubeconfig
-hosted_namespace=$(oc get hostedclusters -A --no-headers --kubeconfig=${mgmt_kubecfg} | awk '{print $1}')
+# Get the hosted cluster namespace and kubeconfig secret name via jsonpath
+# (avoids column-position issues when VERSION or CP VERSION fields are empty)
+hosted_namespace=$(oc get hostedclusters -A --kubeconfig="${mgmt_kubecfg}" -o jsonpath='{.items[0].metadata.namespace}')
 echo -e "\nExtracted hosted_namespace is: '${hosted_namespace}'"
 
-# 2026-04-30:  output of command changed as they added an extra field CP VERSION
-# $ oc get hostedclusters -A --kubeconfig=${mgmt_kubecfg}
-# NAMESPACE   NAME   VERSION       CP VERSION    KUBECONFIG              PROGRESS    AVAILABLE   PROGRESSING   MESSAGE
-# clusters    doca   4.22.0-rc.1   4.22.0-rc.1   doca-admin-kubeconfig   Completed   True        False         The hosted control plane is available
-#
-# $ oc get hostedclusters -A --no-headers --kubeconfig=${mgmt_kubecfg}
-# clusters   doca   4.22.0-rc.1   4.22.0-rc.1   doca-admin-kubeconfig   Completed   True   False   The hosted control plane is available
-# 
-# hosted_kubeconfig_name=$(oc get hostedclusters -A --no-headers --kubeconfig=${mgmt_kubecfg} | awk '{print $4}')
-hosted_kubeconfig_name=$(oc get hostedclusters -A --no-headers --kubeconfig=${mgmt_kubecfg} | awk '{print $5}')
+hosted_kubeconfig_name=$(oc get hostedclusters -A --kubeconfig="${mgmt_kubecfg}" -o jsonpath='{.items[0].status.kubeconfig.name}')
 echo -e "\nExtracted hosted_kubeconfig_name is: '${hosted_kubeconfig_name}'"
+
+if [ -z "${hosted_namespace}" ] || [ -z "${hosted_kubeconfig_name}" ]; then
+  echo "ERROR: Failed to extract hosted cluster namespace or kubeconfig secret name"
+  oc get hostedclusters -A --kubeconfig="${mgmt_kubecfg}" || true
+  exit 1
+fi
 
 datetime_string=$(date +"%Y-%m-%d_%H-%M-%S")
 echo -e "\nTimestamp prefix used in this script: '${datetime_string}'"
@@ -78,11 +76,11 @@ echo -e "\nhosted_kubecfg file path: '${hosted_kubecfg}'"
 echo -e "\nExtracting the hosted cluster '${HOSTED_CLUSTER_NAME}' kubeconfig '${hosted_kubeconfig_name}' to a file named '${hosted_kubecfg}'"
 oc get secret -n "${hosted_namespace}" "${hosted_kubeconfig_name}" --kubeconfig="${mgmt_kubecfg}" -o jsonpath='{.data.kubeconfig}' | base64 -d > "${hosted_kubecfg}"
 
-# check if the hosted cluster kubeconfig file was created successfully
-if [ -f "${hosted_kubecfg}" ]; then
+# check if the hosted cluster kubeconfig file was created successfully and is not empty
+if [ -s "${hosted_kubecfg}" ]; then
   echo -e "\nhosted_kubecfg file was created successfully at path: '${hosted_kubecfg}'"
 else
-  echo -e "\nFailed to create hosted cluster kubeconfig file '${hosted_kubecfg}'"
+  echo -e "\nFailed to create hosted cluster kubeconfig file '${hosted_kubecfg}' (missing or empty)"
   exit 1
 fi
 
