@@ -44,4 +44,6 @@ spec:
     controlPlaneMTU: <NODES_MTU>
     highSpeedMTU: <NODES_MTU>
     dpuNodeOOBBridgeName: br-ex
+  dpuServiceController:
+    disableHostNetworkReadyNoExecuteTaints: false
 
