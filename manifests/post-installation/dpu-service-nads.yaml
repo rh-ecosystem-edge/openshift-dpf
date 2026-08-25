@@ -8,14 +8,3 @@ spec:
   ipam: false
   bridge: "br-hbn"
   serviceMTU: <SVC_MTU>
---- 
-apiVersion: svc.dpu.nvidia.com/v1alpha1
-kind: DPUServiceNAD
-metadata:
-  name: mybrsfc
-  namespace: dpf-operator-system
-spec:
-  resourceType: sf
-  ipam: true
-  bridge: "br-sfc"
-  serviceMTU: <SVC_MTU>
