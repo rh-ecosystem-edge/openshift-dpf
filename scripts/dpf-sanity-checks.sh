@@ -459,7 +459,7 @@ for i in "${!dpu_host_workers[@]}"; do
   ping_mtu_test "${testcase_title}" "${sriov_test_pod_master}" "${SANITY_TESTS_WORKLOAD_NAMESPACE}" "${mgmt_kubecfg}" "${SANITY_TESTS_PING_COUNT}" 1490 "${doca_hbn_worker_pod_ip[$i]}"
 
   echo -e "\nFinding sriov test worker pod name for dpu_host_workers array index $i '${dpu_host_workers[$i]}' to ping doca-hbn pod name '${doca_hbn_worker_pods[$i]}'"
-  sriov_test_worker_pods[$i]=$(oc get pods -n "${SANITY_TESTS_WORKLOAD_NAMESPACE}" --kubeconfig="${mgmt_kubecfg}" -o wide | grep "${dpu_host_workers[$i]}" | grep "Running" | awk '{print $1}' | grep -v hostnetwork)
+  sriov_test_worker_pods[$i]=$(oc get pods -n "${SANITY_TESTS_WORKLOAD_NAMESPACE}" --kubeconfig="${mgmt_kubecfg}" -o wide | grep "${dpu_host_workers[$i]}" | grep "Running" | awk '{print $1}' | grep -v hostnetwork | head -1)
 
   if [ -z "${sriov_test_worker_pods[$i]}" ]; then
     echo -e "❌ Failed to find sriov test worker pod for DPU worker '${dpu_host_workers[$i]}'. Exiting script..."
@@ -477,7 +477,7 @@ for i in "${!dpu_host_workers[@]}"; do
   fi
 
   echo -e "\nFinding sriov_test_workers_pods_hostnetwork name for dpu_host_workers array index $i '${dpu_host_workers[$i]}' to ping doca-hbn pod name '${doca_hbn_worker_pods[$i]}'"
-  sriov_test_worker_pods_hostnetwork[$i]=$(oc get pods -n "${SANITY_TESTS_WORKLOAD_NAMESPACE}" --kubeconfig="${mgmt_kubecfg}" -o wide | grep "${dpu_host_workers[$i]}" | awk '{print $1}' | grep hostnetwork)
+  sriov_test_worker_pods_hostnetwork[$i]=$(oc get pods -n "${SANITY_TESTS_WORKLOAD_NAMESPACE}" --kubeconfig="${mgmt_kubecfg}" -o wide | grep "${dpu_host_workers[$i]}" | awk '{print $1}' | grep hostnetwork | head -1)
   if [ -z "${sriov_test_worker_pods_hostnetwork[$i]}" ]; then
     echo -e "❌ Failed to find sriov test worker hostnetwork pod for DPU worker '${dpu_host_workers[$i]}'. Exiting script..."
     exit 1
