@@ -20,7 +20,7 @@ OBSERVABILITY_DIR="${MANIFESTS_DIR}/observability"
 # BFB Configuration with defaults
 BFB_URL=${BFB_URL:-"http://10.8.2.236/bfb/rhcos_4.19.0-ec.4_installer_2025-04-23_07-48-42.bfb"}
 
-# HBN OVN Configuration with defaults
+# CIDR pool for OVN-Kubernetes VTEPs on the high-speed fabric
 VTEP_CIDR=${VTEP_CIDR:-"10.0.120.0/22"}
 
 # Ensure directories exist
