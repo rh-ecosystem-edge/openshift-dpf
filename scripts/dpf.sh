@@ -208,11 +208,6 @@ function deploy_dpu_worker_config() {
         version_flag="--version ${DPU_WORKER_CONFIG_CHART_VERSION}"
     fi
 
-    local mtu_flag=""
-    if [[ -n "${NODES_MTU}" && "${NODES_MTU}" != "1500" ]]; then
-        mtu_flag="--set networkMTU=${NODES_MTU}"
-    fi
-
     if helm upgrade --install dpu-worker-config \
         "${DPU_WORKER_CONFIG_CHART_URL}" \
         --namespace ${DPF_HCP_PROVISIONER_OPERATOR_NAMESPACE} \
