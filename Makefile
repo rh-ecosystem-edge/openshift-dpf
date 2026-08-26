@@ -73,10 +73,6 @@ get-day2-iso: create-day2-cluster
 prepare-manifests:
 	@$(MANIFESTS_SCRIPT) prepare-manifests
 
-.PHONY: generate-ovn
-generate-ovn:
-	@$(MANIFESTS_SCRIPT) generate-ovn-manifests
-
 .PHONY: update-paths
 update-paths:
 	@$(MANIFESTS_SCRIPT) prepare-manifests

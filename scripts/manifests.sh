@@ -47,8 +47,6 @@ function prepare_cluster_manifests() {
     
     # Build list of files to exclude
     local excluded_files=(
-        "ovn-values.yaml"
-        "ovn-values-with-injector.yaml"
         "nfd-subscription.yaml"
         "openshift-cert-manager.yaml"
     )
@@ -104,14 +102,6 @@ function prepare_cluster_manifests() {
     else
         log [INFO] "Installing manifests to cluster via AICLI..."
         aicli create manifests --dir "$GENERATED_DIR" "$CLUSTER_NAME"
-
-        # Upload openshift folder manifests (e.g., FeatureGate) to the openshift folder
-        # This is needed to override built-in OpenShift manifests like 99_feature-gate.yaml
-        local openshift_manifests_dir="$MANIFESTS_DIR/cluster-installation/openshift"
-        if [ -d "$openshift_manifests_dir" ] && [ "$(ls -A "$openshift_manifests_dir" 2>/dev/null)" ]; then
-            log [INFO] "Installing openshift folder manifests (to override built-in manifests)..."
-            aicli create manifests --dir "$openshift_manifests_dir" --openshift "$CLUSTER_NAME"
-        fi
     fi
 
     log [INFO] "Cluster manifests preparation complete."
@@ -305,99 +295,6 @@ prepare_dpf_manifests() {
     log "INFO" "DPF manifest preparation completed successfully"
 }
 
-function update_ovn_mtu_in_value_file() {
-    local ovn_values_file=$1
-
-    if [ -z "$ovn_values_file" ] || [ ! -f "$ovn_values_file" ]; then 
-       log "ERROR" "OVN values file not found: ${ovn_values_file}" 
-       return 1
-    fi
-    # Check if NODES_MTU is defined and is not 1500
-    if [[ -n "$NODES_MTU" ]] && [[ "$NODES_MTU" != "1500" ]]; then
-        echo "NODES_MTU is defined as $NODES_MTU. Updating MTU in $ovn_values_file."
-
-        local new_mtu=$((NODES_MTU - 60))
-        if grep -Eq '^[[:space:]]*mtu:' "$ovn_values_file"; then
-           sed -i "s/mtu:.*/mtu: $new_mtu/" "$ovn_values_file"
-        else
-           sed -i "/podNetwork:/a\mtu: $new_mtu" "$ovn_values_file"
-        fi
-        echo "Successfully updated MTU to $new_mtu in $ovn_values_file."
-    else
-        echo "NODES_MTU is not defined or is 1500. Setting default MTU to 1400 in $ovn_values_file."
-        local new_mtu=1400
-
-        if grep -Eq '^[[:space:]]*mtu:' "$ovn_values_file"; then
-            sed -i "s/mtu:.*/mtu: $new_mtu/" "$ovn_values_file"
-        else
-            sed -i "/podNetwork:/a\mtu: $new_mtu" "$ovn_values_file"
-        fi
-        echo "Successfully set default MTU to $new_mtu in $ovn_values_file." 
-    fi
-}
-
-# Not used anymore
-# Saving it for possible future use
-function generate_ovn_manifests() {
-    log [INFO] "Generating OVN manifests for cluster installation..."
-    
-    # NOTE: We must use helm template here because these manifests are added to the cluster
-    # via 'aicli create manifests' before the cluster API is available for helm install
-    
-    # Validate DPF_VERSION is set
-    if [ -z "$DPF_VERSION" ]; then
-        log [ERROR] "DPF_VERSION is not set. Required for OVN chart pull"
-        return 1
-    fi
-    
-    # Ensure helm is installed
-    ensure_helm_installed
-    
-    mkdir -p "$GENERATED_DIR/temp"
-    local API_SERVER="api.$CLUSTER_NAME.$BASE_DOMAIN:6443"
-    
-    # Pull and template OVN chart
-    log [INFO] "Pulling OVN chart ${OVN_CHART_VERSION}..."
-    if ! helm pull "${OVN_CHART_URL}/ovn-kubernetes-chart" \
-        --version "${OVN_CHART_VERSION}" \
-        --untar -d "$GENERATED_DIR/temp"; then
-        log [ERROR] "Failed to pull OVN chart ${DPF_VERSION}"
-        return 1
-    fi
-    
-    update_ovn_mtu_in_value_file $HELM_CHARTS_DIR/ovn-values.yaml
-    
-    # Replace template variables in values file
-    sed -e "s|<TARGETCLUSTER_API_SERVER_HOST>|api.$CLUSTER_NAME.$BASE_DOMAIN|" \
-        -e "s|<TARGETCLUSTER_API_SERVER_PORT>|6443|" \
-        -e "s|<POD_CIDR>|$POD_CIDR|" \
-        -e "s|<SERVICE_CIDR>|$SERVICE_CIDR|" \
-        -e "s|<OVN_KUBERNETES_IMAGE_REPO>|$OVN_KUBERNETES_IMAGE_REPO|" \
-        -e "s|<OVN_KUBERNETES_IMAGE_TAG>|$OVN_KUBERNETES_IMAGE_TAG|" \
-        -e "s|<OVN_KUBERNETES_UTILS_IMAGE_REPO>|$OVN_KUBERNETES_UTILS_IMAGE_REPO|" \
-        -e "s|<OVN_KUBERNETES_UTILS_IMAGE_TAG>|$OVN_KUBERNETES_UTILS_IMAGE_TAG|" \
-        "$HELM_CHARTS_DIR/ovn-values.yaml" > "$GENERATED_DIR/temp/ovn-values-resolved.yaml"
-    
-    log [INFO] "Generating OVN manifests from helm template..."
-    if ! helm template -n ${OVNK_NAMESPACE} ovn-kubernetes \
-        "$GENERATED_DIR/temp/ovn-kubernetes-chart" \
-        -f "$GENERATED_DIR/temp/ovn-values-resolved.yaml" \
-        > "$GENERATED_DIR/ovn-manifests.yaml"; then
-        log [ERROR] "Failed to generate OVN manifests"
-        return 1
-    fi
-    
-    # Check if the file is not empty
-    if [ ! -s "$GENERATED_DIR/ovn-manifests.yaml" ]; then
-        log [ERROR] "Generated OVN manifest file is empty!"
-        return 1
-    fi
-    
-    rm -rf "$GENERATED_DIR/temp"
-    
-    log [INFO] "OVN manifests generated successfully"
-}
-
 function enable_storage() {
     log [INFO] "Enabling storage operator (STORAGE_TYPE=${STORAGE_TYPE})"
 
@@ -435,9 +332,6 @@ function main() {
         deploy-core-operator-sources)
             deploy_core_operator_sources
             ;;
-        generate-ovn-manifests)
-            generate_ovn_manifests
-            ;;
         prepare-manifests)
             prepare_manifests "cluster"
             ;;
@@ -449,7 +343,7 @@ function main() {
             ;;
         *)
             log [INFO] "Unknown command: $command"
-            log [INFO] "Available commands: prepare-manifests, prepare-dpf-manifests, apply-lso, deploy-core-operator-sources, generate-ovn-manifests"
+            log [INFO] "Available commands: prepare-manifests, prepare-dpf-manifests, apply-lso, deploy-core-operator-sources"
             exit 1
             ;;
     esac

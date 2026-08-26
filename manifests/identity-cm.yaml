@@ -1,7 +1,0 @@
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: network-node-identity
-  namespace: openshift-network-operator
-data:
-  enabled: "false"
