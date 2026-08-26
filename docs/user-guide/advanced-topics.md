@@ -36,7 +36,7 @@ NODES_MTU=9000  # Add to .env file
 NUM_VFS=32                    # Reduce if not using all VFs
 
 # Advanced DPU network configuration
-HBN_OVN_NETWORK=10.6.150.0/27    # HBN network range
+VTEP_CIDR=10.6.150.0/27          # OVN VTEP network range
 DPU_HOST_CIDR=10.6.130.0/24      # DPU host communication
 ```
 

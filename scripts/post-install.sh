@@ -21,7 +21,7 @@ OBSERVABILITY_DIR="${MANIFESTS_DIR}/observability"
 BFB_URL=${BFB_URL:-"http://10.8.2.236/bfb/rhcos_4.19.0-ec.4_installer_2025-04-23_07-48-42.bfb"}
 
 # HBN OVN Configuration with defaults
-HBN_OVN_NETWORK=${HBN_OVN_NETWORK:-"10.0.120.0/22"}
+VTEP_CIDR=${VTEP_CIDR:-"10.0.120.0/22"}
 
 # Ensure directories exist
 mkdir -p "${GENERATED_POST_INSTALL_DIR}"
@@ -68,8 +68,8 @@ function update_hbn_ovn_manifests() {
     update_file_multi_replace \
         "${POST_INSTALL_DIR}/hbn-ovn-ipam.yaml" \
         "${GENERATED_POST_INSTALL_DIR}/hbn-ovn-ipam.yaml" \
-        "<HBN_OVN_NETWORK>" \
-        "${HBN_OVN_NETWORK}"
+        "<VTEP_CIDR>" \
+        "${VTEP_CIDR}"
 
     # Update ovn-configuration.yaml for DPUDeployment
     if [ -f "${POST_INSTALL_DIR}/ovn-configuration.yaml" ]; then
@@ -85,7 +85,7 @@ function update_hbn_ovn_manifests() {
         update_file_multi_replace \
             "${POST_INSTALL_DIR}/ovn-configuration.yaml" \
             "${GENERATED_POST_INSTALL_DIR}/ovn-configuration.yaml" \
-            "<HBN_OVN_NETWORK>" "${HBN_OVN_NETWORK}" \
+            "<VTEP_CIDR>" "${VTEP_CIDR}" \
             "<HOST_CLUSTER_API>" "${HOST_CLUSTER_API}" \
             "<DPU_HOST_CIDR>" "${DPU_HOST_CIDR}" \
             "<NODES_MTU>" "${ovn_mtu}"
