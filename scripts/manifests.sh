@@ -262,18 +262,6 @@ prepare_dpf_manifests() {
         "$GENERATED_DIR/ngc-secrets.yaml" \
         "<NGC_API_KEY>" "$NGC_API_KEY"
 
-    # Update pull secret
-    # Encode pull secret (Linux/GNU base64)
-    PULL_SECRET=$(cat "$DPF_PULL_SECRET" | base64 -w 0)
-    if [ -z "$PULL_SECRET" ]; then
-        log "ERROR" "Failed to encode pull secret"
-        return 1
-    fi
-    local escaped_secret=$(escape_sed_replacement "$PULL_SECRET")
-    update_file_multi_replace \
-        "$GENERATED_DIR/dpf-pull-secret.yaml" \
-        "$GENERATED_DIR/dpf-pull-secret.yaml" \
-        "<PULL_SECRET_BASE64>" "$escaped_secret"
 
     # For OCP >= 4.22, Hypershift handles node CIDR allocation natively so
     # the dpu-node-ipam-controller is not deployed.  Instead, tell DPF's
