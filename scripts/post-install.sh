@@ -73,13 +73,8 @@ function update_hbn_ovn_manifests() {
 
     # Update ovn-configuration.yaml for DPUDeployment
     if [ -f "${POST_INSTALL_DIR}/ovn-configuration.yaml" ]; then
-        local ovn_mtu=""
-
-        if [ "$NODES_MTU" != "1500" ]; then
-            ovn_mtu=$((NODES_MTU - 60))
-        else
-            ovn_mtu=1400
-        fi
+        # OVN-Kubernetes uses 100 bytes of overhead for Geneve encapsulation.
+        local ovn_mtu=$((NODES_MTU - 100))
 
         log "INFO" "ovn-configuration will be set with MTU:$ovn_mtu"
         update_file_multi_replace \
