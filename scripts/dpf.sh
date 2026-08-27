@@ -463,12 +463,20 @@ function deploy_argocd() {
     if ! oc get subscription openshift-gitops-operator -n openshift-gitops-operator &>/dev/null; then
         log [INFO] "Installing GitOps operator..."
         mkdir -p "$GENERATED_DIR"
+        local gitops_sub="$GENERATED_DIR/gitops-operator-subscription.yaml"
         process_template \
             "${MANIFESTS_DIR}/gitops-operator/subscription.yaml" \
-            "$GENERATED_DIR/gitops-operator-subscription.yaml" \
-            "<GITOPS_OPERATOR_CHANNEL>" "$GITOPS_OPERATOR_CHANNEL" \
-            "<GITOPS_OPERATOR_VERSION>" "$GITOPS_OPERATOR_VERSION"
-        apply_manifest "$GENERATED_DIR/gitops-operator-subscription.yaml"
+            "$gitops_sub" \
+            "<GITOPS_OPERATOR_CHANNEL>" "$GITOPS_OPERATOR_CHANNEL"
+
+        if [ -n "${GITOPS_OPERATOR_VERSION}" ]; then
+            log [INFO] "Pinning GitOps operator startingCSV to openshift-gitops-operator.${GITOPS_OPERATOR_VERSION}"
+            awk -v csv="  startingCSV: openshift-gitops-operator.${GITOPS_OPERATOR_VERSION}" '
+                { print }
+                /sourceNamespace: openshift-marketplace/ { print csv }
+            ' "$gitops_sub" > "${gitops_sub}.tmp" && mv "${gitops_sub}.tmp" "$gitops_sub"
+        fi
+        apply_manifest "$gitops_sub"
 
         # Prefer CSV readiness over pod label matching for stability
         if ! retry 60 10 bash -c "oc get csv -n openshift-gitops-operator -o jsonpath='{.items[*].status.phase}' | grep -q Succeeded"; then
