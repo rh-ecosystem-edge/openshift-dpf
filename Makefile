@@ -227,7 +227,6 @@ install-helm:
 
 run-dpf-sanity:
 	@echo "Running $(SANITY_CHECKS_SCRIPT) ..."
-	@chmod +x $(SANITY_CHECKS_SCRIPT)
 	@$(SANITY_CHECKS_SCRIPT)
 
 # Traffic Flow Tests
