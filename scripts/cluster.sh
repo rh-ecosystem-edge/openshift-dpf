@@ -262,9 +262,49 @@ EOF
     _generate_nmstate_dhcp_entries "$STATIC_NET_FILE" "$VM_COUNT" "$VM_PREFIX" 0
 }
 
+function deploy_onprem_ai() {
+    if podman pod exists assisted-installer 2>/dev/null; then
+        log "INFO" "Removing previous on-prem Assisted Installer pod..."
+        podman pod rm -f assisted-installer
+    fi
+    log "INFO" "Using aicli from: $(which aicli)"
+    log "INFO" "Deploying on-prem Assisted Installer with release image ${PAYLOAD_URL}..."
+    local _short_version="${OPENSHIFT_VERSION%.*}"
+    aicli create onprem \
+        -P ocp_release_image="${PAYLOAD_URL}" \
+        -P openshift_version="${_short_version}" \
+        -P version_long="${OPENSHIFT_VERSION}" \
+        -P installer_registry="quay.io"
+    log "INFO" "Waiting for on-prem Assisted Installer API to be ready..."
+    local retries=0
+    while ! curl -sf --connect-timeout 3 --max-time 5 http://127.0.0.1:8090/api/assisted-install/v2/openshift-versions >/dev/null 2>&1; do
+        retries=$((retries + 1))
+        if [ "$retries" -ge 30 ]; then
+            log "ERROR" "On-prem Assisted Installer API did not become ready"
+            return 1
+        fi
+        sleep 2
+    done
+    log "INFO" "On-prem Assisted Installer API is ready"
+    retries=0
+    while ! curl -sf --connect-timeout 3 --max-time 5 http://127.0.0.1:8888/health >/dev/null 2>&1; do
+        retries=$((retries + 1))
+        if [ "$retries" -ge 30 ]; then
+            log "ERROR" "On-prem Assisted Installer image service did not become ready"
+            return 1
+        fi
+        sleep 2
+    done
+    log "INFO" "On-prem Assisted Installer image service is ready"
+}
+
 function check_create_cluster() {
     log "INFO" "Checking if cluster ${CLUSTER_NAME} exists..."
-    
+
+    if [ -n "${PAYLOAD_URL:-}" ]; then
+        deploy_onprem_ai
+    fi
+
     # First check if cluster is already installed
     if check_cluster_installed; then
         log "INFO" "Cluster is already installed, skipping creation"
@@ -280,9 +320,9 @@ function check_create_cluster() {
 
     if ! aicli info cluster ${CLUSTER_NAME} >/dev/null 2>&1; then
         log "INFO" "Cluster ${CLUSTER_NAME} not found, creating... (arch=${ARCH}, cpu_architecture=$(arch_for_aicli "$ARCH"))"
-        
+
         ensure_ssh_key_in_home || return 1
-        
+
         if [ "$VM_COUNT" -eq 1 ]; then
             log "INFO" "Creating single-node cluster..."
             aicli create cluster \
@@ -311,16 +351,14 @@ function check_create_cluster() {
                 "${paramfile_args[@]}" \
                 "${CLUSTER_NAME}"
         fi
-        
+
         log "INFO" "Cluster ${CLUSTER_NAME} created successfully"
     else
         log "INFO" "Cluster ${CLUSTER_NAME} already exists"
     fi
 }
 
-function delete_cluster() {
-    log "INFO" "Deleting cluster ${CLUSTER_NAME}..."
-
+function _delete_cluster_from_ai() {
     for infraenv_name in \
         "${CLUSTER_NAME}_infra-env" \
         "${CLUSTER_NAME}_infra-env_alt_$(get_alt_arch "$ARCH")"; do
@@ -350,6 +388,24 @@ function delete_cluster() {
     fi
 }
 
+function delete_cluster() {
+    log "INFO" "Deleting cluster ${CLUSTER_NAME}..."
+
+    # Try deleting from on-prem AI if it's running (previous deploy may have used it)
+    if podman pod exists assisted-installer 2>/dev/null; then
+        if curl -sf http://127.0.0.1:8090/api/assisted-install/v2/clusters >/dev/null 2>&1; then
+            log "INFO" "On-prem Assisted Installer is running, deleting cluster from it..."
+            AI_URL=http://127.0.0.1:8090 _delete_cluster_from_ai
+        fi
+        log "INFO" "Removing on-prem Assisted Installer pod..."
+        podman pod rm -f assisted-installer || true
+    fi
+
+    # Try deleting from console (previous deploy may have used it)
+    log "INFO" "Deleting cluster from Assisted Installer console..."
+    (unset AI_URL; _delete_cluster_from_ai)
+}
+
 function wait_for_cluster_status() {
     local status=$1
     local max_retries=${2:-120}
@@ -365,9 +421,9 @@ function wait_for_cluster_status() {
             sleep $sleep_time
             continue
         fi
-        # If waiting for 'ready' but status is already 'installed', treat as success
-        if [ "$status" == "ready" ] && [ "$current_status" == "installed" ]; then
-            log "INFO" "Cluster ${CLUSTER_NAME} is already installed. Skipping wait for 'ready'."
+        # If waiting for an intermediate status but cluster is already installed, skip
+        if [ "$current_status" == "installed" ] && [ "$status" != "installed" ]; then
+            log "INFO" "Cluster ${CLUSTER_NAME} is already installed. Skipping wait for '${status}'."
             return 0
         fi
         # 'adding-hosts' implies the cluster is installed and accepting new nodes

@@ -136,14 +136,9 @@ validate_mtu() {
     fi
 }
 
-# Load environment variables from .env file and validate aicli connectivity
-# (skip if already in Make context — the Makefile does `include .env` + `export`)
-if [ -z "${MAKELEVEL:-}" ]; then
-    load_env
-    validate_mtu
-
-    # aicli uses HOME to find ~/.aicli/offlinetoken.txt. Default: $HOME. Override with AICLI_HOME (e.g. in .env).
-    # When using AICLI_HOME, OPENSHIFT_PULL_SECRET must be a pull secret for the same Red Hat account as that token.
+# Validate aicli connectivity via the Red Hat Assisted Installer console.
+# aicli uses HOME to find ~/.aicli/offlinetoken.txt. Override with AICLI_HOME.
+validate_aicli() {
     AICLI_HOME=${AICLI_HOME:-$HOME}
     if [[ "$AICLI_HOME" != "$HOME" ]] && [[ ! -f "${AICLI_HOME}/.aicli/offlinetoken.txt" ]]; then
         echo "Error: ${AICLI_HOME}/.aicli/offlinetoken.txt not found." >&2
@@ -154,6 +149,51 @@ if [ -z "${MAKELEVEL:-}" ]; then
         echo "Error: aicli list clusters failed. Check token at ${AICLI_HOME}/.aicli/offlinetoken.txt and connectivity." >&2
         exit 1
     fi
+}
+
+# When PAYLOAD_URL is set (e.g. by Prow), derive OPENSHIFT_VERSION and
+# OCP_RELEASE_IMAGE from the release payload instead of using .env defaults.
+resolve_payload() {
+    export AI_URL="http://127.0.0.1:8090"
+    if ! command -v oc &>/dev/null; then
+        echo "Error: PAYLOAD_URL is set but 'oc' is not available" >&2
+        exit 1
+    fi
+    local _oc_registry_flags=""
+    if [ -f "${OPENSHIFT_PULL_SECRET:-}" ]; then
+        _oc_registry_flags="--registry-config=${OPENSHIFT_PULL_SECRET}"
+    fi
+    local _release_info
+    if ! _release_info=$(oc adm release info ${_oc_registry_flags} "$PAYLOAD_URL" 2>&1); then
+        echo "Error: 'oc adm release info' failed for ${PAYLOAD_URL}:" >&2
+        echo "$_release_info" >&2
+        exit 1
+    fi
+    local _payload_version
+    _payload_version=$(echo "$_release_info" | awk '/^Name:/{print $2}')
+    if [ -z "$_payload_version" ]; then
+        echo "Error: could not parse version from release info for ${PAYLOAD_URL}" >&2
+        exit 1
+    fi
+    OPENSHIFT_VERSION="$_payload_version"
+    local _multi_image="quay.io/openshift-release-dev/ocp-release:${_payload_version}-multi"
+    if oc adm release info ${_oc_registry_flags} "$_multi_image" &>/dev/null; then
+        OCP_RELEASE_IMAGE="$_multi_image"
+        echo "PAYLOAD_URL set: OPENSHIFT_VERSION=${OPENSHIFT_VERSION}, OCP_RELEASE_IMAGE=${OCP_RELEASE_IMAGE}"
+    else
+        echo "PAYLOAD_URL set: OPENSHIFT_VERSION=${OPENSHIFT_VERSION}, OCP_RELEASE_IMAGE unchanged (no multi-arch image for ${_payload_version})"
+    fi
+}
+
+# Load environment variables from .env file and validate aicli connectivity
+# (skip if already in Make context — the Makefile does `include .env` + `export`)
+if [ -z "${MAKELEVEL:-}" ]; then
+    load_env
+    validate_mtu
+
+    if [ -z "${PAYLOAD_URL:-}" ]; then
+        validate_aicli
+    fi
 fi
 
 # Computed / conditional variables — derived from .env values at runtime.
@@ -163,6 +203,10 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     HELM_CHARTS_DIR=${HELM_CHARTS_DIR:-"$MANIFESTS_DIR/helm-charts-values"}
     HOST_CLUSTER_API=${HOST_CLUSTER_API:-"api.$CLUSTER_NAME.$BASE_DOMAIN"}
     HOSTED_CONTROL_PLANE_NAMESPACE=${HOSTED_CONTROL_PLANE_NAMESPACE:-"${CLUSTERS_NAMESPACE}-${HOSTED_CLUSTER_NAME}"}
+
+    if [ -n "${PAYLOAD_URL:-}" ]; then
+        resolve_payload
+    fi
 
     # OLM Catalog Source — when OLM_WORKAROUND=true, use the previous OCP
     # minor version's catalog (e.g. 4.20→4.19, 4.22→4.21).
