@@ -179,6 +179,7 @@ function deploy_dpf_hcp_provisioner_operator() {
         --namespace ${DPF_HCP_PROVISIONER_OPERATOR_NAMESPACE} \
         --create-namespace \
         --disable-openapi-validation \
+        --registry-config "${OPENSHIFT_PULL_SECRET}" \
         ${version_flag} \
         --set image.repository=${DPF_HCP_PROVISIONER_OPERATOR_IMAGE_REPO} \
         --set image.pullPolicy=Always \
@@ -218,6 +219,7 @@ function deploy_dpu_worker_config() {
         --namespace ${DPF_HCP_PROVISIONER_OPERATOR_NAMESPACE} \
         --create-namespace \
         --disable-openapi-validation \
+        --registry-config "${OPENSHIFT_PULL_SECRET}" \
         ${version_flag}; then
         log [INFO] "Helm release 'dpu-worker-config' deployed successfully"
     else
