@@ -5,14 +5,6 @@ metadata:
   name: argocd
   namespace: dpf-operator-system
 spec:
-  resourceExclusions: |
-    - apiGroups:
-      - packages.operators.coreos.com
-      kinds:
-      - PackageManifest
-      clusters:
-      - "*"
-
   nodePlacement:
     nodeSelector:
       node-role.kubernetes.io/control-plane: ""
@@ -23,17 +15,21 @@ spec:
     - key: node-role.kubernetes.io/control-plane
       operator: Exists
       effect: NoSchedule
-
   server:
     route:
       enabled: true
-
+  controller: {}
+  repo: {}
   applicationSet:
     enabled: false
-
+  resourceExclusions: |
+    - apiGroups:
+      - packages.operators.coreos.com
+      kinds:
+      - PackageManifest
   sso:
+    provider: dex
     dex:
-      openShiftOAuth: false
-
+      openShiftOAuth: true
   notifications:
     enabled: false
