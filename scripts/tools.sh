@@ -89,6 +89,70 @@ function install_hypershift() {
     log "INFO" "Hypershift installation completed successfully!"
 }
 
+# Prefer MCE_OPERATOR_CHANNEL (default stable-2.17) when that channel exists in
+# the catalog the subscription will use. Otherwise use PackageManifest defaultChannel.
+function resolve_mce_operator_channel() {
+    local catalog="${CATALOG_SOURCE_NAME:-redhat-operators}"
+    local requested="${MCE_OPERATOR_CHANNEL:-stable-2.17}"
+    local pm_json=""
+    local default_channel=""
+    local available=""
+    local attempt=0
+    local retries=12
+    local delay=5
+
+    log "INFO" "Looking up MCE PackageManifest in catalog ${catalog} (requested channel ${requested})..."
+    while (( attempt < retries )); do
+        pm_json=$(oc get packagemanifests -n openshift-marketplace -o json 2>/dev/null | \
+            jq -c --arg cat "${catalog}" '
+                .items[] | select(.metadata.name=="multicluster-engine" and .status.catalogSource==$cat)
+            ' | head -n1)
+        if [ -n "${pm_json}" ]; then
+            break
+        fi
+        attempt=$((attempt + 1))
+        log "INFO" "PackageManifest not ready yet (attempt ${attempt}/${retries}). Retrying in ${delay}s..."
+        sleep "${delay}"
+    done
+
+    if [ -z "${pm_json}" ] && [ "${catalog}" != "redhat-operators" ]; then
+        log "WARN" "multicluster-engine not found in ${catalog}; trying redhat-operators"
+        catalog="redhat-operators"
+        pm_json=$(oc get packagemanifests -n openshift-marketplace -o json 2>/dev/null | \
+            jq -c --arg cat "${catalog}" '
+                .items[] | select(.metadata.name=="multicluster-engine" and .status.catalogSource==$cat)
+            ' | head -n1)
+    fi
+
+    if [ -z "${pm_json}" ]; then
+        log "ERROR" "No multicluster-engine PackageManifest found in catalog ${catalog}"
+        oc get packagemanifests -n openshift-marketplace \
+            -o custom-columns=NAME:.metadata.name,CATALOG:.status.catalogSource,DEFAULT:.status.defaultChannel \
+            2>/dev/null | grep -E 'NAME|multicluster-engine' || true
+        return 1
+    fi
+
+    MCE_CATALOG_SOURCE="${catalog}"
+    default_channel=$(echo "${pm_json}" | jq -r '.status.defaultChannel // empty')
+    available=$(echo "${pm_json}" | jq -r '[.status.channels[].name] | join(" ")')
+    log "INFO" "Catalog ${catalog} MCE defaultChannel=${default_channel} channels=[${available}]"
+
+    if echo "${pm_json}" | jq -e --arg ch "${requested}" '.status.channels[] | select(.name==$ch)' >/dev/null; then
+        MCE_OPERATOR_CHANNEL="${requested}"
+        log "INFO" "Using requested MCE channel ${MCE_OPERATOR_CHANNEL}"
+        return 0
+    fi
+
+    if [ -n "${default_channel}" ]; then
+        log "WARN" "Requested MCE channel ${requested} is not in catalog ${catalog}; using defaultChannel ${default_channel}"
+        MCE_OPERATOR_CHANNEL="${default_channel}"
+        return 0
+    fi
+
+    log "ERROR" "Could not resolve MCE channel from catalog ${catalog}. Available: ${available}"
+    return 1
+}
+
 function install_hypershift_via_mce() {
     log "INFO" "Installing Hypershift via MultiCluster Engine (MCE)..."
 
@@ -96,45 +160,62 @@ function install_hypershift_via_mce() {
     local generated_dir="${GENERATED_DIR:-manifests/generated}"
     mkdir -p "${generated_dir}"
 
-    # Step 1: Deploy MCE operator subscription
-    if oc get subscription -n multicluster-engine multicluster-engine &>/dev/null; then
-        log "INFO" "MCE subscription already exists. Skipping subscription deployment."
-    else
-        log "INFO" "Deploying MCE operator subscription..."
-        process_template \
-            "${manifests_dir}/mce/mce-subscription.yaml" \
-            "${generated_dir}/mce-subscription.yaml" \
-            "<CATALOG_SOURCE_NAME>" "${CATALOG_SOURCE_NAME}"
+    resolve_mce_operator_channel || return 1
 
-        apply_manifest "${generated_dir}/mce-subscription.yaml" true
-    fi
+    # Always apply so a previously-wrong channel (e.g. stable-2.7) is updated.
+    log "INFO" "Deploying MCE operator subscription (channel ${MCE_OPERATOR_CHANNEL}, catalog ${MCE_CATALOG_SOURCE})..."
+    process_template \
+        "${manifests_dir}/mce/mce-subscription.yaml" \
+        "${generated_dir}/mce-subscription.yaml" \
+        "<CATALOG_SOURCE_NAME>" "${MCE_CATALOG_SOURCE}" \
+        "<MCE_OPERATOR_CHANNEL>" "${MCE_OPERATOR_CHANNEL}"
 
-    # Step 2: Wait for MCE operator CSV to succeed
-    log "INFO" "Waiting for MultiCluster Engine operator to be ready..."
+    apply_manifest "${generated_dir}/mce-subscription.yaml" true
+
+    # Wait for the operator to be running before creating the MCE instance.
+    log "INFO" "Waiting for MultiCluster Engine operator CSV to succeed..."
     if ! retry 60 10 bash -c 'oc get csv -n multicluster-engine -o jsonpath="{.items[*].status.phase}" 2>/dev/null | grep -q "Succeeded"'; then
         log "ERROR" "Timeout: MCE operator CSV did not reach Succeeded phase"
+        oc get csv -n multicluster-engine 2>/dev/null || true
         return 1
     fi
-    log "INFO" "MCE operator is ready"
+    log "INFO" "Waiting for MultiClusterEngine CRD..."
+    if ! retry 30 5 oc get crd multiclusterengines.multicluster.openshift.io &>/dev/null; then
+        log "ERROR" "Timeout: MultiClusterEngine CRD is not available"
+        return 1
+    fi
+    log "INFO" "MCE operator is running"
 
-    # Step 3: Create MultiClusterEngine instance with hypershift enabled
-    if oc get multiclusterengine multiclusterengine &>/dev/null; then
-        log "INFO" "MultiClusterEngine instance already exists. Ensuring hypershift is enabled..."
-        oc patch multiclusterengine multiclusterengine --type=merge \
+    # One MultiClusterEngine per cluster. Reuse an existing instance if present.
+    local mce_name
+    mce_name=$(oc get multiclusterengine -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+    if [ -n "${mce_name}" ]; then
+        log "INFO" "MultiClusterEngine ${mce_name} already exists. Ensuring hypershift is enabled..."
+        oc patch multiclusterengine "${mce_name}" --type=merge \
             -p '{"spec":{"overrides":{"components":[{"name":"hypershift","enabled":true}]}}}'
     else
-        log "INFO" "Creating MultiClusterEngine instance with hypershift enabled..."
+        mce_name="mce"
+        log "INFO" "Creating MultiClusterEngine ${mce_name} with hypershift enabled..."
         apply_manifest "${manifests_dir}/mce/multiclusterengine.yaml" true
     fi
 
-    # Step 4: Wait for MultiClusterEngine to become Available
-    log "INFO" "Waiting for MultiClusterEngine to become Available..."
-    if ! retry 60 10 bash -c 'oc get multiclusterengine multiclusterengine -o jsonpath="{.status.phase}" 2>/dev/null | grep -q "Available"'; then
-        log "ERROR" "Timeout: MultiClusterEngine did not reach Available status"
-        oc get multiclusterengine multiclusterengine -o yaml 2>/dev/null || true
+    log "INFO" "Waiting for MultiClusterEngine ${mce_name} to become Available..."
+    if ! retry 90 10 bash -c "oc get multiclusterengine ${mce_name} -o jsonpath='{.status.phase}' 2>/dev/null | grep -q Available"; then
+        log "ERROR" "Timeout: MultiClusterEngine ${mce_name} did not reach Available status"
+        oc get multiclusterengine "${mce_name}" 2>/dev/null || true
+        oc get multiclusterengine "${mce_name}" -o yaml 2>/dev/null || true
         return 1
     fi
-    log "INFO" "MultiClusterEngine is Available"
+    oc get multiclusterengine "${mce_name}"
+
+    local hs_enabled
+    hs_enabled=$(oc get multiclusterengine "${mce_name}" \
+        -o jsonpath='{.spec.overrides.components[?(@.name=="hypershift")].enabled}' 2>/dev/null || true)
+    if [ "${hs_enabled}" != "true" ]; then
+        log "ERROR" "HyperShift is not enabled on MultiClusterEngine ${mce_name} (got '${hs_enabled}')"
+        return 1
+    fi
+    log "INFO" "HyperShift component is enabled on MultiClusterEngine ${mce_name}"
 
     # Step 5: Verify hypershift operator pods are running
     log "INFO" "Waiting for Hypershift operator pods (deployed by MCE)..."
@@ -178,12 +259,12 @@ function main() {
         install-hypershift)
             install_hypershift
             ;;
-        install-hypershift-mce)
+        deploy-mce|install-hypershift-mce)
             install_hypershift_via_mce
             ;;
         *)
             log "Unknown command: $command"
-            log "Available commands: install-helm, install-hypershift, install-hypershift-mce"
+            log "Available commands: install-helm, install-hypershift, deploy-mce, install-hypershift-mce"
             exit 1
             ;;
     esac

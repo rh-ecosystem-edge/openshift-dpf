@@ -19,7 +19,7 @@ metadata:
   name: multicluster-engine
   namespace: multicluster-engine
 spec:
-  channel: "stable-2.7"
+  channel: "<MCE_OPERATOR_CHANNEL>"
   name: multicluster-engine
   source: <CATALOG_SOURCE_NAME>
   sourceNamespace: openshift-marketplace
