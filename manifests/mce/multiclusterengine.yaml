@@ -1,7 +1,7 @@
 apiVersion: multicluster.openshift.io/v1
 kind: MultiClusterEngine
 metadata:
-  name: multiclusterengine
+  name: mce
 spec:
   overrides:
     components:
