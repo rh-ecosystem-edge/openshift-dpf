@@ -207,6 +207,14 @@ deploy-observability:
 deploy-hypershift: install-helm
 	@$(DPF_SCRIPT) deploy-hypershift
 
+.PHONY: deploy-dpfhcp
+deploy-dpfhcp: install-helm
+	@$(DPF_SCRIPT) deploy-dpfhcp
+
+.PHONY: deploy-hosted-cluster
+deploy-hosted-cluster: install-helm
+	@$(DPF_SCRIPT) deploy-hosted-cluster
+
 .PHONY: create-ignition-template
 create-ignition-template:
 	@$(DPF_SCRIPT) create-ignition-template
@@ -512,10 +520,11 @@ help:
 	@echo ""
 	@echo "Hypershift Management:"
 	@echo "  deploy-mce             - Deploy MultiCluster Engine and enable the HyperShift component"
+	@echo "  deploy-dpfhcp          - Deploy DPU worker config and DPF HCP Provisioner Operator"
+	@echo "  deploy-hosted-cluster  - Create DPFHCPProvisioner CR and wait for the hosted cluster"
+	@echo "  deploy-hypershift      - All-in-one: HyperShift operator + deploy-dpfhcp + deploy-hosted-cluster"
 	@echo "  install-hypershift     - Install Hypershift binary and operator (direct method)"
-	@echo "  install-hypershift-mce - Alias for deploy-mce"
-	@echo "  create-hypershift-cluster - Create a new Hypershift hosted cluster"
-	@echo "  configure-hypershift-dpucluster - Configure DPF to use Hypershift hosted cluster"
+	@echo "  install-hypershift-mce - Alias for deploy-mce"ß
 	@echo ""
 	@echo "Configuration options:"
 	@echo "Cluster Configuration:"
