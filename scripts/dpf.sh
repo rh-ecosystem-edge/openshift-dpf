@@ -317,18 +317,66 @@ function deploy_hosted_cluster() {
     deploy_hypershift
 }
 
+function deploy_dpfhcp() {
+    log [INFO] "================================================================================"
+    log [INFO] "Deploying DPF HCP Provisioner"
+    log [INFO] "================================================================================"
+
+    deploy_dpu_worker_config
+    deploy_dpf_hcp_provisioner_operator
+}
+
+function create_hosted_cluster() {
+    log [INFO] "================================================================================"
+    log [INFO] "Creating Hosted Cluster via DPFHCPProvisioner"
+    log [INFO] "================================================================================"
+
+    if [ -n "${HYPERSHIFT_API_IP}" ]; then
+        log [INFO] "HYPERSHIFT_API_IP configured. Deploying MetalLB operator for LoadBalancer support..."
+        deploy_metallb
+    elif [ "${VM_COUNT}" -gt 1 ]; then
+        log [WARN] "Multi-node cluster detected but HYPERSHIFT_API_IP not set."
+        log [WARN] "Hypershift API will use NodePort instead of LoadBalancer."
+    fi
+
+    create_dpfhcpprovisioner_secrets
+    create_dpfhcpprovisioner_cr
+
+    log [INFO] "Waiting for DPF HCP Provisioner Operator to create HostedCluster..."
+    if ! retry 5 30 oc get hostedcluster -n ${CLUSTERS_NAMESPACE} ${HOSTED_CLUSTER_NAME} &>/dev/null; then
+        log [ERROR] "Timeout: HostedCluster was not created after 2.5 minutes"
+        log [ERROR] "Check DPFHCPProvisioner CR status:"
+        oc get dpfhcpprovisioner -n ${CLUSTERS_NAMESPACE} ${HOSTED_CLUSTER_NAME} -o yaml
+        return 1
+    fi
+
+    log [INFO] "HostedCluster ${HOSTED_CLUSTER_NAME} created by operator in ${CLUSTERS_NAMESPACE}"
+
+    if [ -n "${CNO_HCP_IMAGE}" ]; then
+        add_cno_image_override
+    fi
+
+    log [INFO] "Waiting for hosted control plane namespace ${HOSTED_CONTROL_PLANE_NAMESPACE}..."
+    retry 30 10 bash -c "oc get namespace ${HOSTED_CONTROL_PLANE_NAMESPACE} &>/dev/null"
+
+    log [INFO] "Checking hosted control plane pods..."
+    oc -n ${HOSTED_CONTROL_PLANE_NAMESPACE} get pods || true
+
+    log [INFO] "Waiting for etcd pods..."
+    wait_for_pods ${HOSTED_CONTROL_PLANE_NAMESPACE} "app=etcd" 60 10
+
+    configure_hypershift
+
+    log [INFO] "================================================================================"
+    log [INFO] "Hosted Cluster deployment via DPF HCP Provisioner Operator completed!"
+    log [INFO] "================================================================================"
+}
+
 function deploy_hypershift() {
     log [INFO] "================================================================================"
     log [INFO] "Deploying Hosted Cluster using DPF HCP Provisioner Operator"
     log [INFO] "================================================================================"
 
-    # Step 1: Deploy DPU Worker Config chart (MachineConfig for DPU worker nodes)
-    deploy_dpu_worker_config
-
-    # Step 2: Deploy DPF HCP Provisioner Operator
-    deploy_dpf_hcp_provisioner_operator
-
-    # Step 3: Install Hypershift operator (required by dpf-hcp-provisioner-operator)
     if oc get deployment -n hypershift operator &>/dev/null; then
         log [INFO] "Hypershift operator already installed. Skipping deployment."
     else
@@ -349,54 +397,8 @@ function deploy_hypershift() {
         esac
     fi
 
-    # Step 4: Deploy MetalLB operator if HYPERSHIFT_API_IP is configured (multi-node clusters only)
-    if [ -n "${HYPERSHIFT_API_IP}" ]; then
-        log [INFO] "HYPERSHIFT_API_IP configured. Deploying MetalLB operator for LoadBalancer support..."
-        deploy_metallb
-    elif [ "${VM_COUNT}" -gt 1 ]; then
-        log [WARN] "Multi-node cluster detected but HYPERSHIFT_API_IP not set."
-        log [WARN] "Hypershift API will use NodePort instead of LoadBalancer."
-    fi
-
-    # Step 5: Create secrets in clusters namespace
-    create_dpfhcpprovisioner_secrets
-
-    # Step 6: Create DPFHCPProvisioner Custom Resource
-    create_dpfhcpprovisioner_cr
-
-    # Step 7: Wait for HostedCluster to be created by the operator
-    # The operator creates HostedCluster in the same namespace as DPFHCPProvisioner CR
-    log [INFO] "Waiting for DPF HCP Provisioner Operator to create HostedCluster..."
-    if ! retry 5 30 oc get hostedcluster -n ${CLUSTERS_NAMESPACE} ${HOSTED_CLUSTER_NAME} &>/dev/null; then
-        log [ERROR] "Timeout: HostedCluster was not created after 2.5 minutes"
-        log [ERROR] "Check DPFHCPProvisioner CR status:"
-        oc get dpfhcpprovisioner -n ${CLUSTERS_NAMESPACE} ${HOSTED_CLUSTER_NAME} -o yaml
-        return 1
-    fi
-
-    log [INFO] "HostedCluster ${HOSTED_CLUSTER_NAME} created by operator in ${CLUSTERS_NAMESPACE}"
-
-    # Apply CNO image override if configured
-    if [ -n "${CNO_HCP_IMAGE}" ]; then
-        add_cno_image_override
-    fi
-
-    # Step 8: Wait for hosted control plane namespace and pods
-    log [INFO] "Waiting for hosted control plane namespace ${HOSTED_CONTROL_PLANE_NAMESPACE}..."
-    retry 30 10 bash -c "oc get namespace ${HOSTED_CONTROL_PLANE_NAMESPACE} &>/dev/null"
-
-    log [INFO] "Checking hosted control plane pods..."
-    oc -n ${HOSTED_CONTROL_PLANE_NAMESPACE} get pods || true
-
-    log [INFO] "Waiting for etcd pods..."
-    wait_for_pods ${HOSTED_CONTROL_PLANE_NAMESPACE} "app=etcd" 60 10
-
-    # Step 9: Configure hypershift (create kubeconfig and copy to dpf-operator-system)
-    configure_hypershift
-
-    log [INFO] "================================================================================"
-    log [INFO] "Hosted Cluster deployment via DPF HCP Provisioner Operator completed!"
-    log [INFO] "================================================================================"
+    deploy_dpfhcp
+    create_hosted_cluster
 }
 
 function add_cno_image_override() {
@@ -744,8 +746,11 @@ function main() {
             deploy-hypershift)
                 deploy_hypershift
                 ;;
-            deploy-dpf-hcp-provisioner-operator)
-                deploy_dpf_hcp_provisioner_operator
+            deploy-dpfhcp|deploy-dpf-hcp-provisioner-operator)
+                deploy_dpfhcp
+                ;;
+            deploy-hosted-cluster)
+                create_hosted_cluster
                 ;;
             delete-dpf-hcp-provisioner-operator)
                 delete_dpf_hcp_provisioner_operator
@@ -758,7 +763,7 @@ function main() {
                 ;;
             *)
                 log [INFO] "Unknown command: $command"
-                log [INFO] "Available commands: deploy-nfd, deploy-metallb, deploy-argocd, deploy-maintenance-operator, apply-dpf, deploy-hypershift, deploy-dpf-hcp-provisioner-operator, delete-dpf-hcp-provisioner-operator, create-dpfhcpprovisioner-secrets, create-dpfhcpprovisioner-cr"
+                log [INFO] "Available commands: deploy-nfd, deploy-metallb, deploy-argocd, deploy-maintenance-operator, apply-dpf, deploy-hypershift, deploy-dpfhcp, deploy-hosted-cluster, deploy-dpf-hcp-provisioner-operator, delete-dpf-hcp-provisioner-operator, create-dpfhcpprovisioner-secrets, create-dpfhcpprovisioner-cr"
                 exit 1
                 ;;
         esac

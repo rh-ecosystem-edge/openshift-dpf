@@ -184,6 +184,11 @@ function install_hypershift_via_mce() {
         log "ERROR" "Timeout: MultiClusterEngine CRD is not available"
         return 1
     fi
+    # CSV/CRD can exist before the validating webhook has endpoints.
+    log "INFO" "Waiting for MCE validating webhook endpoints..."
+    if ! retry 24 5 bash -c 'oc get endpoints -n multicluster-engine multicluster-engine-operator-webhook-service -o jsonpath="{.subsets[*].addresses[*].ip}" 2>/dev/null | grep -q "[0-9]"'; then
+        log "WARN" "Webhook endpoints not ready after 2 minutes; will retry creating the MultiClusterEngine CR"
+    fi
     log "INFO" "MCE operator is running"
 
     # One MultiClusterEngine per cluster. Reuse an existing instance if present.
@@ -191,12 +196,18 @@ function install_hypershift_via_mce() {
     mce_name=$(oc get multiclusterengine -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
     if [ -n "${mce_name}" ]; then
         log "INFO" "MultiClusterEngine ${mce_name} already exists. Ensuring hypershift is enabled..."
-        oc patch multiclusterengine "${mce_name}" --type=merge \
-            -p '{"spec":{"overrides":{"components":[{"name":"hypershift","enabled":true}]}}}'
+        if ! retry 24 5 oc patch multiclusterengine "${mce_name}" --type=merge \
+            -p '{"spec":{"overrides":{"components":[{"name":"hypershift","enabled":true}]}}}' ; then
+            log "ERROR" "Failed to patch MultiClusterEngine ${mce_name} after retries"
+            return 1
+        fi
     else
         mce_name="mce"
         log "INFO" "Creating MultiClusterEngine ${mce_name} with hypershift enabled..."
-        apply_manifest "${manifests_dir}/mce/multiclusterengine.yaml" true
+        if ! retry 24 5 oc apply -f "${manifests_dir}/mce/multiclusterengine.yaml"; then
+            log "ERROR" "Failed to create MultiClusterEngine ${mce_name} after retries (webhook may still be unavailable)"
+            return 1
+        fi
     fi
 
     log "INFO" "Waiting for MultiClusterEngine ${mce_name} to become Available..."
