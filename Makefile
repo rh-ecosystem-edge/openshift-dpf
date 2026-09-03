@@ -29,7 +29,7 @@ WORKER_SCRIPT := scripts/worker.sh
         wait-for-installed wait-for-status cluster-start clean-all deploy-dpf kubeconfig kubeadmin-password deploy-nfd \
         install-hypershift install-hypershift-mce deploy-mce install-helm deploy-dpu-services prepare-dpu-files upgrade-dpf create-day2-cluster get-day2-iso \
         download-day2-iso create-worker-vms delete-worker-vms add-vm-workers install-day2-hosts \
-        redeploy-dpu enable-ovn-injector deploy-argocd deploy-maintenance-operator configure-flannel \
+        redeploy-dpu enable-ovn-injector deploy-argocd deploy-maintenance-operator configure-flannel deploy-hypershift deploy-dpfhcp deploy-hosted-cluster \
         deploy-core-operator-sources deploy-metallb deploy-lso deploy-odf deploy-lvms run-dpf-sanity \
         add-worker-nodes worker-status approve-worker-csrs \
         deploy-csr-approver delete-csr-approver \
@@ -175,6 +175,12 @@ deploy-observability:
 
 deploy-hypershift: install-helm
 	@$(DPF_SCRIPT) deploy-hypershift
+
+deploy-dpfhcp: install-helm
+	@$(DPF_SCRIPT) deploy-dpfhcp
+
+deploy-hosted-cluster: install-helm
+	@$(DPF_SCRIPT) deploy-hosted-cluster
 
 create-ignition-template:
 	@$(DPF_SCRIPT) create-ignition-template
@@ -385,10 +391,11 @@ help:
 	@echo ""
 	@echo "Hypershift Management:"
 	@echo "  deploy-mce             - Deploy MultiCluster Engine and enable the HyperShift component"
+	@echo "  deploy-dpfhcp          - Deploy DPU worker config and DPF HCP Provisioner Operator"
+	@echo "  deploy-hosted-cluster  - Create DPFHCPProvisioner CR and wait for the hosted cluster"
+	@echo "  deploy-hypershift      - All-in-one: HyperShift operator + deploy-dpfhcp + deploy-hosted-cluster"
 	@echo "  install-hypershift     - Install Hypershift binary and operator (direct method)"
 	@echo "  install-hypershift-mce - Alias for deploy-mce"
-	@echo "  create-hypershift-cluster - Create a new Hypershift hosted cluster"
-	@echo "  configure-hypershift-dpucluster - Configure DPF to use Hypershift hosted cluster"
 	@echo ""
 	@echo "Configuration options:"
 	@echo "Cluster Configuration:"
