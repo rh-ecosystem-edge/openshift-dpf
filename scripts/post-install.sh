@@ -195,7 +195,11 @@ function prepare_post_installation() {
     update_vf_configuration
     update_ipam_controller
     update_dpu_service_nad
-    generate_dpuservicetemplate_overrides
+    if [ "${GENERATE_DPUSERVICETEMPLATE_OVERRIDES}" = "true" ]; then
+        generate_dpuservicetemplate_overrides
+    else
+        log [INFO] "Skipping DPUServiceTemplate overrides (GENERATE_DPUSERVICETEMPLATE_OVERRIDES=${GENERATE_DPUSERVICETEMPLATE_OVERRIDES:-false})"
+    fi
 
     # Process DPUDeployment template
     if [ -f "${POST_INSTALL_DIR}/dpudeployment.yaml" ]; then

@@ -356,6 +356,7 @@ help:
 	@echo "  SKIP_DEPLOY_STORAGE=true - Use existing StorageClasses; set ETCD_STORAGE_CLASS to your StorageClass name"
 	@echo "  upgrade-dpf       - Interactive DPF operator upgrade (user-friendly wrapper for prepare-dpf-manifests)"
 	@echo "  prepare-dpu-files - Prepare post-installation manifests with custom values"
+	@echo "  generate-overrides - Write DPUServiceTemplate overrides ConfigMap (also via GENERATE_DPUSERVICETEMPLATE_OVERRIDES=true)"
 	@echo "  deploy-dpu-services - Deploy DPU services to the cluster"
 	@echo "  configure-flannel - Deploy flannel IPAM controller for automatic podCIDR assignment"
 	@echo "  add-worker-nodes  - Provision worker nodes via BMO/Redfish (uses WORKER_* env vars)"
