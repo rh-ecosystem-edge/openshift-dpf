@@ -48,7 +48,7 @@ TFT_KUBECONFIG="${TFT_KUBECONFIG:-$(pwd)/kubeconfig.${CLUSTER_NAME}}"
 # Optional explicit overrides. When unset, discover_tft_nodes() scans the cluster
 # for Ready DPU workers (k8s.ovn.org/dpu-host) and assigns:
 #   - 2+ DPU workers: first as server, second as client
-#   - 1 DPU worker:   that worker as server, a Ready master as client
+#   - 1 DPU worker:   a Ready master as server, DPU worker as client
 # Do NOT use BareMetalHost / HBN / WORKER_*_NAME values — those are not node names.
 TFT_SERVER_NODE="${TFT_SERVER_NODE:-}"
 TFT_CLIENT_NODE="${TFT_CLIENT_NODE:-}"
@@ -111,19 +111,20 @@ discover_tft_nodes() {
         if [[ ${#workers[@]} -ge 2 ]]; then
             TFT_CLIENT_NODE="${workers[1]}"
         else
-            log "INFO" "Only one DPU worker available; selecting a master node as client"
+            log "INFO" "Only one DPU worker available; using master as server, DPU worker as client"
             local master_node
             master_node=$(oc get nodes --no-headers \
                 -l 'node-role.kubernetes.io/control-plane' \
                 --kubeconfig="${kubeconfig_path}" 2>/dev/null \
-                | awk -v server="${TFT_SERVER_NODE}" '$2 == "Ready" && $1 != server { print $1; exit }') || true
+                | awk -v worker="${TFT_SERVER_NODE}" '$2 == "Ready" && $1 != worker { print $1; exit }') || true
 
             if [[ -z "${master_node}" ]]; then
-                log "ERROR" "Could not find a Ready control-plane node to use as TFT client"
+                log "ERROR" "Could not find a Ready control-plane node to use as TFT server"
                 return 1
             fi
 
-            TFT_CLIENT_NODE="${master_node}"
+            TFT_CLIENT_NODE="${workers[0]}"
+            TFT_SERVER_NODE="${master_node}"
         fi
 
         log "INFO" "Selected client node: ${TFT_CLIENT_NODE}"
@@ -293,7 +294,7 @@ generate_config() {
     sed -i "s|__TFT_SERVER_NODE__|${TFT_SERVER_NODE}|g" "${TFT_CONFIG_OUTPUT}"
     sed -i "s|__TFT_CLIENT_NODE__|${TFT_CLIENT_NODE}|g" "${TFT_CONFIG_OUTPUT}"
     sed -i "s|__TFT_KUBECONFIG__|${TFT_KUBECONFIG_ABS}|g" "${TFT_CONFIG_OUTPUT}"
-    
+
     log "INFO" "Configuration generated: ${TFT_CONFIG_OUTPUT}"
 }
 
@@ -480,7 +481,7 @@ show_config() {
     echo "  1. Explicit TFT_SERVER_NODE / TFT_CLIENT_NODE (if set)"
     echo "  2. Otherwise scan cluster for Ready nodes with k8s.ovn.org/dpu-host label"
     echo "     - 2+ DPU workers: first=server, second=client"
-    echo "     - 1 DPU worker:   worker=server, Ready master=client"
+    echo "     - 1 DPU worker:   Ready master=server, worker=client"
     echo ""
     echo "Excluded Test Cases (known failures):"
     echo "  4  - POD_TO_HOST_DIFF_NODE"
@@ -541,7 +542,7 @@ case "${1:-}" in
         echo "      to install it automatically using dnf/yum/apt."
         echo ""
         echo "Node selection: TFT_*_NODE override, else discover Ready nodes with"
-        echo "k8s.ovn.org/dpu-host label. With one DPU worker, a Ready master is used as the client."
+        echo "k8s.ovn.org/dpu-host label. With one DPU worker, a Ready master is used as the server."
         exit 1
         ;;
 esac
