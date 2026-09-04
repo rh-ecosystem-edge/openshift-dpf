@@ -155,6 +155,12 @@ verify_deployment() {
     fi
     
     log "INFO" ""
+    log "INFO" "=== 4. Waiting for stable cluster ==="
+    if ! oc adm wait-for-stable-cluster --minimum-stable-period=2m --timeout=20m; then
+        ((failed++)) || true
+    fi
+
+    log "INFO" ""
     log "INFO" "================================================================================"
     if [[ $failed -eq 0 ]]; then
         log "INFO" "All verification checks PASSED"
