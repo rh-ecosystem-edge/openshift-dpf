@@ -187,42 +187,86 @@ function ensure_runtimeclass() {
     wait_for_runtimeclass "${name}" 12
 }
 
-get_kubeconfig
+function render_kata_test_deployment() {
+    mkdir -p "${GENERATED_KATA_DIR}"
+    local role
+    role=$(kata_worker_role)
+    render_kata_manifest \
+        "${KATA_MANIFESTS_DIR}/06-test-deployment.yaml" \
+        "${GENERATED_KATA_DIR}/06-test-deployment.yaml" \
+        "<KATA_RUNTIME_CLASS>" "${KATA_RUNTIME_CLASS}" \
+        "<WORKER_ROLE>" "${role}" \
+        "<KATA_INJECTOR_RESOURCE_NAME>" "${KATA_INJECTOR_RESOURCE_NAME}" \
+        "<KATA_TEST_REPLICAS>" "${KATA_TEST_REPLICAS}"
+}
 
-worker_role=$(kata_worker_role)
-log [INFO] "Enabling Kata DPU cold-plug on MCP role '${worker_role}'"
+function deploy_kata_test() {
+    get_kubeconfig
+    render_kata_test_deployment
 
-if ! oc get mcp "${worker_role}" &>/dev/null; then
-    log [ERROR] "MachineConfigPool ${worker_role} not found. Deploy DPF / dpu-worker-config first."
-    exit 1
+    # Drop the leftover standalone smoke-test Pod if present (same name as the Deployment).
+    oc delete pod kata-dpu-test --ignore-not-found --wait=false >/dev/null 2>&1 || true
+
+    apply_manifest "${GENERATED_KATA_DIR}/06-test-deployment.yaml" "true"
+
+    if [ "${KATA_TEST_REPLICAS}" -eq 0 ]; then
+        log [INFO] "KATA_TEST_REPLICAS=0: scaled kata-dpu-test to zero"
+        return 0
+    fi
+
+    local timeout=$((KATA_TEST_REPLICAS * 180))
+    log [INFO] "Waiting for deployment/kata-dpu-test (${KATA_TEST_REPLICAS} replicas, timeout ${timeout}s)..."
+    oc wait --for=condition=Available deployment/kata-dpu-test --timeout="${timeout}s"
+    oc get pods -l app=kata-dpu-test -o wide
+    log [INFO] "Verify one replica: oc exec deploy/kata-dpu-test -- ping -c 3 8.8.8.8"
+}
+
+function enable_kata() {
+    get_kubeconfig
+
+    worker_role=$(kata_worker_role)
+    log [INFO] "Enabling Kata DPU cold-plug on MCP role '${worker_role}'"
+
+    if ! oc get mcp "${worker_role}" &>/dev/null; then
+        log [ERROR] "MachineConfigPool ${worker_role} not found. Deploy DPF / dpu-worker-config first."
+        exit 1
+    fi
+
+    mkdir -p "${GENERATED_KATA_DIR}"
+
+    # Intentionally no KataConfig CR. OSC would create MCP kata-oc and pull
+    # DPU workers out of worker-dpu, degrading MCO.
+    ensure_osc
+
+    ensure_machineconfig
+
+    if [ "${KATA_MC_APPLIED}" = "true" ]; then
+        log [INFO] "Waiting for MCO to pick up new MachineConfigs..."
+        sleep 20
+    else
+        log [INFO] "MachineConfig 99-kata-dpu already exists; waiting for MCP ${worker_role} rollout if needed"
+    fi
+    wait_for_mcp "${worker_role}"
+
+    ensure_runtimeclass "${KATA_RUNTIME_CLASS}"
+    render_kata_test_deployment
+
+    log [INFO] "Kata DPU cold-plug enabled (RuntimeClass ${KATA_RUNTIME_CLASS} on role ${worker_role})"
+    log [INFO] "Deploy test pods: make deploy-kata-test   (or KATA_TEST_REPLICAS=N make deploy-kata-test)"
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    case "${1:-enable}" in
+        enable)
+            enable_kata
+            ;;
+        deploy-test)
+            deploy_kata_test
+            ;;
+        *)
+            log [ERROR] "Unknown command: $1"
+            log [ERROR] "Available commands: enable, deploy-test"
+            exit 1
+            ;;
+    esac
 fi
-
-mkdir -p "${GENERATED_KATA_DIR}"
-
-# Intentionally no KataConfig CR. OSC would create MCP kata-oc and pull
-# DPU workers out of worker-dpu, degrading MCO.
-ensure_osc
-
-ensure_machineconfig
-
-if [ "${KATA_MC_APPLIED}" = "true" ]; then
-    log [INFO] "Waiting for MCO to pick up new MachineConfigs..."
-    sleep 20
-else
-    log [INFO] "MachineConfig 99-kata-dpu already exists; waiting for MCP ${worker_role} rollout if needed"
-fi
-wait_for_mcp "${worker_role}"
-
-ensure_runtimeclass "${KATA_RUNTIME_CLASS}"
-
-render_kata_manifest \
-    "${KATA_MANIFESTS_DIR}/06-test-pod.yaml" \
-    "${GENERATED_KATA_DIR}/06-test-pod.yaml" \
-    "<KATA_RUNTIME_CLASS>" "${KATA_RUNTIME_CLASS}" \
-    "<WORKER_ROLE>" "${worker_role}" \
-    "<KATA_INJECTOR_RESOURCE_NAME>" "${KATA_INJECTOR_RESOURCE_NAME}"
-
-log [INFO] "Kata DPU cold-plug enabled (RuntimeClass ${KATA_RUNTIME_CLASS} on role ${worker_role})"
-log [INFO] "Test with: oc apply -f ${GENERATED_KATA_DIR}/06-test-pod.yaml"
-log [INFO] "Then: oc wait --for=condition=Ready pod/kata-dpu-test --timeout=180s"
-log [INFO] "Verify VF in VM: oc exec kata-dpu-test -- cat /sys/class/net/eth0/speed"
