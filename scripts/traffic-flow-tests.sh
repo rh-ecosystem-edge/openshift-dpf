@@ -38,9 +38,18 @@ TFT_CONFIG_TEMPLATE="${SCRIPT_DIR}/../ci/tft-config.yaml.template"
 TFT_CONFIG_OUTPUT="${TFT_WORK_DIR}/tft-config.yaml"
 
 # Test Parameters (can be overridden via environment)
-TFT_TEST_CASES="${TFT_TEST_CASES:-1-25}"
+TFT_TEST_CASES="${TFT_TEST_CASES:-1-25,27,69}"
 TFT_DURATION="${TFT_DURATION:-10}"
 TFT_CONNECTION_TYPE="${TFT_CONNECTION_TYPE:-iperf-tcp}"
+
+# Secondary-interface SR-IOV (2nd-interface tests 27-29 on DPU hosts).
+# The pod's secondary interface (net1) is backed by a SEPARATE SR-IOV resource pool
+# from the primary (eth0, injected as bf3-p0-vfs). That pool (bf3_p1_vfs on pfIndex 1)
+# is provisioned at deploy time by the NodeSRIOVDevicePluginConfig, so this only
+# points the secondary NAD at it. When TFT_RESOURCE_NAME is empty the
+# secondary_network_nad/resource_name lines are dropped and behavior is unchanged.
+TFT_SECONDARY_NAD="${TFT_SECONDARY_NAD:-}"
+TFT_RESOURCE_NAME="${TFT_RESOURCE_NAME:-}"
 
 # Kubeconfig path (relative to working directory by default)
 TFT_KUBECONFIG="${TFT_KUBECONFIG:-$(pwd)/kubeconfig.${CLUSTER_NAME}}"
@@ -255,6 +264,39 @@ setup_venv() {
 }
 
 # -----------------------------------------------------------------------------
+# Gate the 2nd-interface test (27) to DPU hosts with the secondary SR-IOV profile
+# -----------------------------------------------------------------------------
+# Test 27 needs a DPU host node AND the secondary SR-IOV pool (TFT_RESOURCE_NAME).
+# Keep/add it only when both hold; otherwise strip it so a plain run never fails.
+adjust_secondary_test_cases() {
+    local kc="$1"
+
+    local wants27=false
+    case ",${TFT_TEST_CASES}," in *,27,*) wants27=true ;; esac
+
+    local has_dpu=false
+    if command -v oc &>/dev/null && \
+       oc get nodes -l 'k8s.ovn.org/dpu-host' --no-headers --kubeconfig="${kc}" 2>/dev/null | grep -q .; then
+        has_dpu=true
+    fi
+
+    if [[ -n "${TFT_RESOURCE_NAME}" && "${has_dpu}" == "true" ]]; then
+        if [[ "${wants27}" == "false" ]]; then
+            TFT_TEST_CASES="${TFT_TEST_CASES},27"
+            log "INFO" "Secondary SR-IOV profile active on a DPU host; added test 27"
+        fi
+    elif [[ "${wants27}" == "true" ]]; then
+        TFT_TEST_CASES="$(echo ",${TFT_TEST_CASES}," | sed 's/,27,/,/g; s/^,//; s/,$//')"
+        if [[ -z "${TFT_TEST_CASES}" ]]; then
+            log "ERROR" "Test 27 requires a DPU host and TFT_RESOURCE_NAME (secondary SR-IOV pool); nothing left to run"
+            return 1
+        fi
+        log "WARN" "Skipping test 27: requires a DPU host and TFT_RESOURCE_NAME (secondary SR-IOV pool)"
+    fi
+    return 0
+}
+
+# -----------------------------------------------------------------------------
 # Generate Test Configuration
 # -----------------------------------------------------------------------------
 generate_config() {
@@ -274,7 +316,9 @@ generate_config() {
         log "ERROR" "TFT_SERVER_NODE and TFT_CLIENT_NODE must be set after discovery"
         return 1
     fi
-    
+
+    adjust_secondary_test_cases "${TFT_KUBECONFIG_ABS}" || return 1
+
     log "INFO" "Test configuration:"
     log "INFO" "  Test cases: ${TFT_TEST_CASES}"
     log "INFO" "  Duration: ${TFT_DURATION}s"
@@ -293,7 +337,20 @@ generate_config() {
     sed -i "s|__TFT_SERVER_NODE__|${TFT_SERVER_NODE}|g" "${TFT_CONFIG_OUTPUT}"
     sed -i "s|__TFT_CLIENT_NODE__|${TFT_CLIENT_NODE}|g" "${TFT_CONFIG_OUTPUT}"
     sed -i "s|__TFT_KUBECONFIG__|${TFT_KUBECONFIG_ABS}|g" "${TFT_CONFIG_OUTPUT}"
-    
+
+    # Secondary-interface knobs: substitute when set, otherwise drop the whole line
+    # so tft keeps its default behavior (no secondary NAD / no resource request).
+    if [[ -n "${TFT_SECONDARY_NAD}" ]]; then
+        sed -i "s|__TFT_SECONDARY_NAD__|${TFT_SECONDARY_NAD}|g" "${TFT_CONFIG_OUTPUT}"
+    else
+        sed -i "/__TFT_SECONDARY_NAD__/d" "${TFT_CONFIG_OUTPUT}"
+    fi
+    if [[ -n "${TFT_RESOURCE_NAME}" ]]; then
+        sed -i "s|__TFT_RESOURCE_NAME__|${TFT_RESOURCE_NAME}|g" "${TFT_CONFIG_OUTPUT}"
+    else
+        sed -i "/__TFT_RESOURCE_NAME__/d" "${TFT_CONFIG_OUTPUT}"
+    fi
+
     log "INFO" "Configuration generated: ${TFT_CONFIG_OUTPUT}"
 }
 
@@ -533,6 +590,13 @@ case "${1:-}" in
         echo "  TFT_DURATION        - Duration per test in seconds (default: 10)"
         echo "  TFT_CONNECTION_TYPE - Connection type: iperf-tcp, iperf-udp, etc. (default: iperf-tcp)"
         echo "  TFT_KUBECONFIG      - Path to cluster kubeconfig"
+        echo ""
+        echo "Secondary-interface SR-IOV (2nd-interface tests 27-29 on DPU hosts):"
+        echo "  TFT_RESOURCE_NAME - Secondary (net1) VF pool, e.g. openshift.io/bf3_p1_vfs."
+        echo "                      The pool is provisioned at deploy time; when set, test 27 runs"
+        echo "                      on DPU hosts and the secondary NAD is pointed at it. Empty = skip."
+        echo "  TFT_SECONDARY_NAD - Secondary NAD name (default: tft's tft-secondary for tests 27-29)"
+        echo "  NOTE: the PRIMARY (eth0) VF is handled by the OVN resource injector (bf3-p0-vfs)."
         echo "  TFT_SERVER_NODE     - Kubernetes node name for server (default: auto-discover DPU worker)"
         echo "  TFT_CLIENT_NODE     - Kubernetes node name for client (default: auto-discover)"
         echo "  TFT_PYTHON          - Python interpreter (default: python3.11)"
