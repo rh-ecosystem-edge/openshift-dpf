@@ -21,4 +21,12 @@ spec:
           end: <NUM_VFS_END>
         - pfIndex: 1
           start: 0
-          end: <NUM_VFS_END>
+          end: <PF1_REGULAR_VF_END>
+    - name: <KATA_SRIOV_DP_CONFIG_NAME>
+      type: vf
+      options:
+        isRdma: true
+      ranges:
+        - pfIndex: <KATA_SRIOV_PF_INDEX>
+          start: <KATA_VF_START>
+          end: <KATA_VF_END>
