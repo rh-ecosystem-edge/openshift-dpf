@@ -1,0 +1,24 @@
+# Pod: pod-remote (cross-node ping source, applied only when 2+ DPU workers)
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-remote
+  namespace: <OVN_TEST_NAMESPACE>
+  labels:
+    app: ovn-test-pod-remote
+spec:
+  nodeSelector:
+    kubernetes.io/hostname: "<OVN_TEST_NODE2>"
+  terminationGracePeriodSeconds: 0
+  containers:
+  - name: c
+    image: <OVN_TEST_IMAGE>
+    command: ["sh", "-c", "sleep infinity"]
+    securityContext:
+      allowPrivilegeEscalation: false
+      runAsNonRoot: true
+      seccompProfile:
+        type: RuntimeDefault
+      capabilities:
+        drop: ["ALL"]

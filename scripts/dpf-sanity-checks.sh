@@ -46,6 +46,10 @@ echo -e "- SANITY_TESTS_PODS_WORKLOAD_FILE: '${SANITY_TESTS_PODS_WORKLOAD_FILE}'
 echo -e "- SANITY_TESTS_WORKLOAD_NAMESPACE: '${SANITY_TESTS_WORKLOAD_NAMESPACE}'"
 echo -e "- SANITY_TESTS_PING_COUNT: '${SANITY_TESTS_PING_COUNT}'"
 echo -e "- SANITY_TESTS_PING_HBN_TO_HBN_PODS: '${SANITY_TESTS_PING_HBN_TO_HBN_PODS}'"
+echo -e "- SANITY_TESTS_OVN_ENABLED: '${SANITY_TESTS_OVN_ENABLED}'"
+echo -e "- SANITY_TESTS_OVN_NAMESPACE: '${SANITY_TESTS_OVN_NAMESPACE}'"
+echo -e "- SANITY_TESTS_OVN_IMAGE: '${SANITY_TESTS_OVN_IMAGE}'"
+echo -e "- SANITY_TESTS_OVN_PING_COUNT: '${SANITY_TESTS_OVN_PING_COUNT}'"
 
 mgmt_kubecfg="${KUBECONFIG}"
 echo -e "\n- mgmt_kubecfg: '${mgmt_kubecfg}'"
@@ -162,6 +166,18 @@ error_handler() {
 
 # Trap ERR signal
 trap error_handler ERR
+
+ovn_tests_deployed=false
+
+ovn_cleanup() {
+    if [ "${ovn_tests_deployed}" = "true" ]; then
+        echo -e "\nCleaning up OVN test resources in namespace '${SANITY_TESTS_OVN_NAMESPACE}'..."
+        oc delete namespace "${SANITY_TESTS_OVN_NAMESPACE}" --timeout=60s --kubeconfig="${mgmt_kubecfg}" 2>/dev/null || true
+        rm -f "${ovn_manifest_generated:-}" "${ovn_crossnode_manifest_generated:-}" 2>/dev/null || true
+    fi
+}
+
+trap ovn_cleanup EXIT
 
 check_deployments_ready() {
   local namespace="$1"
@@ -313,6 +329,143 @@ ping_mtu_test() {
   test_results_summary+="\n${tc_title}: $(format_result "${testcase_result}")"
 }
 
+check_dpuservices_ready() {
+  local kubeconfig="$1"
+  local bad_dpusvc=()
+
+  while IFS=$'\t' read -r name ready; do
+    [ -z "$name" ] && continue
+    if [ "$ready" != "True" ]; then
+      bad_dpusvc+=("$name")
+    fi
+  done < <(oc get dpuservice -n "${dpf_operator_namespace}" --kubeconfig="${kubeconfig}" \
+    -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{range .status.conditions[?(@.type=="Ready")]}{.status}{end}{"\n"}{end}' 2>/dev/null)
+
+  if [ ${#bad_dpusvc[@]} -eq 0 ]; then
+    echo -e "${GREEN}Pass${NC} All DPUServices are ready"
+    return 0
+  else
+    echo -e "${RED}Fail${NC} DPUServices not ready: ${bad_dpusvc[*]}"
+    ((failed_testcase_count++))
+    return 1
+  fi
+}
+
+check_doca_ovn_pods() {
+  local kubeconfig="$1"
+  local ovn_pods bad_ovn=()
+
+  ovn_pods=$(oc get pods -n "${dpf_operator_namespace}" \
+    -l app.kubernetes.io/component=ovnkube-node \
+    --kubeconfig="${kubeconfig}" --no-headers 2>/dev/null)
+
+  if [ -z "$ovn_pods" ]; then
+    echo -e "${RED}Fail${NC} No DOCA OVN pods found in hosted cluster"
+    ((failed_testcase_count++))
+    return 1
+  fi
+
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    local name ready status
+    name=$(awk '{print $1}' <<<"$line")
+    ready=$(awk '{print $2}' <<<"$line")
+    status=$(awk '{print $3}' <<<"$line")
+    if [ "$ready" != "8/8" ] || [ "$status" != "Running" ]; then
+      bad_ovn+=("$name ($ready $status)")
+    fi
+  done <<<"$ovn_pods"
+
+  if [ ${#bad_ovn[@]} -eq 0 ]; then
+    echo -e "${GREEN}Pass${NC} All DOCA OVN pods are 8/8 Running"
+    return 0
+  else
+    echo -e "${RED}Fail${NC} DOCA OVN pods not healthy: ${bad_ovn[*]}"
+    ((failed_testcase_count++))
+    return 1
+  fi
+}
+
+check_hbn_bgp_neighbors() {
+  local kubeconfig="$1"
+  local hbn_pods bgp_result=0
+
+  hbn_pods=$(oc get pods -n "${dpf_operator_namespace}" \
+    -l app.kubernetes.io/name=hbn \
+    --kubeconfig="${kubeconfig}" --no-headers 2>/dev/null)
+
+  if [ -z "$hbn_pods" ]; then
+    echo -e "${RED}Fail${NC} No HBN pods found in hosted cluster"
+    ((failed_testcase_count++))
+    return 1
+  fi
+
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    local pod bgp_out
+    pod=$(awk '{print $1}' <<<"$line")
+
+    bgp_out=$(oc exec -n "${dpf_operator_namespace}" "${pod}" -c doca-hbn \
+      --kubeconfig="${kubeconfig}" -- nv show vrf default router bgp neighbor 2>/dev/null) || true
+
+    if [ -z "$bgp_out" ]; then
+      echo -e "${RED}Fail${NC} HBN BGP: no neighbors on ${pod}"
+      bgp_result=1
+    else
+      local all_states total_neighbors not_established
+      all_states=$(awk '/^---/{found=1; next} found && NF>2{print $3}' <<<"$bgp_out" | grep -iE 'established|idle|connect|active|opensent|openconfirm') || true
+      total_neighbors=$(echo "$all_states" | grep -c . 2>/dev/null) || true
+      not_established=$(echo "$all_states" | grep -ivw 'established' | grep -c . 2>/dev/null) || true
+
+      if [ "${total_neighbors:-0}" -eq 0 ]; then
+        echo -e "${RED}Fail${NC} HBN BGP: no neighbors parsed on ${pod}"
+        bgp_result=1
+      elif [ "${not_established}" -eq 0 ]; then
+        echo -e "${GREEN}Pass${NC} HBN BGP: all ${total_neighbors} neighbor(s) established on ${pod}"
+      else
+        local bad_states
+        bad_states=$(echo "$all_states" | grep -ivw 'established' | paste -sd, -) || true
+        echo -e "${RED}Fail${NC} HBN BGP: ${not_established}/${total_neighbors} neighbor(s) not established on ${pod} (${bad_states})"
+        bgp_result=1
+      fi
+    fi
+  done <<<"$hbn_pods"
+
+  if [ "$bgp_result" -ne 0 ]; then
+    ((failed_testcase_count++))
+  fi
+  return $bgp_result
+}
+
+ovn_curl_test() {
+  local tc_title="$1"
+  local source_pod="$2"
+  local url="$3"
+
+  ((total_testcases_executed++))
+
+  echo -e "\n${tc_title}"
+  local testcase_cmd="oc exec ${source_pod} -n ${SANITY_TESTS_OVN_NAMESPACE} --kubeconfig=${mgmt_kubecfg} -- curl -s -o /dev/null -w '%{http_code}' --connect-timeout 5 ${url}"
+  echo -e "${testcase_cmd}"
+
+  local code
+  code=$(eval ${testcase_cmd} 2>/dev/null) || true
+
+  local testcase_result
+  if [ "$code" = "200" ]; then
+    echo -e "HTTP status: ${code}"
+    echo -e "${GREEN}Pass${NC}"
+    testcase_result=0
+  else
+    echo -e "HTTP status: ${code:-no-response}"
+    echo -e "${RED}Fail${NC}"
+    ((failed_testcase_count++))
+    testcase_result=1
+  fi
+
+  test_results_summary+="\n${tc_title}: $(format_result "${testcase_result}")"
+}
+
 # output of `oc get co` on management cluster
 echo -e "\nOutput of oc get co cmd on mgmt cluster:"
 oc get co --kubeconfig=${mgmt_kubecfg}
@@ -340,6 +493,27 @@ echo -e "\n${testcase_title}"
 check_cluster_operators "${hosted_kubecfg}"
 result_check_cluster_operators=$?
 test_results_summary+="\n${testcase_title}: $(format_result "${result_check_cluster_operators}")"
+
+testcase_title="Checking if all DPUServices are ready"
+echo -e "\n${testcase_title}"
+((total_testcases_executed++))
+check_dpuservices_ready "${mgmt_kubecfg}"
+result_check_dpuservices=$?
+test_results_summary+="\n${testcase_title}: $(format_result "${result_check_dpuservices}")"
+
+testcase_title="Checking DOCA OVN pods are 8/8 Running on hosted cluster"
+echo -e "\n${testcase_title}"
+((total_testcases_executed++))
+check_doca_ovn_pods "${hosted_kubecfg}"
+result_check_ovn_pods=$?
+test_results_summary+="\n${testcase_title}: $(format_result "${result_check_ovn_pods}")"
+
+testcase_title="Checking HBN BGP neighbors are established on hosted cluster"
+echo -e "\n${testcase_title}"
+((total_testcases_executed++))
+check_hbn_bgp_neighbors "${hosted_kubecfg}"
+result_check_bgp=$?
+test_results_summary+="\n${testcase_title}: $(format_result "${result_check_bgp}")"
 
 echo -e "\nChecking if workload namespace exists on admin cluster, otherwise create it"
 if oc get namespace "${SANITY_TESTS_WORKLOAD_NAMESPACE}" --kubeconfig="${mgmt_kubecfg}" >/dev/null 2>&1; then
@@ -559,6 +733,165 @@ else
 
 fi
 
+# ═══════════════════════════════════════════════════════════════════════
+# OVN Connectivity Tests
+# ═══════════════════════════════════════════════════════════════════════
+echo -e "\nChecking if SANITY_TESTS_OVN_ENABLED flag is set to 'true'"
+
+if [ "${SANITY_TESTS_OVN_ENABLED}" != "true" ]; then
+  echo -e "SANITY_TESTS_OVN_ENABLED is '${SANITY_TESTS_OVN_ENABLED}'. Skipping OVN connectivity tests."
+else
+  echo -e "SANITY_TESTS_OVN_ENABLED is 'true'. Running OVN connectivity tests.\n"
+
+  ovn_cp_node=$(oc get nodes -l node-role.kubernetes.io/control-plane \
+    --kubeconfig="${mgmt_kubecfg}" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+
+  if [ -z "${ovn_cp_node}" ]; then
+    echo "No control-plane node found for OVN tests"
+    exit 1
+  fi
+  echo -e "Control-plane node for OVN tests: '${ovn_cp_node}'"
+
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  ovn_manifests_dir="${script_dir}/../manifests/testing"
+
+  ovn_manifest_generated="${PWD}/ovn-test-pods-${datetime_string}.yaml"
+  cp "${ovn_manifests_dir}/ovn-test-pods.yaml" "${ovn_manifest_generated}"
+  sed -i "s|<OVN_TEST_NAMESPACE>|${SANITY_TESTS_OVN_NAMESPACE}|g" "${ovn_manifest_generated}"
+  sed -i "s|<OVN_TEST_NODE1>|${dpu_host_workers[0]}|g" "${ovn_manifest_generated}"
+  sed -i "s|<OVN_TEST_CP_NODE>|${ovn_cp_node}|g" "${ovn_manifest_generated}"
+  sed -i "s|<OVN_TEST_IMAGE>|${SANITY_TESTS_OVN_IMAGE}|g" "${ovn_manifest_generated}"
+
+  if oc get namespace "${SANITY_TESTS_OVN_NAMESPACE}" --kubeconfig="${mgmt_kubecfg}" >/dev/null 2>&1; then
+    echo "Pre-existing OVN test namespace '${SANITY_TESTS_OVN_NAMESPACE}' found, cleaning up..."
+    oc delete namespace "${SANITY_TESTS_OVN_NAMESPACE}" --timeout=60s --kubeconfig="${mgmt_kubecfg}" || true
+    oc wait --for=delete namespace/"${SANITY_TESTS_OVN_NAMESPACE}" \
+      --timeout=60s --kubeconfig="${mgmt_kubecfg}" 2>/dev/null || true
+  fi
+
+  echo -e "\nApplying OVN test manifest: '${ovn_manifest_generated}'"
+  oc apply -f "${ovn_manifest_generated}" --kubeconfig="${mgmt_kubecfg}"
+
+  ovn_crossnode_manifest_generated=""
+  if [ "${dpu_host_worker_count}" -ge 2 ]; then
+    echo -e "Detected ${dpu_host_worker_count} DPU host workers. Deploying cross-node test pod."
+    ovn_crossnode_manifest_generated="${PWD}/ovn-test-pods-crossnode-${datetime_string}.yaml"
+    cp "${ovn_manifests_dir}/ovn-test-pods-crossnode.yaml" "${ovn_crossnode_manifest_generated}"
+    sed -i "s|<OVN_TEST_NAMESPACE>|${SANITY_TESTS_OVN_NAMESPACE}|g" "${ovn_crossnode_manifest_generated}"
+    sed -i "s|<OVN_TEST_NODE2>|${dpu_host_workers[1]}|g" "${ovn_crossnode_manifest_generated}"
+    sed -i "s|<OVN_TEST_IMAGE>|${SANITY_TESTS_OVN_IMAGE}|g" "${ovn_crossnode_manifest_generated}"
+    oc apply -f "${ovn_crossnode_manifest_generated}" --kubeconfig="${mgmt_kubecfg}"
+  else
+    echo -e "Detected ${dpu_host_worker_count} DPU host worker. Cross-node tests will be skipped."
+  fi
+
+  ovn_tests_deployed=true
+
+  echo -e "\nWaiting for OVN test pods to be ready..."
+  oc wait --for=condition=Ready pod --all \
+    -n "${SANITY_TESTS_OVN_NAMESPACE}" \
+    --timeout=120s --kubeconfig="${mgmt_kubecfg}"
+
+  ovn_pod_a_ip=$(oc get pod pod-a -n "${SANITY_TESTS_OVN_NAMESPACE}" --kubeconfig="${mgmt_kubecfg}" \
+    -o jsonpath='{.status.podIP}')
+  ovn_pod_b_ip=$(oc get pod pod-b -n "${SANITY_TESTS_OVN_NAMESPACE}" --kubeconfig="${mgmt_kubecfg}" \
+    -o jsonpath='{.status.podIP}')
+  ovn_svc_ip=$(oc get svc web-svc -n "${SANITY_TESTS_OVN_NAMESPACE}" --kubeconfig="${mgmt_kubecfg}" \
+    -o jsonpath='{.spec.clusterIP}')
+  ovn_svc_host_ip=$(oc get svc web-host-svc -n "${SANITY_TESTS_OVN_NAMESPACE}" --kubeconfig="${mgmt_kubecfg}" \
+    -o jsonpath='{.spec.clusterIP}')
+
+  ovn_node1_mp0=$(oc get node "${dpu_host_workers[0]}" --kubeconfig="${mgmt_kubecfg}" \
+    -o jsonpath='{.metadata.annotations.k8s\.ovn\.org/node-subnets}' \
+    | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -1 \
+    | sed 's/\.[0-9]*$/.2/')
+
+  if [ "${dpu_host_worker_count}" -ge 2 ]; then
+    ovn_remote_ip=$(oc get pod pod-remote -n "${SANITY_TESTS_OVN_NAMESPACE}" --kubeconfig="${mgmt_kubecfg}" \
+      -o jsonpath='{.status.podIP}')
+    ovn_node2_mp0=$(oc get node "${dpu_host_workers[1]}" --kubeconfig="${mgmt_kubecfg}" \
+      -o jsonpath='{.metadata.annotations.k8s\.ovn\.org/node-subnets}' \
+      | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -1 \
+      | sed 's/\.[0-9]*$/.2/')
+  fi
+
+  echo -e "\nOVN test IPs:"
+  echo -e "  pod-a IP: ${ovn_pod_a_ip}"
+  echo -e "  pod-b IP: ${ovn_pod_b_ip}"
+  echo -e "  web-svc ClusterIP: ${ovn_svc_ip}"
+  echo -e "  web-host-svc ClusterIP: ${ovn_svc_host_ip}"
+  echo -e "  ${dpu_host_workers[0]} mp0: ${ovn_node1_mp0}"
+  [ "${dpu_host_worker_count}" -ge 2 ] && echo -e "  pod-remote IP: ${ovn_remote_ip}"
+  [ "${dpu_host_worker_count}" -ge 2 ] && echo -e "  ${dpu_host_workers[1]} mp0: ${ovn_node2_mp0}"
+
+  # Same-node pod-to-pod
+  echo -e "\n=== OVN: Same-node pod-to-pod (${dpu_host_workers[0]}) ==="
+
+  ping_mtu_test "OVN: pod-a -> pod-b ping (same node ${dpu_host_workers[0]})" \
+    "pod-a" "${SANITY_TESTS_OVN_NAMESPACE}" "${mgmt_kubecfg}" \
+    "${SANITY_TESTS_OVN_PING_COUNT}" "normal" "${ovn_pod_b_ip}"
+
+  ping_mtu_test "OVN: pod-b -> pod-a ping (same node ${dpu_host_workers[0]})" \
+    "pod-b" "${SANITY_TESTS_OVN_NAMESPACE}" "${mgmt_kubecfg}" \
+    "${SANITY_TESTS_OVN_PING_COUNT}" "normal" "${ovn_pod_a_ip}"
+
+  # Cross-node DPU-to-DPU
+  echo -e "\n=== OVN: Cross-node DPU-to-DPU ==="
+  if [ "${dpu_host_worker_count}" -ge 2 ]; then
+    ping_mtu_test "OVN: pod-a (${dpu_host_workers[0]}) -> pod-remote (${dpu_host_workers[1]}) ping" \
+      "pod-a" "${SANITY_TESTS_OVN_NAMESPACE}" "${mgmt_kubecfg}" \
+      "${SANITY_TESTS_OVN_PING_COUNT}" "normal" "${ovn_remote_ip}"
+
+    ping_mtu_test "OVN: pod-remote (${dpu_host_workers[1]}) -> pod-a (${dpu_host_workers[0]}) ping" \
+      "pod-remote" "${SANITY_TESTS_OVN_NAMESPACE}" "${mgmt_kubecfg}" \
+      "${SANITY_TESTS_OVN_PING_COUNT}" "normal" "${ovn_pod_a_ip}"
+  else
+    echo -e "Skipping cross-node tests (only 1 DPU host worker)"
+  fi
+
+  # Pod-to-Service
+  echo -e "\n=== OVN: Pod-to-Service (ClusterIP: ${ovn_svc_ip}) ==="
+
+  ovn_curl_test "OVN: same-node pod-a -> ClusterIP web-svc" \
+    "pod-a" "http://${ovn_svc_ip}:80"
+
+  ovn_curl_test "OVN: same-node pod-a -> service DNS web-svc.${SANITY_TESTS_OVN_NAMESPACE}.svc.cluster.local" \
+    "pod-a" "http://web-svc.${SANITY_TESTS_OVN_NAMESPACE}.svc.cluster.local:80"
+
+  ovn_curl_test "OVN: hairpin web-server -> own ClusterIP" \
+    "web-server" "http://${ovn_svc_ip}:80"
+
+  ovn_curl_test "OVN: hairpin hostnet web-host -> own ClusterIP" \
+    "web-host" "http://${ovn_svc_host_ip}:81"
+
+  # Cross-node service tests
+  if [ "${dpu_host_worker_count}" -ge 2 ]; then
+    ovn_curl_test "OVN: cross-node pod-remote -> ClusterIP web-svc" \
+      "pod-remote" "http://${ovn_svc_ip}:80"
+
+    ovn_curl_test "OVN: cross-node pod-remote -> service DNS web-svc" \
+      "pod-remote" "http://web-svc.${SANITY_TESTS_OVN_NAMESPACE}.svc.cluster.local:80"
+  else
+    echo -e "\nSkipping cross-node service tests (only 1 DPU host worker)"
+  fi
+
+  # Control-plane to worker ovn-k8s-mp0
+  echo -e "\n=== OVN: Control-plane -> worker ovn-k8s-mp0 ==="
+
+  ping_mtu_test "OVN: pod-cp -> ${dpu_host_workers[0]} mp0 (${ovn_node1_mp0})" \
+    "pod-cp" "${SANITY_TESTS_OVN_NAMESPACE}" "${mgmt_kubecfg}" \
+    "${SANITY_TESTS_OVN_PING_COUNT}" "normal" "${ovn_node1_mp0}"
+
+  if [ "${dpu_host_worker_count}" -ge 2 ]; then
+    ping_mtu_test "OVN: pod-cp -> ${dpu_host_workers[1]} mp0 (${ovn_node2_mp0})" \
+      "pod-cp" "${SANITY_TESTS_OVN_NAMESPACE}" "${mgmt_kubecfg}" \
+      "${SANITY_TESTS_OVN_PING_COUNT}" "normal" "${ovn_node2_mp0}"
+  else
+    echo -e "Skipping cp -> second worker mp0 (only 1 DPU host worker)"
+  fi
+
+fi
+
 # Output test results summary:
 echo -e "\n$test_results_summary"
 
@@ -570,5 +903,5 @@ if [ "${failed_testcase_count}" -gt 0 ]; then
   exit 1
 else
   echo "All tests passed"
-  exit 0 
+  exit 0
 fi

@@ -1,0 +1,189 @@
+# Namespace
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: <OVN_TEST_NAMESPACE>
+
+# RoleBinding: grant hostnetwork SCC to default SA (needed for web-host pod)
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: hostnetwork-scc-default-sa
+  namespace: <OVN_TEST_NAMESPACE>
+subjects:
+- kind: ServiceAccount
+  name: default
+  namespace: <OVN_TEST_NAMESPACE>
+roleRef:
+  kind: ClusterRole
+  name: system:openshift:scc:hostnetwork-v2
+  apiGroup: rbac.authorization.k8s.io
+
+# Pod: pod-a (same-node ping source)
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-a
+  namespace: <OVN_TEST_NAMESPACE>
+  labels:
+    app: ovn-test-pod-a
+spec:
+  nodeSelector:
+    kubernetes.io/hostname: "<OVN_TEST_NODE1>"
+  terminationGracePeriodSeconds: 0
+  containers:
+  - name: c
+    image: <OVN_TEST_IMAGE>
+    command: ["sh", "-c", "sleep infinity"]
+    securityContext:
+      allowPrivilegeEscalation: false
+      runAsNonRoot: true
+      seccompProfile:
+        type: RuntimeDefault
+      capabilities:
+        drop: ["ALL"]
+
+# Pod: pod-b (same-node ping target)
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-b
+  namespace: <OVN_TEST_NAMESPACE>
+  labels:
+    app: ovn-test-pod-b
+spec:
+  nodeSelector:
+    kubernetes.io/hostname: "<OVN_TEST_NODE1>"
+  terminationGracePeriodSeconds: 0
+  containers:
+  - name: c
+    image: <OVN_TEST_IMAGE>
+    command: ["sh", "-c", "sleep infinity"]
+    securityContext:
+      allowPrivilegeEscalation: false
+      runAsNonRoot: true
+      seccompProfile:
+        type: RuntimeDefault
+      capabilities:
+        drop: ["ALL"]
+
+# Pod: web-server (HTTP server for ClusterIP and hairpin tests)
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: web-server
+  namespace: <OVN_TEST_NAMESPACE>
+  labels:
+    app: ovn-test-web-server
+spec:
+  nodeSelector:
+    kubernetes.io/hostname: "<OVN_TEST_NODE1>"
+  terminationGracePeriodSeconds: 0
+  containers:
+  - name: c
+    image: <OVN_TEST_IMAGE>
+    command: ["sh", "-c", "python3 -m http.server 8080"]
+    ports:
+    - containerPort: 8080
+    securityContext:
+      allowPrivilegeEscalation: false
+      runAsNonRoot: true
+      seccompProfile:
+        type: RuntimeDefault
+      capabilities:
+        drop: ["ALL"]
+
+# Pod: web-host (hostNetwork HTTP server for hairpin hostnet test)
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: web-host
+  namespace: <OVN_TEST_NAMESPACE>
+  labels:
+    app: ovn-test-web-host
+spec:
+  hostNetwork: true
+  nodeSelector:
+    kubernetes.io/hostname: "<OVN_TEST_NODE1>"
+  terminationGracePeriodSeconds: 0
+  containers:
+  - name: c
+    image: <OVN_TEST_IMAGE>
+    command: ["sh", "-c", "python3 -m http.server 8081"]
+    ports:
+    - containerPort: 8081
+    securityContext:
+      allowPrivilegeEscalation: false
+      runAsNonRoot: true
+      seccompProfile:
+        type: RuntimeDefault
+      capabilities:
+        drop: ["ALL"]
+
+# Pod: pod-cp (control-plane pod for CP-to-worker mp0 tests)
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-cp
+  namespace: <OVN_TEST_NAMESPACE>
+  labels:
+    app: ovn-test-pod-cp
+spec:
+  nodeSelector:
+    node-role.kubernetes.io/control-plane: ""
+  tolerations:
+  - key: node-role.kubernetes.io/master
+    operator: Exists
+    effect: NoSchedule
+  - key: node-role.kubernetes.io/control-plane
+    operator: Exists
+    effect: NoSchedule
+  terminationGracePeriodSeconds: 0
+  containers:
+  - name: c
+    image: <OVN_TEST_IMAGE>
+    command: ["sh", "-c", "sleep infinity"]
+    securityContext:
+      allowPrivilegeEscalation: false
+      runAsNonRoot: true
+      seccompProfile:
+        type: RuntimeDefault
+      capabilities:
+        drop: ["ALL"]
+
+# Service: web-svc (ClusterIP for web-server)
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-svc
+  namespace: <OVN_TEST_NAMESPACE>
+spec:
+  selector:
+    app: ovn-test-web-server
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 8080
+
+# Service: web-host-svc (ClusterIP for web-host)
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-host-svc
+  namespace: <OVN_TEST_NAMESPACE>
+spec:
+  selector:
+    app: ovn-test-web-host
+  ports:
+  - protocol: TCP
+    port: 81
+    targetPort: 8081
