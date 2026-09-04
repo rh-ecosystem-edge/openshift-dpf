@@ -38,9 +38,26 @@ TFT_CONFIG_TEMPLATE="${SCRIPT_DIR}/../ci/tft-config.yaml.template"
 TFT_CONFIG_OUTPUT="${TFT_WORK_DIR}/tft-config.yaml"
 
 # Test Parameters (can be overridden via environment)
-TFT_TEST_CASES="${TFT_TEST_CASES:-1-25}"
+TFT_TEST_CASES="${TFT_TEST_CASES:-1-25,27,69}"
 TFT_DURATION="${TFT_DURATION:-10}"
 TFT_CONNECTION_TYPE="${TFT_CONNECTION_TYPE:-iperf-tcp}"
+
+# Secondary-interface SR-IOV (2nd-interface tests 27-29 on DPU hosts).
+# When TFT_RESOURCE_NAME is set (e.g. openshift.io/bf3-p1-vfs), the pod's secondary
+# interface (net1) is backed by a SEPARATE SR-IOV resource pool from the primary
+# (eth0, injected as bf3-p0-vfs). ensure_secondary_resource_pool() creates the pool
+# on the NodeSRIOVDevicePluginConfig and waits for the DPU hosts to expose it.
+# When empty, the secondary_network_nad/resource_name lines are dropped from the
+# generated config and behavior is unchanged.
+TFT_SECONDARY_NAD="${TFT_SECONDARY_NAD:-}"
+TFT_RESOURCE_NAME="${TFT_RESOURCE_NAME:-}"
+TFT_SECONDARY_RP_PFINDEX="${TFT_SECONDARY_RP_PFINDEX:-1}"
+TFT_SECONDARY_RP_VF_START="${TFT_SECONDARY_RP_VF_START:-1}"
+TFT_SECONDARY_RP_VF_END="${TFT_SECONDARY_RP_VF_END:-45}"
+# NodeSRIOVDevicePluginConfig object (namespace fixed by the DPF operator install).
+# Object name is verified/discovered at runtime; override only if auto-discovery is wrong.
+TFT_SRIOVDP_NAMESPACE="${TFT_SRIOVDP_NAMESPACE:-dpf-operator-system}"
+TFT_SRIOVDP_CONFIG_NAME="${TFT_SRIOVDP_CONFIG_NAME:-}"
 
 # Kubeconfig path (relative to working directory by default)
 TFT_KUBECONFIG="${TFT_KUBECONFIG:-$(pwd)/kubeconfig.${CLUSTER_NAME}}"
@@ -255,6 +272,138 @@ setup_venv() {
 }
 
 # -----------------------------------------------------------------------------
+# Ensure the SECONDARY-interface SR-IOV resource pool exists (2nd-interface tests)
+# -----------------------------------------------------------------------------
+# Adds a port-<pfIndex> VF pool (named after TFT_RESOURCE_NAME's basename, e.g.
+# bf3-p1-vfs) to the NodeSRIOVDevicePluginConfig and waits for the DPU host nodes
+# to expose openshift.io/<pool> as allocatable. Idempotent: skips the patch when the
+# pool is already present. No-op when TFT_RESOURCE_NAME is empty. The PRIMARY (eth0)
+# VF is handled by the OVN resource injector and is intentionally left untouched.
+ensure_secondary_resource_pool() {
+    if [[ -z "${TFT_RESOURCE_NAME}" ]]; then
+        log "INFO" "TFT_RESOURCE_NAME not set; skipping secondary SR-IOV pool setup"
+        return 0
+    fi
+
+    if ! command -v oc &>/dev/null; then
+        log "ERROR" "oc is required to set up the secondary SR-IOV resource pool"
+        return 1
+    fi
+
+    resolve_kubeconfig || return 1
+    local kc="${TFT_KUBECONFIG_ABS}"
+    local ns="${TFT_SRIOVDP_NAMESPACE}"
+
+    # Short pool name = basename of the full resource name (openshift.io/bf3-p1-vfs -> bf3-p1-vfs)
+    local pool="${TFT_RESOURCE_NAME##*/}"
+
+    local cfg="${TFT_SRIOVDP_CONFIG_NAME:-${SRIOV_DP_CONFIG_NAME:-}}"
+    if [[ -z "${cfg}" ]] || \
+       ! oc get nodesriovdevicepluginconfig "${cfg}" -n "${ns}" --kubeconfig="${kc}" &>/dev/null; then
+        if [[ -n "${cfg}" ]]; then
+            log "WARN" "NodeSRIOVDevicePluginConfig/${cfg} not found; discovering the object in ${ns}"
+        fi
+        cfg=$(oc get nodesriovdevicepluginconfig -n "${ns}" --kubeconfig="${kc}" \
+            -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+    fi
+    if [[ -z "${cfg}" ]]; then
+        log "ERROR" "No NodeSRIOVDevicePluginConfig found in namespace ${ns} (is DPF deployed?)"
+        return 1
+    fi
+
+    log "INFO" "Ensuring secondary SR-IOV pool '${pool}' on NodeSRIOVDevicePluginConfig/${cfg} (ns ${ns})"
+    log "INFO" "  full resource: ${TFT_RESOURCE_NAME}"
+    log "INFO" "  pfIndex ${TFT_SECONDARY_RP_PFINDEX}, VFs ${TFT_SECONDARY_RP_VF_START}-${TFT_SECONDARY_RP_VF_END}, RDMA"
+
+    # Patch only if the pool is not already present (idempotent)
+    local existing
+    existing=$(oc get nodesriovdevicepluginconfig "${cfg}" -n "${ns}" --kubeconfig="${kc}" \
+        -o jsonpath='{.spec.devicePluginResources[*].name}' 2>/dev/null | tr ' ' '\n' | grep -Fxc "${pool}" || true)
+    if [[ "${existing}" -ge 1 ]]; then
+        log "INFO" "Pool '${pool}' already present; skipping patch"
+    else
+        local patch
+        patch=$(cat <<EOF
+[{"op":"add","path":"/spec/devicePluginResources/-","value":{"name":"${pool}","type":"vf","options":{"isRdma":true},"ranges":[{"pfIndex":${TFT_SECONDARY_RP_PFINDEX},"start":${TFT_SECONDARY_RP_VF_START},"end":${TFT_SECONDARY_RP_VF_END}}]}}]
+EOF
+)
+        log "INFO" "Adding pool '${pool}' to NodeSRIOVDevicePluginConfig/${cfg}"
+        oc patch nodesriovdevicepluginconfig "${cfg}" -n "${ns}" --kubeconfig="${kc}" \
+            --type=json -p "${patch}" || {
+            log "ERROR" "Failed to patch NodeSRIOVDevicePluginConfig/${cfg}"
+            return 1
+        }
+    fi
+
+    # Wait for the resource to become allocatable on the Ready DPU host nodes
+    local -a dpu_nodes=()
+    mapfile -t dpu_nodes < <(oc get nodes --no-headers -l 'k8s.ovn.org/dpu-host' \
+        --kubeconfig="${kc}" 2>/dev/null | awk '$2 == "Ready" { print $1 }')
+    if [[ ${#dpu_nodes[@]} -eq 0 ]]; then
+        log "ERROR" "No Ready DPU host nodes (label k8s.ovn.org/dpu-host) to verify pool '${pool}'"
+        return 1
+    fi
+
+    local max_attempts=40 delay=15
+    log "INFO" "Waiting for ${TFT_RESOURCE_NAME} to be allocatable on ${#dpu_nodes[@]} node(s) (up to $((max_attempts * delay))s)"
+    for attempt in $(seq 1 "${max_attempts}"); do
+        local all_ready=true
+        for node in "${dpu_nodes[@]}"; do
+            local val
+            val=$(oc get node "${node}" --kubeconfig="${kc}" \
+                -o go-template="{{index .status.allocatable \"${TFT_RESOURCE_NAME}\"}}" 2>/dev/null || true)
+            if [[ -z "${val}" || "${val}" == "<no value>" || "${val}" == "0" ]]; then
+                all_ready=false
+                break
+            fi
+        done
+        if [[ "${all_ready}" == "true" ]]; then
+            log "INFO" "Resource ${TFT_RESOURCE_NAME} is allocatable on all ${#dpu_nodes[@]} DPU host node(s)"
+            return 0
+        fi
+        log "INFO" "Waiting for ${TFT_RESOURCE_NAME} allocatable (attempt ${attempt}/${max_attempts})..."
+        sleep "${delay}"
+    done
+
+    log "ERROR" "Timed out waiting for ${TFT_RESOURCE_NAME} to become allocatable on DPU host nodes"
+    log "ERROR" "Check the SR-IOV device plugin pods and NodeSRIOVDevicePluginConfig/${cfg}"
+    return 1
+}
+
+# -----------------------------------------------------------------------------
+# Gate the 2nd-interface test (27) to DPU hosts with the secondary SR-IOV profile
+# -----------------------------------------------------------------------------
+# Test 27 needs a DPU host node AND the secondary SR-IOV pool (TFT_RESOURCE_NAME).
+# Keep/add it only when both hold; otherwise strip it so a plain run never fails.
+adjust_secondary_test_cases() {
+    local kc="$1"
+
+    local wants27=false
+    case ",${TFT_TEST_CASES}," in *,27,*) wants27=true ;; esac
+
+    local has_dpu=false
+    if command -v oc &>/dev/null && \
+       oc get nodes -l 'k8s.ovn.org/dpu-host' --no-headers --kubeconfig="${kc}" 2>/dev/null | grep -q .; then
+        has_dpu=true
+    fi
+
+    if [[ -n "${TFT_RESOURCE_NAME}" && "${has_dpu}" == "true" ]]; then
+        if [[ "${wants27}" == "false" ]]; then
+            TFT_TEST_CASES="${TFT_TEST_CASES},27"
+            log "INFO" "Secondary SR-IOV profile active on a DPU host; added test 27"
+        fi
+    elif [[ "${wants27}" == "true" ]]; then
+        TFT_TEST_CASES="$(echo ",${TFT_TEST_CASES}," | sed 's/,27,/,/g; s/^,//; s/,$//')"
+        if [[ -z "${TFT_TEST_CASES}" ]]; then
+            log "ERROR" "Test 27 requires a DPU host and TFT_RESOURCE_NAME (secondary SR-IOV pool); nothing left to run"
+            return 1
+        fi
+        log "WARN" "Skipping test 27: requires a DPU host and TFT_RESOURCE_NAME (secondary SR-IOV pool)"
+    fi
+    return 0
+}
+
+# -----------------------------------------------------------------------------
 # Generate Test Configuration
 # -----------------------------------------------------------------------------
 generate_config() {
@@ -274,7 +423,9 @@ generate_config() {
         log "ERROR" "TFT_SERVER_NODE and TFT_CLIENT_NODE must be set after discovery"
         return 1
     fi
-    
+
+    adjust_secondary_test_cases "${TFT_KUBECONFIG_ABS}" || return 1
+
     log "INFO" "Test configuration:"
     log "INFO" "  Test cases: ${TFT_TEST_CASES}"
     log "INFO" "  Duration: ${TFT_DURATION}s"
@@ -293,7 +444,20 @@ generate_config() {
     sed -i "s|__TFT_SERVER_NODE__|${TFT_SERVER_NODE}|g" "${TFT_CONFIG_OUTPUT}"
     sed -i "s|__TFT_CLIENT_NODE__|${TFT_CLIENT_NODE}|g" "${TFT_CONFIG_OUTPUT}"
     sed -i "s|__TFT_KUBECONFIG__|${TFT_KUBECONFIG_ABS}|g" "${TFT_CONFIG_OUTPUT}"
-    
+
+    # Secondary-interface knobs: substitute when set, otherwise drop the whole line
+    # so tft keeps its default behavior (no secondary NAD / no resource request).
+    if [[ -n "${TFT_SECONDARY_NAD}" ]]; then
+        sed -i "s|__TFT_SECONDARY_NAD__|${TFT_SECONDARY_NAD}|g" "${TFT_CONFIG_OUTPUT}"
+    else
+        sed -i "/__TFT_SECONDARY_NAD__/d" "${TFT_CONFIG_OUTPUT}"
+    fi
+    if [[ -n "${TFT_RESOURCE_NAME}" ]]; then
+        sed -i "s|__TFT_RESOURCE_NAME__|${TFT_RESOURCE_NAME}|g" "${TFT_CONFIG_OUTPUT}"
+    else
+        sed -i "/__TFT_RESOURCE_NAME__/d" "${TFT_CONFIG_OUTPUT}"
+    fi
+
     log "INFO" "Configuration generated: ${TFT_CONFIG_OUTPUT}"
 }
 
@@ -378,6 +542,7 @@ run_full_test() {
     
     setup_tft_repo
     setup_venv
+    ensure_secondary_resource_pool
     generate_config
     run_tests
 }
@@ -499,6 +664,9 @@ case "${1:-}" in
     generate-config)
         generate_config
         ;;
+    ensure-secondary-pool)
+        ensure_secondary_resource_pool
+        ;;
     run)
         run_tests
         ;;
@@ -515,11 +683,12 @@ case "${1:-}" in
         show_results
         ;;
     *)
-        echo "Usage: $0 {setup|generate-config|run|run-full|cleanup|show-config|show-results}"
+        echo "Usage: $0 {setup|generate-config|ensure-secondary-pool|run|run-full|cleanup|show-config|show-results}"
         echo ""
         echo "Commands:"
         echo "  setup          - Clone repository and setup Python environment"
         echo "  generate-config - Generate test configuration from template"
+        echo "  ensure-secondary-pool - Add the secondary SR-IOV VF pool (TFT_RESOURCE_NAME) and wait for it"
         echo "  run            - Run tests (assumes setup is complete)"
         echo "  run-full       - Full workflow: setup + generate-config + run (default)"
         echo "  cleanup        - Remove cloned repository and virtual environment"
@@ -536,6 +705,16 @@ case "${1:-}" in
         echo "  TFT_SERVER_NODE     - Kubernetes node name for server (default: auto-discover DPU worker)"
         echo "  TFT_CLIENT_NODE     - Kubernetes node name for client (default: auto-discover)"
         echo "  TFT_PYTHON          - Python interpreter (default: python3.11)"
+        echo ""
+        echo "Secondary-interface SR-IOV (2nd-interface tests 27-29 on DPU hosts):"
+        echo "  TFT_RESOURCE_NAME       - Secondary (net1) VF pool, e.g. openshift.io/bf3-p1-vfs."
+        echo "                            When set, the pool is created on the NodeSRIOVDevicePluginConfig"
+        echo "                            and the secondary NAD is pointed at it. Empty = default behavior."
+        echo "  TFT_SECONDARY_NAD       - Secondary NAD name (default: tft (tft-secondary) for tests 27-29)"
+        echo "  TFT_SECONDARY_RP_PFINDEX- Physical function index for the secondary pool (default: 1)"
+        echo "  TFT_SECONDARY_RP_VF_START / _VF_END - VF range for the secondary pool (default: 1-45)"
+        echo "  TFT_SRIOVDP_CONFIG_NAME - NodeSRIOVDevicePluginConfig object name (default: auto-discover)"
+        echo "  NOTE: the PRIMARY (eth0) VF is handled by the OVN resource injector (bf3-p0-vfs)."
         echo ""
         echo "Note: Python 3.11 is required. If not installed, the script will attempt"
         echo "      to install it automatically using dnf/yum/apt."
