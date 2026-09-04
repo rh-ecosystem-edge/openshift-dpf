@@ -212,7 +212,14 @@ function prepare_post_installation() {
         return 1
     fi
     local vf_range_end=$((NUM_VFS - 1))
-    local kata_vf_range_end=$((KATA_NUM_VFS - 1))
+    local pf1_regular_count=$((NUM_VFS - KATA_NUM_VFS))
+    local pf1_regular_end=$((pf1_regular_count - 1))
+    local kata_vf_start=${pf1_regular_count}
+    local kata_vf_end=$((NUM_VFS - 1))
+    if [ "${KATA_NUM_VFS}" -gt "${NUM_VFS}" ]; then
+        log [ERROR] "KATA_NUM_VFS (${KATA_NUM_VFS}) exceeds NUM_VFS (${NUM_VFS})"
+        return 1
+    fi
     update_file_multi_replace \
         "${POST_INSTALL_DIR}/nodesriovdevicepluginconfig.yaml" \
         "${GENERATED_POST_INSTALL_DIR}/nodesriovdevicepluginconfig.yaml" \
@@ -220,9 +227,11 @@ function prepare_post_installation() {
         "<SRIOV_DP_CONFIG_CR_NAME>" "${SRIOV_DP_CONFIG_CR_NAME}" \
         "<SRIOV_DP_MGMT_POOL_NAME>" "${SRIOV_DP_MGMT_POOL_NAME}" \
         "<NUM_VFS_END>" "${vf_range_end}" \
+        "<PF1_REGULAR_VF_END>" "${pf1_regular_end}" \
         "<KATA_SRIOV_DP_CONFIG_NAME>" "${KATA_SRIOV_DP_CONFIG_NAME}" \
         "<KATA_SRIOV_PF_INDEX>" "${KATA_SRIOV_PF_INDEX}" \
-        "<KATA_NUM_VFS_END>" "${kata_vf_range_end}"
+        "<KATA_VF_START>" "${kata_vf_start}" \
+        "<KATA_VF_END>" "${kata_vf_end}"
 
     # Copy remaining manifests using utility function (exclude special files)
     copy_manifests_with_exclusions "${POST_INSTALL_DIR}" "${GENERATED_POST_INSTALL_DIR}" "${SPECIAL_FILES[@]}"

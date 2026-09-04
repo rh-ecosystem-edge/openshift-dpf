@@ -34,7 +34,7 @@ Regular (non-kata) pods only prove the **PF0** path. Kata uses **PF1**.
 ```bash
 KATA_SRIOV_DP_CONFIG_NAME=bf3-p1-vfs-kata
 KATA_SRIOV_PF_INDEX=1
-KATA_NUM_VFS=46
+KATA_NUM_VFS=24            # kata pods on PF1; regular gets NUM_VFS - KATA_NUM_VFS
 KATA_RUNTIME_CLASS=kata-coldplug
 KATA_INJECTOR_RESOURCE_NAME=openshift.io/bf3-p1-vfs-kata
 # Git default: dpf-ovn-kubernetes-${KATA_RUNTIME_CLASS}
