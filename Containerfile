@@ -9,7 +9,7 @@ USER root
 COPY --from=oc-cli /usr/bin/oc /usr/bin/oc
 RUN ln -s /usr/bin/oc /usr/bin/kubectl
 
-RUN dnf install -y findutils gettext git jq make openssh-clients python3.11 python3.11-devel python3.11-pip rsync && dnf clean all
+RUN dnf install -y findutils gettext git golang jq make openssh-clients python3.11 python3.11-devel python3.11-pip rsync && dnf clean all
 
 # Get the source code in there
 WORKDIR /root/dpf-ci
