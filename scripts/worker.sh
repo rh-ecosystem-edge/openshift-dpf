@@ -215,6 +215,112 @@ shutoff_all_workers() {
     log "INFO" "All configured workers powered off"
 }
 
+# Poll power state until On or the retry budget is exhausted.
+# Returns 0 if the server reached On, 1 otherwise.
+_redfish_wait_for_on() {
+    local bmc_ip="$1"
+    local user="$2"
+    local pass="$3"
+    local system_path="$4"
+    local max_retries="$5"
+    local sleep_interval="$6"
+
+    local retries=0 current_state
+    while [[ $retries -lt $max_retries ]]; do
+        sleep "${sleep_interval}"
+        current_state=$(_redfish_get_power_state "${bmc_ip}" "${user}" "${pass}" "${system_path}")
+        if [[ "${current_state}" == "On" ]]; then
+            return 0
+        fi
+        retries=$((retries + 1))
+    done
+    return 1
+}
+
+# Power on a server via Redfish. No-op if already On. The DPU comes up
+# together with its host, so a single ComputerSystem.Reset(On) covers both.
+_redfish_power_on() {
+    local bmc_ip="$1"
+    local user="$2"
+    local pass="$3"
+    local system_path="$4"
+
+    local current_state
+    current_state=$(_redfish_get_power_state "${bmc_ip}" "${user}" "${pass}" "${system_path}")
+    if [[ "${current_state}" == "On" ]]; then
+        log "INFO" "Server ${bmc_ip} is already on"
+        return 0
+    fi
+
+    log "INFO" "Powering on ${bmc_ip} via Redfish..."
+    _redfish_power_action "${bmc_ip}" "${user}" "${pass}" "${system_path}" "On"
+
+    if _redfish_wait_for_on "${bmc_ip}" "${user}" "${pass}" "${system_path}" 30 2; then
+        log "INFO" "Server ${bmc_ip} is powered on"
+        return 0
+    fi
+
+    log "WARN" "Server ${bmc_ip} may not have fully powered on"
+    return 1
+}
+
+_poweron_worker() {
+    local index="$1"
+
+    local name_var="WORKER_${index}_NAME"
+    local bmc_ip_var="WORKER_${index}_BMC_IP"
+    local bmc_user_var="WORKER_${index}_BMC_USER"
+    local bmc_pass_var="WORKER_${index}_BMC_PASSWORD"
+    local system_path_var="WORKER_${index}_REDFISH_SYSTEM_PATH"
+
+    local name="${!name_var:-worker-${index}}"
+    local bmc_ip="${!bmc_ip_var:-}"
+    local bmc_user="${!bmc_user_var:-}"
+    local bmc_pass="${!bmc_pass_var:-}"
+    local system_path_config="${!system_path_var:-}"
+
+    if [[ -z "${bmc_ip}" || -z "${bmc_user}" || -z "${bmc_pass}" ]]; then
+        log "WARN" "Worker ${index} (${name}) missing BMC credentials, skipping power-on"
+        return 0
+    fi
+
+    local system_path
+    if ! system_path=$(_redfish_get_system_path "${bmc_ip}" "${bmc_user}" "${bmc_pass}" "${system_path_config}"); then
+        log "WARN" "Failed to resolve Redfish system path for worker ${name} (${bmc_ip})"
+        return 1
+    fi
+
+    log "INFO" "Powering on worker ${name} (${bmc_ip})..."
+    _redfish_power_on "${bmc_ip}" "${bmc_user}" "${bmc_pass}" "${system_path}"
+}
+
+# Power on all configured physical workers via Redfish. BMC/iDRAC stays
+# reachable even when the host is off, so this only needs BMC credentials —
+# no kubeconfig or worker OS connectivity required. Safe to call regardless
+# of current power state (no-op per host if already On).
+poweron_all_workers() {
+    local count="${WORKER_COUNT:-0}"
+    if [[ "${count}" -eq 0 ]]; then
+        log "INFO" "WORKER_COUNT=0, skipping physical worker power-on"
+        return 0
+    fi
+
+    log "INFO" "Powering on ${count} physical worker(s) via Redfish..."
+    local failed=0
+    for i in $(seq 1 "${count}"); do
+        if ! _poweron_worker "${i}"; then
+            failed=$((failed + 1))
+        fi
+    done
+
+    if [[ "${failed}" -gt 0 ]]; then
+        log "WARN" "Failed to power on ${failed}/${count} worker(s)"
+        return 1
+    fi
+
+    log "INFO" "All configured workers powered on"
+}
+
 provision_all_workers() {
     local count="${WORKER_COUNT:-0}"
     [[ "$count" -eq 0 ]] && { log "INFO" "WORKER_COUNT=0, skipping"; return 0; }
@@ -501,8 +607,9 @@ case "${1:-}" in
     delete-csr-auto-approver) delete_csr_auto_approver ;;
     delete-worker) delete_worker "${2:-}" ;;
     shutoff-all-workers) shutoff_all_workers ;;
+    poweron-all-workers) poweron_all_workers ;;
     *)
-        echo "Usage: $0 {provision-all-workers|approve-worker-csrs|display-worker-status|display-manual-csr-instructions|apply-short-worker-hostnames|deploy-csr-auto-approver|delete-csr-auto-approver|delete-worker <bmh-name|machine-name|node-name>|shutoff-all-workers}"
+        echo "Usage: $0 {provision-all-workers|approve-worker-csrs|display-worker-status|display-manual-csr-instructions|apply-short-worker-hostnames|deploy-csr-auto-approver|delete-csr-auto-approver|delete-worker <bmh-name|machine-name|node-name>|shutoff-all-workers|poweron-all-workers}"
         exit 1
         ;;
 esac

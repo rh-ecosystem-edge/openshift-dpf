@@ -30,7 +30,7 @@ all:
 	@bash -o pipefail -c '$(MAKE) _all 2>&1 | tee "logs/make_all_$(shell date +%Y%m%d_%H%M%S).log"'
 
 .PHONY: _all
-_all: verify-files check-cluster create-vms prepare-manifests cluster-install update-etc-hosts kubeconfig add-worker-nodes deploy-dpf prepare-dpu-files deploy-dpu-services enable-ovn-injector deploy-observability
+_all: verify-files check-cluster create-vms prepare-manifests cluster-install update-etc-hosts kubeconfig poweron-workers add-worker-nodes deploy-dpf prepare-dpu-files deploy-dpu-services enable-ovn-injector deploy-observability
 	@echo ""
 	@echo "================================================================================"
 	@echo "✅ DPF Installation Complete!"
@@ -257,6 +257,13 @@ kubeconfig:
 .PHONY: kubeadmin-password
 kubeadmin-password:
 	@$(CLUSTER_SCRIPT) get-kubeadmin-password
+
+.PHONY: poweron-workers
+poweron-workers:
+	@echo "Powering on physical workers via Redfish (control-plane is up, VIPs are safe)..."
+	@$(WORKER_SCRIPT) poweron-all-workers
+	@echo "Waiting $(WORKER_POWER_ON_DELAY)s for worker hosts/DPUs to settle before BMO provisioning..."
+	@sleep $(WORKER_POWER_ON_DELAY)
 
 .PHONY: deploy-nfd
 deploy-nfd:
