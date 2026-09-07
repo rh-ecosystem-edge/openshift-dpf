@@ -16,6 +16,24 @@ source "${SCRIPT_DIR}/utils.sh"
 VERIFY_MAX_RETRIES="${VERIFY_MAX_RETRIES:-60}"
 VERIFY_SLEEP_SECONDS="${VERIFY_SLEEP_SECONDS:-30}"
 
+# Sets HOSTED_KUBECONFIG to the local path if available or fetched from the
+# management cluster secret. Returns 1 when neither source is available.
+ensure_hosted_kubeconfig() {
+    HOSTED_KUBECONFIG="${HOSTED_CLUSTER_NAME}.kubeconfig"
+
+    if [[ -f "$HOSTED_KUBECONFIG" ]]; then
+        return 0
+    fi
+
+    log "INFO" "Fetching DPUCluster kubeconfig..."
+    if ! oc get secret -n "${CLUSTERS_NAMESPACE}" "${HOSTED_CLUSTER_NAME}-admin-kubeconfig" &>/dev/null; then
+        log "WARN" "DPUCluster kubeconfig not found"
+        return 1
+    fi
+    oc get secret -n "${CLUSTERS_NAMESPACE}" "${HOSTED_CLUSTER_NAME}-admin-kubeconfig" \
+        -o jsonpath='{.data.kubeconfig}' | base64 -d > "$HOSTED_KUBECONFIG"
+}
+
 # -----------------------------------------------------------------------------
 # 1. Worker Nodes (host cluster)
 # -----------------------------------------------------------------------------
@@ -56,18 +74,11 @@ verify_dpu_nodes() {
         return 0
     fi
     
-    local hosted_kubeconfig="${HOSTED_CLUSTER_NAME}.kubeconfig"
-    
-    if [[ ! -f "$hosted_kubeconfig" ]]; then
-        log "INFO" "Fetching DPUCluster kubeconfig..."
-        if ! oc get secret -n "${CLUSTERS_NAMESPACE}" "${HOSTED_CLUSTER_NAME}-admin-kubeconfig" &>/dev/null; then
-            log "WARN" "DPUCluster kubeconfig not found, skipping"
-            return 0
-        fi
-        oc get secret -n "${CLUSTERS_NAMESPACE}" "${HOSTED_CLUSTER_NAME}-admin-kubeconfig" \
-            -o jsonpath='{.data.kubeconfig}' | base64 -d > "$hosted_kubeconfig"
+    if ! ensure_hosted_kubeconfig; then
+        log "WARN" "Skipping DPU node verification"
+        return 0
     fi
-    
+
     log "INFO" "Waiting for $expected_count DPU node(s) to be Ready in DPUCluster..."
 
     if retry "$VERIFY_MAX_RETRIES" "$VERIFY_SLEEP_SECONDS" bash -c '
@@ -77,14 +88,14 @@ verify_dpu_nodes() {
             | jq "[.items[] | select(.status.conditions[] | select(.type==\"Ready\" and .status==\"True\"))] | length")
         echo "DPU nodes: $ready_dpus/$expected Ready"
         [[ "$ready_dpus" -ge "$expected" ]]
-    ' _ "$expected_count" "$hosted_kubeconfig"; then
+    ' _ "$expected_count" "$HOSTED_KUBECONFIG"; then
         log "INFO" "All $expected_count DPU node(s) are Ready in DPUCluster"
-        KUBECONFIG="$hosted_kubeconfig" oc get nodes -l node-role.kubernetes.io/worker=
+        KUBECONFIG="$HOSTED_KUBECONFIG" oc get nodes -l node-role.kubernetes.io/worker=
         return 0
     fi
 
     log "ERROR" "Timed out waiting for DPU nodes"
-    KUBECONFIG="$hosted_kubeconfig" oc get nodes -l node-role.kubernetes.io/worker=
+    KUBECONFIG="$HOSTED_KUBECONFIG" oc get nodes -l node-role.kubernetes.io/worker=
     return 1
 }
 
@@ -162,13 +173,12 @@ verify_deployment() {
 
     log "INFO" ""
     log "INFO" "=== 5. Waiting for stable cluster (hosted) ==="
-    local hosted_kubeconfig="${HOSTED_CLUSTER_NAME}.kubeconfig"
-    if [[ -f "$hosted_kubeconfig" ]]; then
-        if ! KUBECONFIG="$hosted_kubeconfig" oc adm wait-for-stable-cluster --minimum-stable-period=2m --timeout=20m; then
+    if ensure_hosted_kubeconfig; then
+        if ! KUBECONFIG="$HOSTED_KUBECONFIG" oc adm wait-for-stable-cluster --minimum-stable-period=2m --timeout=20m; then
             ((failed++)) || true
         fi
     else
-        log "WARN" "Hosted cluster kubeconfig not found, skipping"
+        log "WARN" "Skipping hosted cluster stability check"
     fi
 
     log "INFO" ""
