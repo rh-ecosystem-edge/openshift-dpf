@@ -1,6 +1,7 @@
 # Maintenance Operator Chart configuration for OpenShift DPF
 # Based on doca-platform/deploy/helmfiles/values/maintenance-operator-chart.yaml
 operatorConfig:
+  deploy: true
   maxParallelOperations: 60%
 operator:
   affinity:
