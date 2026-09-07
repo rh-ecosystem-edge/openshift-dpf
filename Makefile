@@ -262,8 +262,10 @@ kubeadmin-password:
 poweron-workers:
 	@echo "Powering on physical workers via Redfish (control-plane is up, VIPs are safe)..."
 	@$(WORKER_SCRIPT) poweron-all-workers
-	@echo "Waiting $(WORKER_POWER_ON_DELAY)s for worker hosts/DPUs to settle before BMO provisioning..."
-	@sleep $(WORKER_POWER_ON_DELAY)
+	@if [ "$${WORKER_COUNT:-0}" -gt 0 ]; then \
+		echo "Waiting $(WORKER_POWER_ON_DELAY)s for worker hosts/DPUs to settle before BMO provisioning..."; \
+		sleep "$(WORKER_POWER_ON_DELAY)"; \
+	fi
 
 .PHONY: deploy-nfd
 deploy-nfd:
