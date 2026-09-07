@@ -241,7 +241,13 @@ update-etc-hosts:
 
 .PHONY: clean-all
 clean-all:
+	@echo "Step 1/4: Powering off physical workers via Redfish (release ingress/API VIPs)..."
+	@$(WORKER_SCRIPT) shutoff-all-workers || true
+	@echo "Step 2/4: Destroying worker VMs (release ingress/API VIPs)..."
+	@$(VM_SCRIPT) delete-worker-vms || true
+	@echo "Step 3/4: Deleting Assisted Installer cluster and generated files..."
 	@$(CLUSTER_SCRIPT) clean-all
+	@echo "Step 4/4: Destroying remaining VMs (control-plane; worker VMs already removed in step 2)..."
 	@$(VM_SCRIPT) delete
 
 .PHONY: kubeconfig
@@ -451,7 +457,7 @@ help:
 	@echo "  deploy-core-operator-sources - Deploy NFD & SR-IOV subscriptions and CatalogSource"
 	@echo "  delete-cluster    - Delete the cluster"
 	@echo "  clean            - Remove generated files"
-	@echo "  clean-all        - Delete cluster, VMs, and clean all generated files"
+	@echo "  clean-all        - Power off physical workers (Redfish), delete cluster, VMs, and clean all generated files"
 	@echo ""
 	@echo "VM Management:"
 	@echo "  create-vms        - Create virtual machines for the cluster"

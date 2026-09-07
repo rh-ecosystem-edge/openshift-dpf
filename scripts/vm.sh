@@ -174,11 +174,13 @@ function create_vms() {
     log "VM creation completed successfully!"
 }
 
-function delete_vms() {
-    if [ -n "${VM_WORKER_PREFIX}" ]; then
-        _delete_vms_by_prefix "${VM_WORKER_PREFIX}"
-    fi
+function delete_cluster_vms() {
     _delete_vms_by_prefix "${VM_PREFIX}"
+}
+
+function delete_vms() {
+    delete_worker_vms
+    delete_cluster_vms
 }
 
 # -----------------------------------------------------------------------------

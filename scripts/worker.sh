@@ -13,6 +13,208 @@ source "${SCRIPT_DIR}/cluster.sh"
 WORKER_TEMPLATE_DIR="${MANIFESTS_DIR}/worker-provisioning"
 WORKER_GENERATED_DIR="${GENERATED_DIR}/worker-provisioning"
 
+# -----------------------------------------------------------------------------
+# Redfish power management (iDRAC / iLO / etc.) for cleanup
+# -----------------------------------------------------------------------------
+
+REDFISH_TIMEOUT=${REDFISH_TIMEOUT:-30}
+REDFISH_VERIFY_SSL=${REDFISH_VERIFY_SSL:-false}
+
+_redfish_curl_flags() {
+    CURL_FLAGS=(-s -S --connect-timeout 10 --max-time "${REDFISH_TIMEOUT}")
+    if [ "${REDFISH_VERIFY_SSL}" != "true" ]; then
+        CURL_FLAGS+=(-k)
+    fi
+}
+
+_redfish_call() {
+    local method="$1"
+    local bmc_ip="$2"
+    local path="$3"
+    local user="$4"
+    local pass="$5"
+    local body="${6:-}"
+
+    local url="https://${bmc_ip}${path}"
+    local CURL_FLAGS
+    _redfish_curl_flags
+
+    if [ -n "${body}" ]; then
+        curl "${CURL_FLAGS[@]}" -X "${method}" -u "${user}:${pass}" \
+            -H 'Content-Type: application/json' -d "${body}" "${url}" 2>&1
+    else
+        curl "${CURL_FLAGS[@]}" -X "${method}" -u "${user}:${pass}" \
+            -H 'Content-Type: application/json' "${url}" 2>&1
+    fi
+}
+
+_redfish_get_system_path() {
+    local bmc_ip="$1"
+    local user="$2"
+    local pass="$3"
+    local configured_path="${4:-}"
+
+    if [ -n "${configured_path}" ]; then
+        echo "${configured_path}"
+        return 0
+    fi
+
+    local response system_path
+    response=$(_redfish_call GET "${bmc_ip}" "/redfish/v1/Systems" "${user}" "${pass}")
+    system_path=$(echo "${response}" | jq -r '.Members[0]["@odata.id"] // empty' 2>/dev/null)
+    if [ -z "${system_path}" ]; then
+        log "ERROR" "Failed to discover Redfish system path on ${bmc_ip}"
+        log "ERROR" "Response: ${response}"
+        return 1
+    fi
+    echo "${system_path}"
+}
+
+_redfish_get_power_state() {
+    local bmc_ip="$1"
+    local user="$2"
+    local pass="$3"
+    local system_path="$4"
+
+    local response
+    response=$(_redfish_call GET "${bmc_ip}" "${system_path}" "${user}" "${pass}")
+    echo "${response}" | jq -r '.PowerState // "Unknown"' 2>/dev/null
+}
+
+_redfish_power_action() {
+    local bmc_ip="$1"
+    local user="$2"
+    local pass="$3"
+    local system_path="$4"
+    local action="$5"
+
+    local body response error
+    body=$(jq -n --arg type "${action}" '{ResetType: $type}')
+    response=$(_redfish_call POST "${bmc_ip}" "${system_path}/Actions/ComputerSystem.Reset" \
+        "${user}" "${pass}" "${body}")
+
+    error=$(echo "${response}" | jq -r '.error.message // empty' 2>/dev/null)
+    if [ -n "${error}" ]; then
+        log "ERROR" "Redfish power action '${action}' failed on ${bmc_ip}: ${error}"
+        return 1
+    fi
+}
+
+# Poll power state until Off or the retry budget is exhausted.
+# Returns 0 if the server reached Off, 1 otherwise.
+_redfish_wait_for_off() {
+    local bmc_ip="$1"
+    local user="$2"
+    local pass="$3"
+    local system_path="$4"
+    local max_retries="$5"
+    local sleep_interval="$6"
+
+    local retries=0 current_state
+    while [[ $retries -lt $max_retries ]]; do
+        sleep "${sleep_interval}"
+        current_state=$(_redfish_get_power_state "${bmc_ip}" "${user}" "${pass}" "${system_path}")
+        if [[ "${current_state}" == "Off" ]]; then
+            return 0
+        fi
+        retries=$((retries + 1))
+    done
+    return 1
+}
+
+# Power off a server: try a graceful ACPI shutdown first (bounded wait so a
+# hung/unresponsive OS can't stall cleanup), then fall back to a hard
+# ForceOff if the OS didn't cooperate in time.
+_redfish_power_off() {
+    local bmc_ip="$1"
+    local user="$2"
+    local pass="$3"
+    local system_path="$4"
+
+    local current_state
+    current_state=$(_redfish_get_power_state "${bmc_ip}" "${user}" "${pass}" "${system_path}")
+    if [[ "${current_state}" == "Off" ]]; then
+        log "INFO" "Server ${bmc_ip} is already off"
+        return 0
+    fi
+
+    log "INFO" "Attempting graceful shutdown of ${bmc_ip} via Redfish (GracefulShutdown)..."
+    if _redfish_power_action "${bmc_ip}" "${user}" "${pass}" "${system_path}" "GracefulShutdown"; then
+        # Short bounded wait: don't let an unresponsive OS stall cleanup.
+        if _redfish_wait_for_off "${bmc_ip}" "${user}" "${pass}" "${system_path}" 10 2; then
+            log "INFO" "Server ${bmc_ip} shut down gracefully"
+            return 0
+        fi
+        log "WARN" "Server ${bmc_ip} did not shut down gracefully within 20s, forcing power off..."
+    else
+        log "WARN" "GracefulShutdown request failed on ${bmc_ip}, forcing power off..."
+    fi
+
+    log "INFO" "Powering off ${bmc_ip} via Redfish (ForceOff)..."
+    _redfish_power_action "${bmc_ip}" "${user}" "${pass}" "${system_path}" "ForceOff"
+
+    if _redfish_wait_for_off "${bmc_ip}" "${user}" "${pass}" "${system_path}" 30 2; then
+        log "INFO" "Server ${bmc_ip} is powered off"
+        return 0
+    fi
+
+    log "WARN" "Server ${bmc_ip} may not have fully powered off"
+    return 1
+}
+
+_shutoff_worker() {
+    local index="$1"
+
+    local name_var="WORKER_${index}_NAME"
+    local bmc_ip_var="WORKER_${index}_BMC_IP"
+    local bmc_user_var="WORKER_${index}_BMC_USER"
+    local bmc_pass_var="WORKER_${index}_BMC_PASSWORD"
+    local system_path_var="WORKER_${index}_REDFISH_SYSTEM_PATH"
+
+    local name="${!name_var:-worker-${index}}"
+    local bmc_ip="${!bmc_ip_var:-}"
+    local bmc_user="${!bmc_user_var:-}"
+    local bmc_pass="${!bmc_pass_var:-}"
+    local system_path_config="${!system_path_var:-}"
+
+    if [[ -z "${bmc_ip}" || -z "${bmc_user}" || -z "${bmc_pass}" ]]; then
+        log "WARN" "Worker ${index} (${name}) missing BMC credentials, skipping shutoff"
+        return 0
+    fi
+
+    local system_path
+    if ! system_path=$(_redfish_get_system_path "${bmc_ip}" "${bmc_user}" "${bmc_pass}" "${system_path_config}"); then
+        log "WARN" "Failed to resolve Redfish system path for worker ${name} (${bmc_ip})"
+        return 1
+    fi
+
+    log "INFO" "Shutting off worker ${name} (${bmc_ip})..."
+    _redfish_power_off "${bmc_ip}" "${bmc_user}" "${bmc_pass}" "${system_path}"
+}
+
+shutoff_all_workers() {
+    local count="${WORKER_COUNT:-0}"
+    if [[ "${count}" -eq 0 ]]; then
+        log "INFO" "WORKER_COUNT=0, skipping physical worker shutoff"
+        return 0
+    fi
+
+    log "INFO" "Powering off ${count} physical worker(s) via Redfish..."
+    local failed=0
+    for i in $(seq 1 "${count}"); do
+        if ! _shutoff_worker "${i}"; then
+            failed=$((failed + 1))
+        fi
+    done
+
+    if [[ "${failed}" -gt 0 ]]; then
+        log "WARN" "Failed to shut off ${failed}/${count} worker(s)"
+        return 1
+    fi
+
+    log "INFO" "All configured workers powered off"
+}
+
 provision_all_workers() {
     local count="${WORKER_COUNT:-0}"
     [[ "$count" -eq 0 ]] && { log "INFO" "WORKER_COUNT=0, skipping"; return 0; }
@@ -298,8 +500,9 @@ case "${1:-}" in
     deploy-csr-auto-approver) deploy_csr_auto_approver ;;
     delete-csr-auto-approver) delete_csr_auto_approver ;;
     delete-worker) delete_worker "${2:-}" ;;
+    shutoff-all-workers) shutoff_all_workers ;;
     *)
-        echo "Usage: $0 {provision-all-workers|approve-worker-csrs|display-worker-status|display-manual-csr-instructions|apply-short-worker-hostnames|deploy-csr-auto-approver|delete-csr-auto-approver|delete-worker <bmh-name|machine-name|node-name>}"
+        echo "Usage: $0 {provision-all-workers|approve-worker-csrs|display-worker-status|display-manual-csr-instructions|apply-short-worker-hostnames|deploy-csr-auto-approver|delete-csr-auto-approver|delete-worker <bmh-name|machine-name|node-name>|shutoff-all-workers}"
         exit 1
         ;;
 esac
