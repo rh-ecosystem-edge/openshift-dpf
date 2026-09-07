@@ -155,9 +155,20 @@ verify_deployment() {
     fi
     
     log "INFO" ""
-    log "INFO" "=== 4. Waiting for stable cluster ==="
+    log "INFO" "=== 4. Waiting for stable cluster (management) ==="
     if ! oc adm wait-for-stable-cluster --minimum-stable-period=2m --timeout=20m; then
         ((failed++)) || true
+    fi
+
+    log "INFO" ""
+    log "INFO" "=== 5. Waiting for stable cluster (hosted) ==="
+    local hosted_kubeconfig="${HOSTED_CLUSTER_NAME}.kubeconfig"
+    if [[ -f "$hosted_kubeconfig" ]]; then
+        if ! KUBECONFIG="$hosted_kubeconfig" oc adm wait-for-stable-cluster --minimum-stable-period=2m --timeout=20m; then
+            ((failed++)) || true
+        fi
+    else
+        log "WARN" "Hosted cluster kubeconfig not found, skipping"
     fi
 
     log "INFO" ""
