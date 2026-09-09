@@ -30,7 +30,7 @@ all:
 	@bash -o pipefail -c '$(MAKE) _all 2>&1 | tee "logs/make_all_$(shell date +%Y%m%d_%H%M%S).log"'
 
 .PHONY: _all
-_all: verify-files check-cluster create-vms prepare-manifests cluster-install update-etc-hosts kubeconfig add-worker-nodes deploy-dpf prepare-dpu-files deploy-dpu-services enable-ovn-injector deploy-observability
+_all: verify-files check-cluster create-vms prepare-manifests cluster-install update-etc-hosts kubeconfig poweron-workers add-worker-nodes deploy-dpf prepare-dpu-files deploy-dpu-services enable-ovn-injector deploy-observability
 	@echo ""
 	@echo "================================================================================"
 	@echo "✅ DPF Installation Complete!"
@@ -241,7 +241,13 @@ update-etc-hosts:
 
 .PHONY: clean-all
 clean-all:
+	@echo "Step 1/4: Powering off physical workers via Redfish (release ingress/API VIPs)..."
+	@$(WORKER_SCRIPT) shutoff-all-workers
+	@echo "Step 2/4: Destroying worker VMs (release ingress/API VIPs)..."
+	@$(VM_SCRIPT) delete-worker-vms
+	@echo "Step 3/4: Deleting Assisted Installer cluster and generated files..."
 	@$(CLUSTER_SCRIPT) clean-all
+	@echo "Step 4/4: Destroying remaining VMs (control-plane; worker VMs already removed in step 2)..."
 	@$(VM_SCRIPT) delete
 
 .PHONY: kubeconfig
@@ -251,6 +257,15 @@ kubeconfig:
 .PHONY: kubeadmin-password
 kubeadmin-password:
 	@$(CLUSTER_SCRIPT) get-kubeadmin-password
+
+.PHONY: poweron-workers
+poweron-workers:
+	@echo "Powering on physical workers via Redfish (control-plane is up, VIPs are safe)..."
+	@$(WORKER_SCRIPT) poweron-all-workers
+	@if [ "$${WORKER_COUNT:-0}" -gt 0 ]; then \
+		echo "Waiting $(WORKER_POWER_ON_DELAY)s for worker hosts/DPUs to settle before BMO provisioning..."; \
+		sleep "$(WORKER_POWER_ON_DELAY)"; \
+	fi
 
 .PHONY: deploy-nfd
 deploy-nfd:
@@ -451,7 +466,7 @@ help:
 	@echo "  deploy-core-operator-sources - Deploy NFD & SR-IOV subscriptions and CatalogSource"
 	@echo "  delete-cluster    - Delete the cluster"
 	@echo "  clean            - Remove generated files"
-	@echo "  clean-all        - Delete cluster, VMs, and clean all generated files"
+	@echo "  clean-all        - Power off physical workers (Redfish), delete cluster, VMs, and clean all generated files"
 	@echo ""
 	@echo "VM Management:"
 	@echo "  create-vms        - Create virtual machines for the cluster"
