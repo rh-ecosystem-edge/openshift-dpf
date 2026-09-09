@@ -211,15 +211,19 @@ function prepare_post_installation() {
         log [ERROR] "nodesriovdevicepluginconfig.yaml not found in ${POST_INSTALL_DIR}"
         return 1
     fi
+    if ! [[ "${NUM_VFS}" =~ ^[1-9][0-9]*$ && "${KATA_NUM_VFS}" =~ ^[1-9][0-9]*$ ]]; then
+        log [ERROR] "NUM_VFS and KATA_NUM_VFS must be positive integers"
+        return 1
+    fi
+    if [ "${KATA_NUM_VFS}" -ge "${NUM_VFS}" ]; then
+        log [ERROR] "KATA_NUM_VFS (${KATA_NUM_VFS}) must be less than NUM_VFS (${NUM_VFS})"
+        return 1
+    fi
     local vf_range_end=$((NUM_VFS - 1))
     local pf1_regular_count=$((NUM_VFS - KATA_NUM_VFS))
     local pf1_regular_end=$((pf1_regular_count - 1))
     local kata_vf_start=${pf1_regular_count}
     local kata_vf_end=$((NUM_VFS - 1))
-    if [ "${KATA_NUM_VFS}" -gt "${NUM_VFS}" ]; then
-        log [ERROR] "KATA_NUM_VFS (${KATA_NUM_VFS}) exceeds NUM_VFS (${NUM_VFS})"
-        return 1
-    fi
     update_file_multi_replace \
         "${POST_INSTALL_DIR}/nodesriovdevicepluginconfig.yaml" \
         "${GENERATED_POST_INSTALL_DIR}/nodesriovdevicepluginconfig.yaml" \

@@ -40,8 +40,4 @@ spec:
       - name: test
         image: quay.io/wabouham/ecosys-nvidia/nicolaka-netshoot:latest
         command: ["sleep", "infinity"]
-        resources:
-          limits:
-            "<KATA_INJECTOR_RESOURCE_NAME>": "1"
-          requests:
-            "<KATA_INJECTOR_RESOURCE_NAME>": "1"
+

@@ -243,7 +243,8 @@ for pf in $(ls /sys/class/net | grep np); do
   for vf in /sys/class/net/$pf/device/virtfn*; do
     pci=$(basename $(readlink $vf))
     driver=$(basename $(readlink /sys/bus/pci/devices/$pci/driver 2>/dev/null) 2>/dev/null || echo UNBOUND)
-    if [ "$driver" != "mlx5_core" ]; then
+    override=$(cat /sys/bus/pci/devices/$pci/driver_override 2>/dev/null)
+    if [ "$driver" != "mlx5_core" ] || { [ -n "$override" ] && [ "$override" != "(null)" ]; }; then
       echo "" > /sys/bus/pci/devices/$pci/driver_override
       [ -e /sys/bus/pci/devices/$pci/driver/unbind ] && echo $pci > /sys/bus/pci/devices/$pci/driver/unbind
       echo $pci > /sys/bus/pci/drivers/mlx5_core/bind 2>/dev/null
@@ -270,20 +271,23 @@ oc debug node/worker-303ea712f378 -- chroot /host bash -c '
 Known DPF issue: after host reboot, DPU `br-dpu` loses IPv4 and **all** (non-hostNetwork) pods fail. Regular pods working means this is already recovered.
 
 ```bash
+umask 077
+DOCA_KUBECONFIG=$(mktemp)
+trap 'rm -f "${DOCA_KUBECONFIG}"' EXIT
 oc get secret doca-admin-kubeconfig -n dpf-operator-system \
-  -o jsonpath='{.data.super-admin\.conf}' | base64 -d > /tmp/doca-kubeconfig.yaml
+  -o jsonpath='{.data.super-admin\.conf}' | base64 -d > "${DOCA_KUBECONFIG}"
 
-DPU_NODE=$(KUBECONFIG=/tmp/doca-kubeconfig.yaml oc get nodes \
+DPU_NODE=$(KUBECONFIG="${DOCA_KUBECONFIG}" oc get nodes \
   -o jsonpath='{.items[0].metadata.name}')
 
-KUBECONFIG=/tmp/doca-kubeconfig.yaml oc debug node/$DPU_NODE -- \
+KUBECONFIG="${DOCA_KUBECONFIG}" oc debug node/$DPU_NODE -- \
   chroot /host systemctl restart openvswitch
 
 HOST_IP=$(oc get node <host-node> -o jsonpath='{.status.addresses[0].address}')
-KUBECONFIG=/tmp/doca-kubeconfig.yaml oc debug node/$DPU_NODE -- \
+KUBECONFIG="${DOCA_KUBECONFIG}" oc debug node/$DPU_NODE -- \
   chroot /host ip addr add $HOST_IP/32 dev br-dpu
 
-KUBECONFIG=/tmp/doca-kubeconfig.yaml oc delete pod -n dpf-operator-system -l app=ovnkube-node
+KUBECONFIG="${DOCA_KUBECONFIG}" oc delete pod -n dpf-operator-system -l app=ovnkube-node
 oc delete pod -n openshift-ovn-kubernetes -l app=ovnkube-node-dpu-host
 ```
 
