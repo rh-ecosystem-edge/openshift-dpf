@@ -16,6 +16,45 @@ source "${SCRIPT_DIR}/utils.sh"
 VERIFY_MAX_RETRIES="${VERIFY_MAX_RETRIES:-60}"
 VERIFY_SLEEP_SECONDS="${VERIFY_SLEEP_SECONDS:-30}"
 
+# Sets HOSTED_KUBECONFIG to the local path if available or fetched from the
+# management cluster secret. Returns 0 on success, 1 when the secret does not
+# exist (safe to skip), 2 on operational errors (API/auth/decode failures).
+ensure_hosted_kubeconfig() {
+    HOSTED_KUBECONFIG="${HOSTED_CLUSTER_NAME}.kubeconfig"
+
+    if [[ -f "$HOSTED_KUBECONFIG" ]] && [[ -s "$HOSTED_KUBECONFIG" ]]; then
+        return 0
+    fi
+
+    log "INFO" "Fetching DPUCluster kubeconfig..."
+    local secret_name="${HOSTED_CLUSTER_NAME}-admin-kubeconfig"
+    local get_output
+    if ! get_output=$(oc get secret -n "${CLUSTERS_NAMESPACE}" "$secret_name" -o name 2>&1); then
+        if echo "$get_output" | grep -q "NotFound"; then
+            log "WARN" "DPUCluster kubeconfig secret not found"
+            return 1
+        fi
+        log "ERROR" "Failed to query secret ${secret_name}: ${get_output}"
+        return 2
+    fi
+
+    local tmpfile="${HOSTED_KUBECONFIG}.tmp"
+    if ! oc get secret -n "${CLUSTERS_NAMESPACE}" "$secret_name" \
+        -o jsonpath='{.data.kubeconfig}' | base64 -d > "$tmpfile"; then
+        log "ERROR" "Failed to decode kubeconfig from secret ${secret_name}"
+        rm -f "$tmpfile"
+        return 2
+    fi
+
+    if [[ ! -s "$tmpfile" ]]; then
+        log "ERROR" "Decoded kubeconfig from secret ${secret_name} is empty"
+        rm -f "$tmpfile"
+        return 2
+    fi
+
+    mv "$tmpfile" "$HOSTED_KUBECONFIG"
+}
+
 # -----------------------------------------------------------------------------
 # 1. Worker Nodes (host cluster)
 # -----------------------------------------------------------------------------
@@ -56,18 +95,15 @@ verify_dpu_nodes() {
         return 0
     fi
     
-    local hosted_kubeconfig="${HOSTED_CLUSTER_NAME}.kubeconfig"
-    
-    if [[ ! -f "$hosted_kubeconfig" ]]; then
-        log "INFO" "Fetching DPUCluster kubeconfig..."
-        if ! oc get secret -n "${CLUSTERS_NAMESPACE}" "${HOSTED_CLUSTER_NAME}-admin-kubeconfig" &>/dev/null; then
-            log "WARN" "DPUCluster kubeconfig not found, skipping"
-            return 0
-        fi
-        oc get secret -n "${CLUSTERS_NAMESPACE}" "${HOSTED_CLUSTER_NAME}-admin-kubeconfig" \
-            -o jsonpath='{.data.kubeconfig}' | base64 -d > "$hosted_kubeconfig"
+    ensure_hosted_kubeconfig
+    local rc=$?
+    if [[ $rc -eq 1 ]]; then
+        log "WARN" "Skipping DPU node verification"
+        return 0
+    elif [[ $rc -ne 0 ]]; then
+        return 1
     fi
-    
+
     log "INFO" "Waiting for $expected_count DPU node(s) to be Ready in DPUCluster..."
 
     if retry "$VERIFY_MAX_RETRIES" "$VERIFY_SLEEP_SECONDS" bash -c '
@@ -77,14 +113,14 @@ verify_dpu_nodes() {
             | jq "[.items[] | select(.status.conditions[] | select(.type==\"Ready\" and .status==\"True\"))] | length")
         echo "DPU nodes: $ready_dpus/$expected Ready"
         [[ "$ready_dpus" -ge "$expected" ]]
-    ' _ "$expected_count" "$hosted_kubeconfig"; then
+    ' _ "$expected_count" "$HOSTED_KUBECONFIG"; then
         log "INFO" "All $expected_count DPU node(s) are Ready in DPUCluster"
-        KUBECONFIG="$hosted_kubeconfig" oc get nodes -l node-role.kubernetes.io/worker=
+        KUBECONFIG="$HOSTED_KUBECONFIG" oc get nodes -l node-role.kubernetes.io/worker=
         return 0
     fi
 
     log "ERROR" "Timed out waiting for DPU nodes"
-    KUBECONFIG="$hosted_kubeconfig" oc get nodes -l node-role.kubernetes.io/worker=
+    KUBECONFIG="$HOSTED_KUBECONFIG" oc get nodes -l node-role.kubernetes.io/worker=
     return 1
 }
 
@@ -155,8 +191,22 @@ verify_deployment() {
     fi
     
     log "INFO" ""
-    log "INFO" "=== 4. Waiting for stable cluster ==="
+    log "INFO" "=== 4. Waiting for stable cluster (management) ==="
     if ! oc adm wait-for-stable-cluster --minimum-stable-period=2m --timeout=20m; then
+        ((failed++)) || true
+    fi
+
+    log "INFO" ""
+    log "INFO" "=== 5. Waiting for stable cluster (hosted) ==="
+    ensure_hosted_kubeconfig
+    local hosted_rc=$?
+    if [[ $hosted_rc -eq 0 ]]; then
+        if ! KUBECONFIG="$HOSTED_KUBECONFIG" oc adm wait-for-stable-cluster --minimum-stable-period=2m --timeout=20m; then
+            ((failed++)) || true
+        fi
+    elif [[ $hosted_rc -eq 1 ]]; then
+        log "WARN" "Skipping hosted cluster stability check"
+    else
         ((failed++)) || true
     fi
 
