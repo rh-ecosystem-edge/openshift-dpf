@@ -1,0 +1,47 @@
+# Kata smoke-test Deployment. Each replica requests one PF1 kata VF.
+# Scale with KATA_TEST_REPLICAS (default 1). Apply via make deploy-kata-test.
+#
+# Prerequisites: make enable-kata, make enable-ovn-injector, PF1 kata VF pool ready.
+# The OVN injector webhook must set v1.multus-cni.io/default-network to the kata
+# NAD so CNI uses the VF netdev path, not ovn-primary with a stale/vfio VF PCI.
+# maxSurge: 0 avoids oversubscribing VFs during rolling updates.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kata-dpu-test
+  labels:
+    app: kata-dpu-test
+spec:
+  replicas: <KATA_TEST_REPLICAS>
+  selector:
+    matchLabels:
+      app: kata-dpu-test
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        app: kata-dpu-test
+    spec:
+      runtimeClassName: <KATA_RUNTIME_CLASS>
+      nodeSelector:
+        node-role.kubernetes.io/<WORKER_ROLE>: ""
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            app: kata-dpu-test
+      containers:
+      - name: test
+        image: quay.io/wabouham/ecosys-nvidia/nicolaka-netshoot:latest
+        command: ["sleep", "infinity"]
+        resources:
+          limits:
+            "<KATA_INJECTOR_RESOURCE_NAME>": "1"
+          requests:
+            "<KATA_INJECTOR_RESOURCE_NAME>": "1"
