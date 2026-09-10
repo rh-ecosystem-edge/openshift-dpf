@@ -218,6 +218,7 @@ function prepare_post_installation() {
         "<SRIOV_DP_CONFIG_NAME>" "${SRIOV_DP_CONFIG_NAME}" \
         "<SRIOV_DP_CONFIG_CR_NAME>" "${SRIOV_DP_CONFIG_CR_NAME}" \
         "<SRIOV_DP_MGMT_POOL_NAME>" "${SRIOV_DP_MGMT_POOL_NAME}" \
+        "<SRIOV_DP_SECONDARY_POOL_NAME>" "${SRIOV_DP_SECONDARY_POOL_NAME}" \
         "<NUM_VFS_END>" "${vf_range_end}"
 
     # Copy remaining manifests using utility function (exclude special files)
