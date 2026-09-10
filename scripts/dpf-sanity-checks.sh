@@ -51,6 +51,7 @@ echo -e "- SANITY_TESTS_OVN_NAMESPACE: '${SANITY_TESTS_OVN_NAMESPACE}'"
 echo -e "- SANITY_TESTS_OVN_IMAGE: '${SANITY_TESTS_OVN_IMAGE}'"
 echo -e "- SANITY_TESTS_OVN_PING_COUNT: '${SANITY_TESTS_OVN_PING_COUNT}'"
 
+# Kubeconfig of the management cluster
 mgmt_kubecfg="${KUBECONFIG}"
 echo -e "\n- mgmt_kubecfg: '${mgmt_kubecfg}'"
 
