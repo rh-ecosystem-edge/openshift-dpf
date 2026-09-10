@@ -20,13 +20,23 @@ on:
     - cron: '0 2 * * *'
   workflow_dispatch:
     inputs:
-      ref:
-        description: "Git ref to build (branch, tag, or commit SHA)"
+      channel:
+        description: "Which channel to build (schedule always builds all)"
         required: false
-        default: "public-release-v26.4"
+        default: "all"
+        type: choice
+        options:
+          - all
+          - beta-26.4
+          - beta-26.8
+          - dev-stable
+      ref:
+        description: "Override git ref (empty = channel default). Do not set when building all channels."
+        required: false
+        default: ""
         type: string
       tag:
-        description: "Immutable prerelease (e.g. 26.4.2-beta.1). Defaults to 26.4.2-beta.<shortsha>. Do not use 26.4.2 — GA tags belong to the promoted-release repo."
+        description: "Immutable prerelease override for a single channel (e.g. 26.4.2-beta.1, 26.8.0-beta.1, or 0.0.0-dev-stable.1). Ignored when channel is all."
         required: false
         default: ""
         type: string
@@ -40,211 +50,37 @@ permissions:
   contents: read
   packages: write
 
-env:
-  SOURCE_REPO: https://github.com/NVIDIA/doca-platform.git
-  REGISTRY: ghcr.io/souleb/doca-platform
-  HELM_REGISTRY: oci://ghcr.io/souleb/doca-platform/charts
-  CONTAINER_TOOL: docker
-  # Pre-release channel for this GHCR. Bare RELEASE_VERSION (e.g. 26.4.2) is reserved for the other repo.
-  RELEASE_VERSION: "26.4.2"
-  RELEASE_CHANNEL: "beta"
-
 jobs:
-  release:
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
-    env:
-      UPSTREAM_REGISTRY: ghcr.io/souleb/doca-platform
-      PACKAGE_SOURCES: "false"
-    defaults:
-      run:
-        working-directory: source
-    steps:
-      # -----------------------------------------------------------------
-      # Clone the public source repository at the requested tag
-      # -----------------------------------------------------------------
-      - name: Clone source repository
-        run: |
-          git clone "${{ env.SOURCE_REPO }}" "$GITHUB_WORKSPACE/source"
-          cd "$GITHUB_WORKSPACE/source"
-          git checkout "${{ inputs.ref || 'public-release-v26.4' }}"
-        working-directory: ${{ github.workspace }}
+  beta-26-4:
+    if: ${{ github.event_name == 'schedule' || inputs.channel == 'all' || inputs.channel == 'beta-26.4' }}
+    uses: ./.github/workflows/release-build.yml
+    with:
+      source_ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || 'public-release-v26.4' }}
+      release_version: "26.4.2"
+      release_channel: "beta"
+      tag: ${{ (github.event_name == 'workflow_dispatch' && inputs.channel == 'beta-26.4' && inputs.tag) || '' }}
+      dry_run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
+    secrets: inherit
 
-      - name: Patch hostdriver MFT download retry
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
+  beta-26-8:
+    if: ${{ github.event_name == 'schedule' || inputs.channel == 'all' || inputs.channel == 'beta-26.8' }}
+    uses: ./.github/workflows/release-build.yml
+    with:
+      source_ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || 'public-release-v26.8' }}
+      release_version: "26.8.0"
+      release_channel: "beta"
+      tag: ${{ (github.event_name == 'workflow_dispatch' && inputs.channel == 'beta-26.8' && inputs.tag) || '' }}
+      dry_run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
+    secrets: inherit
 
-          dockerfile = Path("source/Dockerfile.hostdriver")
-          contents = dockerfile.read_text()
-
-          old = '''RUN case ${TARGETARCH} in \\
-                  amd64) ARCH=x86_64 ;; \\
-                  arm64) ARCH=arm64 ;; \\
-                  *) echo "Unsupported architecture: ${TARGETARCH}" && exit 1 ;; \\
-              esac && \\
-              curl -fsSL https://www.mellanox.com/downloads/MFT/mft-${MFT_VERSION}-${ARCH}-deb.tgz | tar -xz -C /tmp && \\
-              cd /tmp/mft-${MFT_VERSION}-${ARCH}-deb && \\
-              ./install.sh --without-kernel'''
-
-          new = '''RUN case ${TARGETARCH} in \\
-                  amd64) ARCH=x86_64 ;; \\
-                  arm64) ARCH=arm64 ;; \\
-                  *) echo "Unsupported architecture: ${TARGETARCH}" && exit 1 ;; \\
-              esac && \\
-              curl -fL --retry 5 --retry-delay 5 --retry-all-errors \\
-                  --connect-timeout 30 --max-time 900 \\
-                  -o /tmp/mft.tgz \\
-                  https://www.mellanox.com/downloads/MFT/mft-${MFT_VERSION}-${ARCH}-deb.tgz && \\
-              gzip -t /tmp/mft.tgz && \\
-              tar -xzf /tmp/mft.tgz -C /tmp && \\
-              cd /tmp/mft-${MFT_VERSION}-${ARCH}-deb && \\
-              ./install.sh --without-kernel && \\
-              rm -rf /tmp/mft.tgz /tmp/mft-${MFT_VERSION}-${ARCH}-deb'''
-
-          if old not in contents:
-              raise SystemExit("expected Dockerfile.hostdriver MFT block not found")
-
-          dockerfile.write_text(contents.replace(old, new))
-          PY
-        working-directory: ${{ github.workspace }}
-
-      - name: Resolve tag
-        run: |
-          FLOATING_TAG="${RELEASE_VERSION}-${RELEASE_CHANNEL}"
-          echo "FLOATING_TAG=${FLOATING_TAG}" >> "$GITHUB_ENV"
-
-          VER_RE="${RELEASE_VERSION//./\\.}"
-          ALLOWED="^${VER_RE}-${RELEASE_CHANNEL}\\.[A-Za-z0-9][A-Za-z0-9.-]*$"
-
-          INPUT_TAG="${{ inputs.tag }}"
-          if [[ -n "${INPUT_TAG}" ]]; then
-            if [[ ! "${INPUT_TAG}" =~ ${ALLOWED} ]]; then
-              echo "::error::tag must be ${FLOATING_TAG}.<id> (e.g. ${FLOATING_TAG}.1 or ${FLOATING_TAG}.<sha>)."
-              echo "::error::Do not use ${RELEASE_VERSION} — GA versions are published from a different repository."
-              exit 1
-            fi
-            echo "TAG=${INPUT_TAG}" >> "$GITHUB_ENV"
-          else
-            SHORT_SHA=$(git rev-parse --short HEAD)
-            echo "TAG=${FLOATING_TAG}.${SHORT_SHA}" >> "$GITHUB_ENV"
-          fi
-
-      - name: Verify checkout
-        run: |
-          echo "Repository : ${{ env.SOURCE_REPO }}"
-          echo "Ref        : ${{ inputs.ref || 'public-release-v26.4' }}"
-          echo "Tag        : ${{ env.TAG }}"
-          echo "Channel    : ${{ env.FLOATING_TAG }}"
-          echo "Commit     : $(git rev-parse HEAD)"
-
-      # -----------------------------------------------------------------
-      # Toolchain
-      # -----------------------------------------------------------------
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: source/go.mod
-          cache-dependency-path: source/go.sum
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: arm64,amd64
-          image: tonistiigi/binfmt:qemu-v10.2.3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-        with:
-          driver-opts: |
-            image=moby/buildkit:latest
-            network=host
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      # Makefile installs tools into hack/tools/bin via tools.mk;
-      # caching avoids re-downloading on every run.
-      - name: Cache build tools and cloned repos
-        uses: actions/cache@v4
-        with:
-          path: |
-            source/hack/tools/bin
-            source/hack/repos
-          key: release-tools-${{ runner.os }}-${{ hashFiles('source/hack/tools/tools.mk') }}
-          restore-keys: |
-            release-tools-${{ runner.os }}-
-
-      # -----------------------------------------------------------------
-      # Build and push
-      # -----------------------------------------------------------------
-      - name: Build and push release
-        if: ${{ !inputs.dry_run }}
-        run: make release
-
-      - name: Retag as floating channel
-        if: ${{ !inputs.dry_run }}
-        run: |
-          set -euo pipefail
-          if [[ "${TAG}" == "${FLOATING_TAG}" ]]; then
-            echo "Build tag is already ${FLOATING_TAG}; nothing to retag."
-            exit 0
-          fi
-
-          MANIFEST="artifacts/release-manifest.yaml"
-          if [[ ! -f "${MANIFEST}" ]]; then
-            echo "::error::${MANIFEST} not found; cannot retag to ${FLOATING_TAG}"
-            exit 1
-          fi
-
-          echo "Pointing ${FLOATING_TAG} at ${TAG}"
-          suffix=":${TAG}"
-          while IFS= read -r ref; do
-            [[ -z "${ref}" ]] && continue
-            src="${ref#oci://}"
-            if [[ "${src}" != *"${suffix}" ]]; then
-              echo "Skipping ${src} (does not end with ${suffix})"
-              continue
-            fi
-            dest="${src%"${suffix}"}:${FLOATING_TAG}"
-            echo "Retag ${src} -> ${dest}"
-            docker buildx imagetools create --tag "${dest}" "${src}"
-          done < <(awk '/^[[:space:]]*ref:[[:space:]]/ { print $2 }' "${MANIFEST}")
-
-      - name: Build only (dry run)
-        if: ${{ inputs.dry_run }}
-        run: make release-build
-
-      # -----------------------------------------------------------------
-      # Summary
-      # -----------------------------------------------------------------
-      - name: Summary
-        if: always()
-        run: |
-          DRY="${{ inputs.dry_run }}"
-          echo "## Release ${{ env.TAG }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "Source: \`${{ env.SOURCE_REPO }}\` @ \`${{ inputs.ref || 'public-release-v26.4' }}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "Commit: \`$(git rev-parse HEAD)\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          if [[ "$DRY" == "true" ]]; then
-            echo "> **Dry run** — images and charts were built but NOT pushed." >> "$GITHUB_STEP_SUMMARY"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-          fi
-          echo "### Container images" >> "$GITHUB_STEP_SUMMARY"
-          echo "Immutable tag: \`${{ env.REGISTRY }}/*:${{ env.TAG }}\`" >> "$GITHUB_STEP_SUMMARY"
-          if [[ "$DRY" != "true" ]]; then
-            echo "Floating channel: \`${{ env.REGISTRY }}/*:${{ env.FLOATING_TAG }}\`" >> "$GITHUB_STEP_SUMMARY"
-          fi
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "### Helm charts" >> "$GITHUB_STEP_SUMMARY"
-          echo "Pushed to \`${{ env.HELM_REGISTRY }}\` as \`${{ env.TAG }}\`" >> "$GITHUB_STEP_SUMMARY"
-          if [[ "$DRY" != "true" ]]; then
-            echo "Floating OCI tag: \`${{ env.FLOATING_TAG }}\` (use \`helm pull … --version ${{ env.FLOATING_TAG }}\`)" >> "$GITHUB_STEP_SUMMARY"
-          fi
-          ls -1 hack/charts/*.tgz 2>/dev/null | while read f; do
-            echo "- \`$(basename "$f")\`" >> "$GITHUB_STEP_SUMMARY"
-          done
+  dev-stable:
+    if: ${{ github.event_name == 'schedule' || inputs.channel == 'all' || inputs.channel == 'dev-stable' }}
+    uses: ./.github/workflows/release-build.yml
+    with:
+      source_ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || 'public-main' }}
+      release_version: "0.0.0"
+      release_channel: "dev-stable"
+      floating_tag: "dev-stable"
+      tag: ${{ (github.event_name == 'workflow_dispatch' && inputs.channel == 'dev-stable' && inputs.tag) || '' }}
+      dry_run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
+    secrets: inherit
