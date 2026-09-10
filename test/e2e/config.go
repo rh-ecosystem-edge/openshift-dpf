@@ -7,29 +7,31 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type TestConfig struct {
-	EnvFile             string
-	Kubeconfig          string
-	HostedClusterName   string
-	ClustersNamespace   string
-	DPFNamespace        string
-	WorkloadNamespace   string
-	DPUClusterName      string
-	DPUDeploymentName   string
-	UpgradeReleaseImage string
-	NewBFBURL           string
-	NewBFBFileName      string
-	NewBFBVersionsBSP   string
-	NewBFBVersionsDOCA  string
-	NewBFBVersionsUEFI  string
-	NewBFBVersionsATF   string
-	UpgradeMachineOSURL string
-	PingCount           int
-	PingHBNToHBN        bool
-	WorkerCount         int
-	ExternalRouterIP    string
+	EnvFile              string
+	Kubeconfig           string
+	HostedClusterName    string
+	ClustersNamespace    string
+	DPFNamespace         string
+	WorkloadNamespace    string
+	DPUClusterName       string
+	DPUDeploymentName    string
+	UpgradeReleaseImage  string
+	NewBFBURL            string
+	NewBFBFileName       string
+	NewBFBVersionsBSP    string
+	NewBFBVersionsDOCA   string
+	NewBFBVersionsUEFI   string
+	NewBFBVersionsATF    string
+	UpgradeMachineOSURL  string
+	PingCount            int
+	PingHBNToHBN         bool
+	WorkerCount          int
+	ExternalRouterIP     string
+	ClusterHealthTimeout time.Duration
 }
 
 var cfg TestConfig
@@ -66,7 +68,27 @@ func LoadConfig() error {
 	cfg.PingHBNToHBN = envOrDefaultBool("SANITY_TESTS_PING_HBN_TO_HBN_PODS", false)
 	cfg.WorkerCount = envOrDefaultInt("WORKER_COUNT", 0)
 	cfg.ExternalRouterIP = envOrDefault("EXTERNAL_ROUTER_IP", "")
+
+	clusterHealthTimeout, err := parsePositiveDuration(
+		"CLUSTER_HEALTH_TIMEOUT",
+		envOrDefault("CLUSTER_HEALTH_TIMEOUT", "30m"),
+	)
+	if err != nil {
+		return err
+	}
+	cfg.ClusterHealthTimeout = clusterHealthTimeout
 	return nil
+}
+
+func parsePositiveDuration(key, value string) (time.Duration, error) {
+	duration, err := time.ParseDuration(value)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be a valid Go duration (for example 30m or 1h): %w", key, err)
+	}
+	if duration <= 0 {
+		return 0, fmt.Errorf("%s must be greater than zero, got %q", key, value)
+	}
+	return duration, nil
 }
 
 // loadEnvFile reads a KEY=VALUE file and calls os.Setenv for each entry.

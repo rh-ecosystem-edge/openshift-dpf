@@ -76,15 +76,9 @@ var _ = Describe("TC-DPUD-006: A DPUDeployment Can Scale DPUs Up and Down Based 
 					"AfterAll: DPUDeployment should be Ready after label restoration")
 			}).WithTimeout(dpfe2e.DPUDeploymentReadyTimeout).WithPolling(30 * time.Second).Should(Succeed())
 
-			By("AfterAll: waiting for all DPUs in namespace to return to Ready")
-			Eventually(func(g Gomega) {
-				dpuList := &provisioningv1.DPUList{}
-				g.Expect(mgmtClient.List(ctx, dpuList, client.InNamespace(cfg.DPFNamespace))).To(Succeed())
-				for _, dpu := range dpuList.Items {
-					g.Expect(dpu.Status.Phase).To(Equal(provisioningv1.DPUReady),
-						"AfterAll: DPU %s should be Ready, got %s", dpu.Name, dpu.Status.Phase)
-				}
-			}).WithTimeout(dpfe2e.DPUDeploymentReadyTimeout).WithPolling(30 * time.Second).Should(Succeed())
+			waitForDPUResourcesReady(len(dpuHostWorkers))
+			readyDPUWorkers := waitForHostedDPUWorkersReady(len(dpuHostWorkers))
+			waitForOVNKPodsReady(readyDPUWorkers)
 		})
 
 		It("pre-condition: should have DPUDeployment in Ready state before selector scaling test", func() {
@@ -253,6 +247,6 @@ var _ = Describe("TC-DPUD-006: A DPUDeployment Can Scale DPUs Up and Down Based 
 		})
 
 		It("should have a healthy cluster after selector-based scaling", func() {
-			waitForClusterHealth()
+			waitForClusterHealthAfterDPUReprovisioning()
 		})
 	})

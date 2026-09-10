@@ -274,7 +274,7 @@ var _ = Describe("Hosted Cluster Upgrade", Label("hosted-upgrade"), Ordered, fun
 	})
 
 	It("should have a healthy cluster after hosted cluster upgrade", func() {
-		waitForClusterHealth()
+		waitForClusterHealthAfterDPUReprovisioning()
 	})
 
 	AfterAll(func() {

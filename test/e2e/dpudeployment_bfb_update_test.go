@@ -227,22 +227,7 @@ var _ = Describe("TC-DPUD-002: DPUDeployment Update - Change BFB", Label("dpudep
 	})
 
 	It("should have a healthy cluster after BFB update", func() {
-		By("Waiting for cluster operators to be healthy on management cluster")
-		Eventually(func() []string {
-			return InterceptGomegaFailures(func() {
-				checkClusterOperatorsHealthy(mgmtClient, "management")
-			})
-		}).WithTimeout(15 * time.Minute).WithPolling(30 * time.Second).Should(BeEmpty())
-
-		By("Waiting for cluster operators to be healthy on hosted cluster")
-		Eventually(func() []string {
-			return InterceptGomegaFailures(func() {
-				checkClusterOperatorsHealthy(hostedClient, "hosted")
-			})
-		}).WithTimeout(15 * time.Minute).WithPolling(30 * time.Second).Should(BeEmpty())
-
-		By("Verifying all pods on DPU worker nodes are Running")
-		checkPodsHealthyOnNodes(mgmtClient, dpuHostWorkers)
+		waitForClusterHealthAfterDPUReprovisioning()
 	})
 
 	AfterAll(func() {

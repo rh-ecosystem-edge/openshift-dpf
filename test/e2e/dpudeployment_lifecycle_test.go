@@ -201,13 +201,6 @@ var _ = Describe("TC-DPUD-001: Delete and Recreate DPUDeployment", Label("dpudep
 	})
 
 	It("should have a healthy cluster after DPUDeployment lifecycle", func() {
-		By("Verifying cluster operators are healthy on management cluster")
-		checkClusterOperatorsHealthy(mgmtClient, "management")
-
-		By("Verifying cluster operators are healthy on hosted cluster")
-		checkClusterOperatorsHealthy(hostedClient, "hosted")
-
-		By("Verifying all pods on DPU worker nodes are Running")
-		checkPodsHealthyOnNodes(mgmtClient, dpuHostWorkers)
+		waitForClusterHealthAfterDPUReprovisioning()
 	})
 })
