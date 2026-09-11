@@ -1,0 +1,13 @@
+# RHCOS layered image with patched kata-containers RPM (cold-plug VFIO).
+# Targets MCP worker-dpu (DPU host pool). Skip with KATA_SKIP_RHCOS_LAYER=true
+# when kata-containers 3.31.0-5+ already ships on the node.
+#
+# The layer MUST match the cluster RHCOS digest or MCO will fail / drift.
+apiVersion: machineconfiguration.openshift.io/v1
+kind: MachineConfig
+metadata:
+  labels:
+    machineconfiguration.openshift.io/role: <KATA_MC_ROLE>
+  name: 99-kata-dpu-layered
+spec:
+  osImageURL: <KATA_RHCOS_LAYER_IMAGE>

@@ -186,6 +186,11 @@ function prepare_post_installation() {
         log [ERROR] "Post-installation directory not found: ${POST_INSTALL_DIR}"
         exit 1
     fi
+    if ! [[ "${NUM_VFS}" =~ ^[1-9][0-9]*$ ]]; then
+        log [ERROR] "NUM_VFS must be a positive integer"
+        return 1
+    fi
+
     # Update manifests with custom values
     update_bfb_manifest
     update_hbn_ovn_manifests

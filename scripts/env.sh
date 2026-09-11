@@ -189,6 +189,14 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
         unset _ocp_base_version
     fi
 
+    # Kata defaults for .env files generated before these variables existed.
+    KATA_ENABLED=${KATA_ENABLED:-false}
+    KATA_RUNTIME_CLASS=${KATA_RUNTIME_CLASS:-kata-coldplug}
+    KATA_NAD_NAME=${KATA_NAD_NAME:-dpf-ovn-kubernetes-${KATA_RUNTIME_CLASS}}
+    KATA_INJECTOR_RESOURCE_NAME=${KATA_INJECTOR_RESOURCE_NAME:-${INJECTOR_RESOURCE_NAME}}
+    KATA_TEST_REPLICAS=${KATA_TEST_REPLICAS:-1}
+    KATA_SKIP_RHCOS_LAYER=${KATA_SKIP_RHCOS_LAYER:-false}
+
     # Storage class — conditional on STORAGE_TYPE and SKIP_DEPLOY_STORAGE
     if [ "${STORAGE_TYPE}" == "odf" ] && [ "${VM_COUNT}" -lt 3 ]; then
         echo "Warning: ODF requires at least 3 nodes. Falling back to LVM." >&2
