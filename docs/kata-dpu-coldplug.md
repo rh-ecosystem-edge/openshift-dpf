@@ -155,10 +155,8 @@ Without this, kata writes `driver_override=vfio-pci`, unbinds `mlx5_core`, then 
 ```bash
 lsmod | grep vfio_pci
 ls /sys/bus/pci/drivers/vfio-pci/
-modprobe vfio-pci   # until MC drop-in is rolled out
+modprobe vfio-pci   # host-side workaround if the module is not loaded
 ```
-
-Persistent: `/etc/modules-load.d/kata-vfio.conf` in `manifests/kata/04-kata-coldplug.yaml` (content `vfio-pci`). Apply by deleting `50-kata-coldplug-config` and re-running `make enable-kata`.
 
 ---
 
@@ -319,7 +317,7 @@ Wait 2–3 minutes. Ping DPU gateway from the worker if you use that topology (`
 |---------|--------|-----|
 | `failed to add any hypervisor device to devices cgroup` | No `/dev/kvm` (VMX off in BIOS) | Enable VT-x, cold boot host |
 | `stat /sys/bus/pci/devices/XXXX/net: no such file` | VF on vfio/UNBOUND before CNI | Rebind to `mlx5_core`; do not leave pod retrying |
-| First CNI OK (`AddedInterface` kata NAD), then `create container timeout` | `vfio-pci` module not loaded | `modprobe vfio-pci`; persist via MC |
+| First CNI OK (`AddedInterface` kata NAD), then `create container timeout` | `vfio-pci` module not loaded | `modprobe vfio-pci` |
 | Same netdev error on **new** PCI each retry | Cascade from first timeout | Delete pod, fix **all** stale VFs, then one retry |
 | `timed out waiting for annotations` / missing `dpu.connection-status` | Host wrote `connection-details`; DPU never finished PF1 | Stop retries; DPU ovnkube logs; PF1 representors; bounce DPU ovnkube-node |
 | `rpm -q kata-containers` shows `3.31.0-3` | Layer uses patched **same NVR** | Confirm with `rpm-ostree status`, not RPM name |
@@ -404,7 +402,7 @@ ps aux | grep qemu-kvm | grep -o 'vfio-pci,host=[^ ]*'
 | `manifests/kata/02-kataconfig.yaml` | KataConfig selector matches no nodes |
 | `manifests/kata/03-rhcos-layer.yaml` | `99-kata-dpu-layered` (`osImageURL`) |
 | `manifests/kata/03-iommu.yaml` | `99-iommu-enable` (`intel_iommu=on iommu=pt`) |
-| `manifests/kata/04-kata-coldplug.yaml` | CRI-O handler, coldplug.toml, `vfio-pci` modules-load |
+| `manifests/kata/04-kata-coldplug.yaml` | CRI-O handler, coldplug.toml |
 | `manifests/kata/05-runtimeclass.yaml` | `kata-coldplug` (nodeSelector worker-dpu) |
 | `manifests/kata/06-test-deployment.yaml` | kata-dpu-test Deployment (KATA_TEST_REPLICAS) |
 | `manifests/post-installation/nodesriovdevicepluginconfig.yaml` | Shared VF pool (regular + kata) |
