@@ -79,9 +79,8 @@ oc wait --for=condition=Available deployment/kata-dpu-test --timeout=180s
 Re-apply cold-plug MCs after changing them:
 
 ```bash
-oc delete mc 99-kata-dpu-layered 99-iommu-enable 50-kata-coldplug-config
 make enable-kata
-# wait for MCP worker-dpu; node reboots
+# oc apply updates MCs in place; wait for MCP worker-dpu (node reboot if kargs/layer changed)
 ```
 
 ---

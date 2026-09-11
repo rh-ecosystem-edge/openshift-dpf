@@ -153,21 +153,23 @@ function ensure_one_machineconfig() {
     local name=$1
     local src=$2
     shift 2
-    local existing_role
-    existing_role=$(oc get machineconfig "${name}" \
-        -o jsonpath='{.metadata.labels.machineconfiguration\.openshift\.io/role}' 2>/dev/null || true)
-    if [ "${existing_role}" = "${worker_role}" ]; then
-        log [INFO] "MachineConfig ${name} already exists, skipping create"
-        return 0
-    fi
-    log [INFO] "Creating MachineConfig ${name} (role ${worker_role})"
+    local dest="${GENERATED_KATA_DIR}/$(basename "${src}")"
+    log [INFO] "Applying MachineConfig ${name} (role ${worker_role})"
     render_kata_manifest \
         "${src}" \
-        "${GENERATED_KATA_DIR}/$(basename "${src}")" \
+        "${dest}" \
         "<KATA_MC_ROLE>" "${worker_role}" \
         "$@"
-    apply_manifest "${GENERATED_KATA_DIR}/$(basename "${src}")" "true"
-    KATA_MC_APPLIED=true
+    local out
+    if ! out=$(oc apply -f "${dest}" 2>&1); then
+        log [ERROR] "Failed to apply MachineConfig ${name}"
+        echo "${out}"
+        return 1
+    fi
+    log [INFO] "${out}"
+    if echo "${out}" | grep -qE ' created$| configured$'; then
+        KATA_MC_APPLIED=true
+    fi
 }
 
 function ensure_machineconfigs() {
