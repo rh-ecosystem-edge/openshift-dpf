@@ -1,0 +1,14 @@
+# KataConfig with a selector that matches no nodes. OSC stays installed but
+# must not label DPU hosts kata-oc (those nodes already live in MCP worker-dpu;
+# a second custom role makes MCO degrade).
+#
+# Do not add openshift-dpf.io/kata-oc-do-not-select to any node.
+apiVersion: kataconfiguration.openshift.io/v1
+kind: KataConfig
+metadata:
+  name: example-kataconfig
+spec:
+  logLevel: info
+  kataConfigPoolSelector:
+    matchLabels:
+      openshift-dpf.io/kata-oc-do-not-select: "true"

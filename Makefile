@@ -239,6 +239,10 @@ enable-kata:
 deploy-kata-test:
 	@scripts/enable-kata.sh deploy-test
 
+.PHONY: cleanup-kata-vfs
+cleanup-kata-vfs:
+	@scripts/enable-kata.sh cleanup-vfs
+
 .PHONY: deploy-core-operator-sources
 deploy-core-operator-sources:
 	@$(MANIFESTS_SCRIPT) deploy-core-operator-sources
@@ -499,8 +503,9 @@ help:
 	@echo "  prepare-dpu-files - Prepare post-installation manifests with custom values"
 	@echo "  generate-overrides - Write DPUServiceTemplate overrides ConfigMap (also via GENERATE_DPUSERVICETEMPLATE_OVERRIDES=true)"
 	@echo "  deploy-dpu-services - Deploy DPU services to the cluster"
-	@echo "  enable-kata       - Install OSC + kata-coldplug on worker-dpu (optional; run after enable-ovn-injector)"
+	@echo "  enable-kata       - OSC (inert KataConfig) + kata-coldplug on worker-dpu (optional; KATA_ENABLED=true, after enable-ovn-injector)"
 	@echo "  deploy-kata-test  - Deploy kata-dpu-test Deployment (KATA_TEST_REPLICAS, default 1)"
+	@echo "  cleanup-kata-vfs  - Rebind stale vfio-pci VFs to mlx5_core on worker-dpu (FORCE=true to skip running-pod check)"
 	@echo "  configure-flannel - Deploy flannel IPAM controller for automatic podCIDR assignment"
 	@echo "  add-worker-nodes  - Provision worker nodes via BMO/Redfish (uses WORKER_* env vars)"
 	@echo "  worker-status     - Display provisioning status for all configured workers"

@@ -1,7 +1,8 @@
-# Kata smoke-test Deployment. Each replica requests one PF1 kata VF.
-# Scale with KATA_TEST_REPLICAS (default 1). Apply via make deploy-kata-test.
+# Kata smoke-test Deployment. Injector adds one VF from the shared pool when
+# runtimeClassName matches. Scale with KATA_TEST_REPLICAS (default 1).
+# Apply via make deploy-kata-test.
 #
-# Prerequisites: make enable-kata, make enable-ovn-injector, PF1 kata VF pool ready.
+# Prerequisites: KATA_ENABLED=true, make enable-ovn-injector, make enable-kata.
 # The OVN injector webhook must set v1.multus-cni.io/default-network to the kata
 # NAD so CNI uses the VF netdev path, not ovn-primary with a stale/vfio VF PCI.
 # maxSurge: 0 avoids oversubscribing VFs during rolling updates.
@@ -40,4 +41,3 @@ spec:
       - name: test
         image: quay.io/wabouham/ecosys-nvidia/nicolaka-netshoot:latest
         command: ["sleep", "infinity"]
-

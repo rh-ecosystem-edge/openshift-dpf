@@ -1,6 +1,6 @@
 # Kata DPU cold-plug: setup, debug, and runbook
 
-Notes from bringing up `kata-dpu-test` on a DPU worker (`worker-303ea712f378` / nvd-srv-45). Host-side pieces come from [jensfr/rhcos-layer-kata-dpu](https://github.com/jensfr/rhcos-layer-kata-dpu/tree/dpu-coldplug-nvidia-ref). DPF-side pieces (PF1 VF pool, OVN injector mapping) live in this repo.
+Notes from bringing up `kata-dpu-test` on a DPU worker (`worker-303ea712f378` / nvd-srv-45). Host-side pieces come from [jensfr/rhcos-layer-kata-dpu](https://github.com/jensfr/rhcos-layer-kata-dpu/tree/dpu-coldplug-nvidia-ref). DPF-side pieces (shared VF pool, OVN injector mapping) live in this repo.
 
 **Do not use `ovs-ctl` to restart OVS on DPUs.** It wipes the database. Use:
 
@@ -16,8 +16,8 @@ kd debug node/<dpu-node> -- chroot /host systemctl restart ovs-vswitchd
 ## How it is supposed to work
 
 1. DPF creates SR-IOV VFs on BlueField. `mlx5_core` binds and each VF gets a netdev.
-2. Device plugin advertises PF0 netdev VFs (regular pods) and PF1 kata VFs (`openshift.io/bf3-p1-vfs-kata`).
-3. Pod uses `runtimeClassName: kata-coldplug` and requests **one** kata VF (same as jensfr `05-test-pod.yaml`).
+2. Device plugin advertises one VF pool (`openshift.io/bf3_vfs`) on PF0 and PF1.
+3. Pod uses `runtimeClassName: kata-coldplug`. The OVN injector adds **one** VF from that shared pool and sets the kata NAD.
 4. OVN injector webhook sets `v1.multus-cni.io/default-network` to the kata NAD.
 5. CNI moves the VF **as a netdev** into the sandbox netns (VF must still be on `mlx5_core`).
 6. Kata rebinds the VF `mlx5_core` → `vfio-pci`, cold-plugs it into QEMU.
@@ -25,39 +25,48 @@ kd debug node/<dpu-node> -- chroot /host systemctl restart ovs-vswitchd
 
 If step 6 happens **before** step 5 (or leftover `driver_override=vfio-pci`), CNI fails with `stat .../net: no such file or directory`.
 
-Regular (non-kata) pods only prove the **PF0** path. Kata uses **PF1**.
+Regular and kata pods share the same VF pool. The injector selects the NAD from `runtimeClassName`.
 
 ---
 
 ## Env (`.env`)
 
 ```bash
-KATA_SRIOV_DP_CONFIG_NAME=bf3-p1-vfs-kata
-KATA_SRIOV_PF_INDEX=1
-KATA_NUM_VFS=24            # kata pods on PF1; regular gets NUM_VFS - KATA_NUM_VFS
+KATA_ENABLED=true
 KATA_RUNTIME_CLASS=kata-coldplug
-KATA_INJECTOR_RESOURCE_NAME=openshift.io/bf3-p1-vfs-kata
-# Git default: dpf-ovn-kubernetes-${KATA_RUNTIME_CLASS}
-# Override example seen on nvd-srv-45:
-KATA_NAD_NAME=dpf-ovn-kubernetes-bf3-p1-vfs-kata
+# Defaults to INJECTOR_RESOURCE_NAME (shared pool, e.g. openshift.io/bf3_vfs)
+KATA_INJECTOR_RESOURCE_NAME=openshift.io/bf3_vfs
+KATA_NAD_NAME=dpf-ovn-kubernetes-kata-coldplug
 KATA_RHCOS_LAYER_IMAGE=quay.io/jensfr/rhcos-kata-dpu@sha256:ce05dea3e0214c7bf7864cef1110e414a6419430fe2f55b5e9c848b71b799a8f
 KATA_SKIP_RHCOS_LAYER=false
 ```
 
-NAD name does not have to match the RuntimeClass. Injector `runtimeClass` + `nadName` + `resourceName` must match the NAD and the pod resource.
+NAD name does not have to match the RuntimeClass. Injector `runtimeClass` + `nadName` must be unique; `resourceName` can match the regular pool.
 
 ---
 
 ## Bring-up
 
-After DPF is up (`make all` includes `enable-ovn-injector`):
+After DPF is up (`make all` includes `enable-ovn-injector` **without** the kata NAD):
 
 ```bash
-make enable-ovn-injector   # webhook + kata NAD (if not already done)
-make enable-kata           # OSC, MC 99-kata-dpu, RuntimeClass, render test pod
+# in .env
+KATA_ENABLED=true
+make enable-ovn-injector   # webhook + kata NAD
+make enable-kata           # OSC + inert KataConfig, worker-dpu MCs, RuntimeClass
 ```
 
-`enable-kata` is **not** part of `make all`. MachineConfig goes on MCP `worker-dpu` (or `worker` on SNO). No KataConfig CR (avoids `kata-oc` clashing with `worker-dpu`).
+`enable-kata` is **not** part of `make all`.
+
+### OSC stays idle on DPU hosts
+
+Keep the OSC operator installed. Create a KataConfig whose `kataConfigPoolSelector` matches **no** nodes (`openshift-dpf.io/kata-oc-do-not-select: "true"`). OSC must not add `node-role.kubernetes.io/kata-oc` on DPU hosts.
+
+Those nodes stay exclusively in MCP `worker-dpu`. An empty MCP `kata-oc` may exist; that is fine. Labeling DPU nodes `kata-oc` while MCP `worker-dpu` exists fails with `belongs to 2 custom roles` ([RH KCS 7145443](https://access.redhat.com/solutions/7145443)).
+
+Kata RPM and CRI-O are already on the node (RHCOS layer or z-stream). Cold-plug MachineConfigs are labeled `worker-dpu`. RuntimeClass `kata-coldplug` selects `worker-dpu`.
+
+Do **not** add `node-role.kubernetes.io/kata-oc` to DPU nodes.
 
 Apply test pods (`KATA_TEST_REPLICAS` defaults to 1):
 
@@ -67,10 +76,10 @@ make deploy-kata-test
 oc wait --for=condition=Available deployment/kata-dpu-test --timeout=180s
 ```
 
-Re-apply `99-kata-dpu` after changing the MC (for example adding `vfio-pci` modules-load):
+Re-apply cold-plug MCs after changing them:
 
 ```bash
-oc delete mc 99-kata-dpu
+oc delete mc 99-kata-dpu-layered 99-iommu-enable 50-kata-coldplug-config
 make enable-kata
 # wait for MCP worker-dpu; node reboots
 ```
@@ -105,7 +114,7 @@ Fix: BIOS → enable **Intel VT-x / Virtualization Technology**. VT-d (IOMMU) ca
 
 ### IOMMU
 
-MC `99-kata-dpu` sets `intel_iommu=on iommu=pt`.
+MC `99-iommu-enable` sets `intel_iommu=on iommu=pt`. (`amd_iommu=on` is not a valid karg; AMD-Vi is on by default.)
 
 ```bash
 cat /proc/cmdline | tr ' ' '\n' | grep iommu
@@ -121,7 +130,7 @@ Need non-empty groups and a symlink per kata VF.
 Layer ships patched `kata-containers-3.31.0-3` (same NVR as stock; `rpm -q` is **not** enough).
 
 ```bash
-oc get mc 99-kata-dpu -o jsonpath='{.spec.osImageURL}{"\n"}'
+oc get mc 99-kata-dpu-layered -o jsonpath='{.spec.osImageURL}{"\n"}'
 rpm-ostree status
 ```
 
@@ -149,24 +158,24 @@ ls /sys/bus/pci/drivers/vfio-pci/
 modprobe vfio-pci   # until MC drop-in is rolled out
 ```
 
-Persistent: `/etc/modules-load.d/kata-vfio.conf` in `manifests/kata/02-kata-machineconfig.yaml` (content `vfio-pci`). Apply by deleting `99-kata-dpu` and re-running `make enable-kata`.
+Persistent: `/etc/modules-load.d/kata-vfio.conf` in `manifests/kata/04-kata-coldplug.yaml` (content `vfio-pci`). Apply by deleting `50-kata-coldplug-config` and re-running `make enable-kata`.
 
 ---
 
 ## Webhook / NAD
 
 ```bash
-grep -E 'KATA_NAD|KATA_RUNTIME|KATA_INJECTOR' .env
-oc get net-attach-def -n openshift-ovn-kubernetes | grep -E 'kata|bf3-p1'
+grep -E 'KATA_NAD|KATA_RUNTIME|KATA_INJECTOR|KATA_ENABLED' .env
+oc get net-attach-def -n openshift-ovn-kubernetes | grep -E 'kata|dpf-ovn'
 oc get runtimeclass kata-coldplug
 ```
 
-Injector mapping (`scripts/enable-ovn-injector.sh`):
+Injector mapping (`scripts/enable-ovn-injector.sh`, when `KATA_ENABLED=true`):
 
 ```text
 runtimeClass  = ${KATA_RUNTIME_CLASS}              # kata-coldplug
 nadName       = ${KATA_NAD_NAME}
-resourceName  = ${KATA_INJECTOR_RESOURCE_NAME}     # openshift.io/bf3-p1-vfs-kata
+resourceName  = ${KATA_INJECTOR_RESOURCE_NAME}     # shared: openshift.io/bf3_vfs
 ```
 
 Pod after admit should have:
@@ -193,6 +202,15 @@ Working example (jensfr demo / our success):
 ## Find and fix stale VFIO VFs
 
 Idle kata VFs must be `mlx5_core` with a netdev. Failed pods leave `driver_override=vfio-pci`.
+
+Always **delete or scale down kata pods first**. A retrying `ContainerCreating` pod will immediately dirty the next VF.
+
+```bash
+make cleanup-kata-vfs
+# or: FORCE=true make cleanup-kata-vfs
+```
+
+Manual scan (on the worker):
 
 ```bash
 # Devices currently on vfio-pci
@@ -380,12 +398,14 @@ ps aux | grep qemu-kvm | grep -o 'vfio-pci,host=[^ ]*'
 
 | Path | Role |
 |------|------|
-| `scripts/enable-kata.sh` | OSC, `99-kata-dpu`, RuntimeClass, render test pod |
+| `scripts/enable-kata.sh` | OSC, inert KataConfig, worker-dpu MCs, RuntimeClass |
 | `scripts/enable-ovn-injector.sh` | Injector + kata NAD mapping |
-| `manifests/kata/02-kata-machineconfig.yaml` | IOMMU kargs, CRI-O, coldplug.toml, `vfio-pci` modules-load, optional osImageURL |
-| `manifests/kata/05-runtimeclass.yaml` | `kata-coldplug` |
+| `manifests/kata/01-osc-operator.yaml` | OSC namespace, OperatorGroup, Subscription |
+| `manifests/kata/02-kataconfig.yaml` | KataConfig selector matches no nodes |
+| `manifests/kata/03-rhcos-layer.yaml` | `99-kata-dpu-layered` (`osImageURL`) |
+| `manifests/kata/03-iommu.yaml` | `99-iommu-enable` (`intel_iommu=on iommu=pt`) |
+| `manifests/kata/04-kata-coldplug.yaml` | CRI-O handler, coldplug.toml, `vfio-pci` modules-load |
+| `manifests/kata/05-runtimeclass.yaml` | `kata-coldplug` (nodeSelector worker-dpu) |
 | `manifests/kata/06-test-deployment.yaml` | kata-dpu-test Deployment (KATA_TEST_REPLICAS) |
-| `manifests/post-installation/nodesriovdevicepluginconfig.yaml` | PF1 kata VF pool |
+| `manifests/post-installation/nodesriovdevicepluginconfig.yaml` | Shared VF pool (regular + kata) |
 | `ci/env.defaults` | `KATA_*` variables |
-
-Code change from this work: persist `vfio-pci` via `/etc/modules-load.d/kata-vfio.conf` in `99-kata-dpu` (commit `0c4b359` on `kata-support`).

@@ -186,6 +186,11 @@ function prepare_post_installation() {
         log [ERROR] "Post-installation directory not found: ${POST_INSTALL_DIR}"
         exit 1
     fi
+    if ! [[ "${NUM_VFS}" =~ ^[1-9][0-9]*$ ]]; then
+        log [ERROR] "NUM_VFS must be a positive integer"
+        return 1
+    fi
+
     # Update manifests with custom values
     update_bfb_manifest
     update_hbn_ovn_manifests
@@ -211,31 +216,14 @@ function prepare_post_installation() {
         log [ERROR] "nodesriovdevicepluginconfig.yaml not found in ${POST_INSTALL_DIR}"
         return 1
     fi
-    if ! [[ "${NUM_VFS}" =~ ^[1-9][0-9]*$ && "${KATA_NUM_VFS}" =~ ^[1-9][0-9]*$ ]]; then
-        log [ERROR] "NUM_VFS and KATA_NUM_VFS must be positive integers"
-        return 1
-    fi
-    if [ "${KATA_NUM_VFS}" -ge "${NUM_VFS}" ]; then
-        log [ERROR] "KATA_NUM_VFS (${KATA_NUM_VFS}) must be less than NUM_VFS (${NUM_VFS})"
-        return 1
-    fi
     local vf_range_end=$((NUM_VFS - 1))
-    local pf1_regular_count=$((NUM_VFS - KATA_NUM_VFS))
-    local pf1_regular_end=$((pf1_regular_count - 1))
-    local kata_vf_start=${pf1_regular_count}
-    local kata_vf_end=$((NUM_VFS - 1))
     update_file_multi_replace \
         "${POST_INSTALL_DIR}/nodesriovdevicepluginconfig.yaml" \
         "${GENERATED_POST_INSTALL_DIR}/nodesriovdevicepluginconfig.yaml" \
         "<SRIOV_DP_CONFIG_NAME>" "${SRIOV_DP_CONFIG_NAME}" \
         "<SRIOV_DP_CONFIG_CR_NAME>" "${SRIOV_DP_CONFIG_CR_NAME}" \
         "<SRIOV_DP_MGMT_POOL_NAME>" "${SRIOV_DP_MGMT_POOL_NAME}" \
-        "<NUM_VFS_END>" "${vf_range_end}" \
-        "<PF1_REGULAR_VF_END>" "${pf1_regular_end}" \
-        "<KATA_SRIOV_DP_CONFIG_NAME>" "${KATA_SRIOV_DP_CONFIG_NAME}" \
-        "<KATA_SRIOV_PF_INDEX>" "${KATA_SRIOV_PF_INDEX}" \
-        "<KATA_VF_START>" "${kata_vf_start}" \
-        "<KATA_VF_END>" "${kata_vf_end}"
+        "<NUM_VFS_END>" "${vf_range_end}"
 
     # Copy remaining manifests using utility function (exclude special files)
     copy_manifests_with_exclusions "${POST_INSTALL_DIR}" "${GENERATED_POST_INSTALL_DIR}" "${SPECIAL_FILES[@]}"

@@ -1,21 +1,12 @@
-# Single MachineConfig for Kata DPU cold-plug on the existing worker-dpu
-# (or worker on SNO) MCP — not kata-oc.
-#
-# Combines CRI-O/kata config, IOMMU kargs, and optional RHCOS layer
-# (osImageURL). The layer MUST match the cluster RHCOS digest or MCO will
-# fail / drift. KATA_SKIP_RHCOS_LAYER=true leaves osImageURL unset (z-stream
-# kata-containers 3.31.0-5+ already on the node).
+# CRI-O kata-coldplug handler, kata config.d drop-in, and vfio-pci modules-load.
+# Targets MCP worker-dpu (the DPU host pool).
 apiVersion: machineconfiguration.openshift.io/v1
 kind: MachineConfig
 metadata:
   labels:
-    machineconfiguration.openshift.io/role: <WORKER_ROLE>
-  name: 99-kata-dpu
+    machineconfiguration.openshift.io/role: <KATA_MC_ROLE>
+  name: 50-kata-coldplug-config
 spec:
-  <KATA_OS_IMAGE_URL>
-  kernelArguments:
-    - intel_iommu=on
-    - iommu=pt
   config:
     ignition:
       version: 3.2.0

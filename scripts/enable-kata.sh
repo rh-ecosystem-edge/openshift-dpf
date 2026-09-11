@@ -2,11 +2,12 @@
 # enable-kata.sh - Install OSC and kata-coldplug host support on DPU workers
 #
 # Validates each component first and only creates it when missing.
-# MachineConfigs go on the existing worker-dpu (or worker on SNO) MCP.
-# Does NOT create a KataConfig CR: OSC's kata-oc pool would clash with
-# worker-dpu and degrade MCO. Creates RuntimeClass kata-coldplug when missing.
+# DPU workers stay on MCP worker-dpu. OSC stays installed; KataConfig uses a
+# selector that matches no nodes so OSC does not add node-role kata-oc
+# (that plus worker-dpu is "belongs to 2 custom roles").
+# Creates RuntimeClass kata-coldplug when missing.
 #
-# Run after enable-ovn-injector so the kata NAD already exists.
+# Run after enable-ovn-injector with KATA_ENABLED=true so the kata NAD exists.
 # Not part of make all.
 
 set -e
@@ -21,11 +22,12 @@ GENERATED_KATA_DIR="${GENERATED_DIR}/kata"
 OSC_NAMESPACE="openshift-sandboxed-containers-operator"
 KATA_MC_APPLIED=false
 
+# DPU hosts are in MCP worker-dpu even when the management cluster is SNO.
 function kata_worker_role() {
-    if [[ "${VM_COUNT:-0}" -eq 1 ]]; then
-        echo "worker"
-    else
+    if oc get mcp worker-dpu &>/dev/null; then
         echo "worker-dpu"
+    else
+        echo "worker"
     fi
 }
 
@@ -79,6 +81,23 @@ function ensure_osc() {
     wait_for_osc_csv
 }
 
+# Selector matches no nodes so OSC does not label DPU hosts kata-oc.
+function ensure_kataconfig() {
+    log [INFO] "Waiting for KataConfig CRD..."
+    oc wait --for=condition=Established crd/kataconfigs.kataconfiguration.openshift.io --timeout=120s
+    log [INFO] "Applying KataConfig example-kataconfig (selector matches no nodes; DPU hosts stay on worker-dpu)"
+    apply_manifest "${KATA_MANIFESTS_DIR}/02-kataconfig.yaml" "true"
+}
+
+function warn_if_dpu_nodes_have_kata_oc_role() {
+    local labeled
+    labeled=$(oc get nodes -l node-role.kubernetes.io/kata-oc -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)
+    if [ -n "${labeled}" ]; then
+        log [WARN] "Nodes have node-role.kubernetes.io/kata-oc (conflicts with worker-dpu): ${labeled}"
+        log [WARN] "Remove it: oc label node <name> node-role.kubernetes.io/kata-oc-"
+    fi
+}
+
 function wait_for_mcp() {
     local pool=$1
     log [INFO] "Waiting for MachineConfigPool ${pool} to finish rolling out (nodes may reboot)..."
@@ -130,28 +149,51 @@ function render_kata_manifest() {
     update_file_multi_replace "${src}" "${dest}" "$@"
 }
 
-function ensure_machineconfig() {
-    local name="99-kata-dpu"
-    if oc get machineconfig "${name}" &>/dev/null; then
+function ensure_one_machineconfig() {
+    local name=$1
+    local src=$2
+    shift 2
+    local existing_role
+    existing_role=$(oc get machineconfig "${name}" \
+        -o jsonpath='{.metadata.labels.machineconfiguration\.openshift\.io/role}' 2>/dev/null || true)
+    if [ "${existing_role}" = "${worker_role}" ]; then
         log [INFO] "MachineConfig ${name} already exists, skipping create"
         return 0
     fi
+    log [INFO] "Creating MachineConfig ${name} (role ${worker_role})"
+    render_kata_manifest \
+        "${src}" \
+        "${GENERATED_KATA_DIR}/$(basename "${src}")" \
+        "<KATA_MC_ROLE>" "${worker_role}" \
+        "$@"
+    apply_manifest "${GENERATED_KATA_DIR}/$(basename "${src}")" "true"
+    KATA_MC_APPLIED=true
+}
 
-    local os_image_line=""
-    if [ "${KATA_SKIP_RHCOS_LAYER}" = "true" ]; then
-        log [INFO] "KATA_SKIP_RHCOS_LAYER=true: omitting osImageURL (z-stream kata RPM path)"
-    else
-        os_image_line="osImageURL: ${KATA_RHCOS_LAYER_IMAGE}"
+function ensure_machineconfigs() {
+    if oc get machineconfig 99-kata-dpu &>/dev/null; then
+        log [INFO] "Removing combined MachineConfig 99-kata-dpu (replaced by split MCs)"
+        oc delete machineconfig 99-kata-dpu
+        KATA_MC_APPLIED=true
     fi
 
-    log [INFO] "Creating MachineConfig ${name}"
-    render_kata_manifest \
-        "${KATA_MANIFESTS_DIR}/02-kata-machineconfig.yaml" \
-        "${GENERATED_KATA_DIR}/02-kata-machineconfig.yaml" \
-        "<WORKER_ROLE>" "${worker_role}" \
-        "<KATA_OS_IMAGE_URL>" "${os_image_line}"
-    apply_manifest "${GENERATED_KATA_DIR}/02-kata-machineconfig.yaml" "true"
-    KATA_MC_APPLIED=true
+    if [ "${KATA_SKIP_RHCOS_LAYER}" = "true" ]; then
+        log [INFO] "KATA_SKIP_RHCOS_LAYER=true: omitting RHCOS layer MachineConfig (z-stream kata RPM path)"
+        if oc get machineconfig 99-kata-dpu-layered &>/dev/null; then
+            log [INFO] "Deleting leftover MachineConfig 99-kata-dpu-layered"
+            oc delete machineconfig 99-kata-dpu-layered
+            KATA_MC_APPLIED=true
+        fi
+    else
+        ensure_one_machineconfig 99-kata-dpu-layered \
+            "${KATA_MANIFESTS_DIR}/03-rhcos-layer.yaml" \
+            "<KATA_RHCOS_LAYER_IMAGE>" "${KATA_RHCOS_LAYER_IMAGE}"
+    fi
+
+    ensure_one_machineconfig 99-iommu-enable \
+        "${KATA_MANIFESTS_DIR}/03-iommu.yaml"
+    ensure_one_machineconfig 50-kata-coldplug-config \
+        "${KATA_MANIFESTS_DIR}/04-kata-coldplug.yaml"
 }
 
 function wait_for_runtimeclass() {
@@ -173,11 +215,7 @@ function wait_for_runtimeclass() {
 
 function ensure_runtimeclass() {
     local name=$1
-    if wait_for_runtimeclass "${name}" 6; then
-        return 0
-    fi
-
-    log [INFO] "RuntimeClass ${name} not found; creating from 05-runtimeclass.yaml"
+    log [INFO] "Applying RuntimeClass ${name} (nodeSelector ${worker_role})"
     render_kata_manifest \
         "${KATA_MANIFESTS_DIR}/05-runtimeclass.yaml" \
         "${GENERATED_KATA_DIR}/05-runtimeclass.yaml" \
@@ -196,7 +234,6 @@ function render_kata_test_deployment() {
         "${GENERATED_KATA_DIR}/06-test-deployment.yaml" \
         "<KATA_RUNTIME_CLASS>" "${KATA_RUNTIME_CLASS}" \
         "<WORKER_ROLE>" "${role}" \
-        "<KATA_INJECTOR_RESOURCE_NAME>" "${KATA_INJECTOR_RESOURCE_NAME}" \
         "<KATA_TEST_REPLICAS>" "${KATA_TEST_REPLICAS}"
 }
 
@@ -221,30 +258,104 @@ function deploy_kata_test() {
     log [INFO] "Verify one replica: oc exec deploy/kata-dpu-test -- ping -c 3 8.8.8.8"
 }
 
+function check_kvm_on_workers() {
+    local nodes node
+    nodes=$(oc get nodes -l "node-role.kubernetes.io/${worker_role}=" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)
+    if [ -z "${nodes}" ]; then
+        log [WARN] "No nodes with role ${worker_role} found; skipping /dev/kvm check"
+        return 0
+    fi
+    for node in ${nodes}; do
+        log [INFO] "Checking /dev/kvm on ${node}..."
+        if ! oc debug "node/${node}" --quiet -- chroot /host test -e /dev/kvm; then
+            log [ERROR] "/dev/kvm missing on ${node} (VMX/SVM disabled in BIOS). Enable virtualization and cold-boot the host before enable-kata."
+            return 1
+        fi
+    done
+}
+
+function cleanup_stale_vfs() {
+    get_kubeconfig
+    worker_role=$(kata_worker_role)
+
+    local kata_pods
+    kata_pods=$(oc get pods -A -o custom-columns=NS:.metadata.namespace,NAME:.metadata.name,RC:.spec.runtimeClassName,PHASE:.status.phase --no-headers 2>/dev/null \
+        | awk -v rc="${KATA_RUNTIME_CLASS}" '$3==rc && $4!="Succeeded" && $4!="Failed" {print $1"/"$2" "$4}')
+    if [ -n "${kata_pods}" ] && [ "${FORCE:-false}" != "true" ]; then
+        log [ERROR] "Kata pods are still present; rebinding would unplug VFs in use:"
+        echo "${kata_pods}"
+        log [ERROR] "Delete or scale them down first, then re-run. Override with FORCE=true."
+        exit 1
+    fi
+
+    local nodes node
+    nodes=$(oc get nodes -l "node-role.kubernetes.io/${worker_role}=" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)
+    if [ -z "${nodes}" ]; then
+        log [ERROR] "No nodes with role ${worker_role} found"
+        exit 1
+    fi
+
+    # Failed kata pods leave driver_override=vfio-pci; the next pod gets a VF
+    # with no netdev. Rebind those VFs to mlx5_core (jensfr stale VF cleanup).
+    for node in ${nodes}; do
+        log [INFO] "Rebinding stale VFIO VFs on ${node}..."
+        oc debug "node/${node}" --quiet -- chroot /host bash -c '
+for pf in $(ls /sys/class/net | grep np); do
+  for vf in /sys/class/net/$pf/device/virtfn*; do
+    [ -e "$vf" ] || continue
+    pci=$(basename $(readlink $vf))
+    driver=$(basename $(readlink /sys/bus/pci/devices/$pci/driver 2>/dev/null) 2>/dev/null || echo UNBOUND)
+    override=$(cat /sys/bus/pci/devices/$pci/driver_override 2>/dev/null)
+    if [ "$driver" != "mlx5_core" ] || { [ -n "$override" ] && [ "$override" != "(null)" ]; }; then
+      echo "" > /sys/bus/pci/devices/$pci/driver_override
+      [ -e /sys/bus/pci/devices/$pci/driver/unbind ] && echo $pci > /sys/bus/pci/devices/$pci/driver/unbind
+      echo $pci > /sys/bus/pci/drivers/mlx5_core/bind 2>/dev/null
+      echo "Fixed $pci (was driver=$driver override=${override:-none})"
+    fi
+  done
+done
+'
+    done
+    log [INFO] "Stale VF cleanup finished"
+}
+
 function enable_kata() {
     get_kubeconfig
 
     worker_role=$(kata_worker_role)
-    log [INFO] "Enabling Kata DPU cold-plug on MCP role '${worker_role}'"
+    log [INFO] "Enabling Kata DPU cold-plug on MCP '${worker_role}'"
 
     if ! oc get mcp "${worker_role}" &>/dev/null; then
         log [ERROR] "MachineConfigPool ${worker_role} not found. Deploy DPF / dpu-worker-config first."
         exit 1
     fi
 
+    if [ "${KATA_ENABLED}" != "true" ]; then
+        log [ERROR] "KATA_ENABLED is not true. Set KATA_ENABLED=true and re-run make enable-ovn-injector, then make enable-kata."
+        exit 1
+    fi
+
+    if ! oc get net-attach-def -n "${OVNK_NAMESPACE}" "${KATA_NAD_NAME}" &>/dev/null; then
+        log [ERROR] "NetworkAttachmentDefinition '${KATA_NAD_NAME}' not found in ${OVNK_NAMESPACE}."
+        log [ERROR] "Set KATA_ENABLED=true and run make enable-ovn-injector before make enable-kata."
+        exit 1
+    fi
+
+    check_kvm_on_workers
+
     mkdir -p "${GENERATED_KATA_DIR}"
 
-    # Intentionally no KataConfig CR. OSC would create MCP kata-oc and pull
-    # DPU workers out of worker-dpu, degrading MCO.
+    # KataConfig selector matches no nodes. Do not label DPU hosts kata-oc.
     ensure_osc
-
-    ensure_machineconfig
+    ensure_kataconfig
+    warn_if_dpu_nodes_have_kata_oc_role
+    ensure_machineconfigs
 
     if [ "${KATA_MC_APPLIED}" = "true" ]; then
         log [INFO] "Waiting for MCO to pick up new MachineConfigs..."
         sleep 20
     else
-        log [INFO] "MachineConfig 99-kata-dpu already exists; waiting for MCP ${worker_role} rollout if needed"
+        log [INFO] "Kata MachineConfigs already exist; waiting for MCP ${worker_role} rollout if needed"
     fi
     wait_for_mcp "${worker_role}"
 
@@ -263,9 +374,12 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         deploy-test)
             deploy_kata_test
             ;;
+        cleanup-vfs)
+            cleanup_stale_vfs
+            ;;
         *)
             log [ERROR] "Unknown command: $1"
-            log [ERROR] "Available commands: enable, deploy-test"
+            log [ERROR] "Available commands: enable, deploy-test, cleanup-vfs"
             exit 1
             ;;
     esac
