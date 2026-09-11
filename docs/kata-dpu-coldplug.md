@@ -114,7 +114,7 @@ Fix: BIOS → enable **Intel VT-x / Virtualization Technology**. VT-d (IOMMU) ca
 
 ### IOMMU
 
-MC `99-iommu-enable` sets `intel_iommu=on iommu=pt`. (`amd_iommu=on` is not a valid karg; AMD-Vi is on by default.)
+MC `99-iommu-enable` sets `intel_iommu=on amd_iommu=on iommu=pt`.
 
 ```bash
 cat /proc/cmdline | tr ' ' '\n' | grep iommu
@@ -401,7 +401,7 @@ ps aux | grep qemu-kvm | grep -o 'vfio-pci,host=[^ ]*'
 | `manifests/kata/01-osc-operator.yaml` | OSC namespace, OperatorGroup, Subscription |
 | `manifests/kata/02-kataconfig.yaml` | KataConfig selector matches no nodes |
 | `manifests/kata/03-rhcos-layer.yaml` | `99-kata-dpu-layered` (`osImageURL`) |
-| `manifests/kata/03-iommu.yaml` | `99-iommu-enable` (`intel_iommu=on iommu=pt`) |
+| `manifests/kata/03-iommu.yaml` | `99-iommu-enable` (`intel_iommu=on amd_iommu=on iommu=pt`) |
 | `manifests/kata/04-kata-coldplug.yaml` | CRI-O handler, coldplug.toml |
 | `manifests/kata/05-runtimeclass.yaml` | `kata-coldplug` (nodeSelector worker-dpu) |
 | `manifests/kata/06-test-deployment.yaml` | kata-dpu-test Deployment (KATA_TEST_REPLICAS) |
