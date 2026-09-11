@@ -25,10 +25,14 @@ INJECTOR_METRICS_PORT=29091
 
 log [INFO] "Enabling OVN resource injector (chart ${INJECTOR_CHART_VERSION})..."
 
+# --take-ownership: leftover injector objects (SA, etc.) often remain after the
+# helm secret is gone. Without this, install fails with missing
+# meta.helm.sh/release-name on ovn-kubernetes-ovn-kubernetes-resource-injector.
 helm_args=(
     upgrade --install -n "${OVNK_NAMESPACE}" ovn-kubernetes
     "${OVN_CHART_URL}/ovn-kubernetes-chart"
     --version "${INJECTOR_CHART_VERSION}"
+    --take-ownership
     --set ovn-kubernetes-resource-injector.enabled=true
     --set ovn-kubernetes-resource-injector.resourceName="${INJECTOR_RESOURCE_NAME}"
     --set ovn-kubernetes-resource-injector.prioritizeOffloading=false
