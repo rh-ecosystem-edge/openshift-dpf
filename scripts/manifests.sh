@@ -76,12 +76,15 @@ function prepare_cluster_manifests() {
     log [INFO] "Configuring cluster installation..."
     
 
-    # Always copy Cert-Manager manifest (required for DPF operator)
-    log [INFO] "Copying Cert-Manager manifest (required for DPF operator)..."
-    update_file_multi_replace \
-        "$MANIFESTS_DIR/cluster-installation/openshift-cert-manager.yaml" \
-        "$GENERATED_DIR/openshift-cert-manager.yaml" \
-        "<CATALOG_SOURCE_NAME>" "$CATALOG_SOURCE_NAME"
+    if [ "${DEPLOYMENT_PROFILE:-dpf}" = "dpf" ]; then
+        log [INFO] "Copying Cert-Manager manifest (required for DPF operator)..."
+        update_file_multi_replace \
+            "$MANIFESTS_DIR/cluster-installation/openshift-cert-manager.yaml" \
+            "$GENERATED_DIR/openshift-cert-manager.yaml" \
+            "<CATALOG_SOURCE_NAME>" "$CATALOG_SOURCE_NAME"
+    else
+        log [INFO] "Skipping DPF-specific Cert-Manager manifest for ${DEPLOYMENT_PROFILE} profile"
+    fi
 
     # Verify no Helm values files are in the generated directory before proceeding
     if find "$GENERATED_DIR" -maxdepth 1 -type f -name "*-values.yaml" | grep -q .; then
@@ -91,9 +94,12 @@ function prepare_cluster_manifests() {
     fi
 
 
-    enable_storage
-
-    update_worker_manifest
+    if [ "${DEPLOYMENT_PROFILE:-dpf}" = "dpf" ]; then
+        enable_storage
+        update_worker_manifest
+    else
+        log [INFO] "Skipping DPF-specific storage and DPU worker manifests for ${DEPLOYMENT_PROFILE} profile"
+    fi
 
     # Install manifests to cluster
     # Check if cluster is already installed
@@ -358,4 +364,3 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     
     main "$@"
 fi
-
