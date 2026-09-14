@@ -21,4 +21,5 @@ spec:
           end: <NUM_VFS_END>
         - pfIndex: 1
           start: 0
-          end: <NUM_VFS_END>
+          end: <PF1_REGULAR_VF_END>
+    <KATA_SRIOV_POOL>
