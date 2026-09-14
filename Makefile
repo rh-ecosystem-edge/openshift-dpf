@@ -4,6 +4,12 @@ include .env
 export
 endif
 
+# GNU Make's include .env keeps surrounding quotes. Strip so
+# KATA_ENABLED="true" still enables the kata path on make all.
+KATA_ENABLED := $(patsubst "%",%,$(KATA_ENABLED))
+KATA_ENABLED := $(patsubst '%',%,$(KATA_ENABLED))
+export KATA_ENABLED
+
 # Script paths
 CLUSTER_SCRIPT := scripts/cluster.sh
 MANIFESTS_SCRIPT := scripts/manifests.sh
@@ -29,7 +35,7 @@ WORKER_SCRIPT := scripts/worker.sh
         wait-for-installed wait-for-status cluster-start clean-all deploy-dpf kubeconfig kubeadmin-password deploy-nfd \
         install-hypershift install-hypershift-mce deploy-mce install-helm deploy-dpu-services prepare-dpu-files upgrade-dpf create-day2-cluster get-day2-iso \
         download-day2-iso create-worker-vms delete-worker-vms add-vm-workers install-day2-hosts \
-        redeploy-dpu enable-ovn-injector deploy-argocd deploy-maintenance-operator configure-flannel deploy-hypershift deploy-dpfhcp deploy-hosted-cluster \
+        redeploy-dpu enable-ovn-injector enable-kata deploy-kata-test cleanup-kata-vfs deploy-argocd deploy-maintenance-operator configure-flannel deploy-hypershift deploy-dpfhcp deploy-hosted-cluster \
         deploy-core-operator-sources deploy-metallb deploy-lso deploy-odf deploy-lvms run-dpf-sanity \
         add-worker-nodes worker-status approve-worker-csrs \
         deploy-csr-approver delete-csr-approver \
@@ -42,7 +48,13 @@ all:
 	@mkdir -p logs
 	@bash -o pipefail -c '$(MAKE) _all 2>&1 | tee "logs/make_all_$(shell date +%Y%m%d_%H%M%S).log"'
 
-_all: verify-files check-cluster create-vms prepare-manifests cluster-install update-etc-hosts kubeconfig add-worker-nodes deploy-dpf prepare-dpu-files deploy-dpu-services enable-ovn-injector deploy-observability
+ALL_STEPS := verify-files check-cluster create-vms prepare-manifests cluster-install update-etc-hosts kubeconfig add-worker-nodes deploy-dpf prepare-dpu-files deploy-dpu-services enable-ovn-injector deploy-observability
+ifeq ($(KATA_ENABLED),true)
+ALL_STEPS += enable-kata
+endif
+
+.PHONY: _all
+_all: $(ALL_STEPS)
 	@echo ""
 	@echo "================================================================================"
 	@echo "✅ DPF Installation Complete!"
@@ -194,6 +206,15 @@ configure-flannel: deploy-dpu-services
 enable-ovn-injector: install-helm
 	@scripts/enable-ovn-injector.sh
 
+enable-kata:
+	@scripts/enable-kata.sh enable
+
+deploy-kata-test:
+	@scripts/enable-kata.sh deploy-test
+
+cleanup-kata-vfs:
+	@scripts/enable-kata.sh cleanup-vfs
+
 deploy-core-operator-sources:
 	@$(MANIFESTS_SCRIPT) deploy-core-operator-sources
 
@@ -322,7 +343,7 @@ generate-env: validate-env-files
 help:
 	@echo "Available targets:"
 	@echo "Cluster Management:"
-	@echo "  all               - Complete setup: verify, create cluster, VMs, install, and wait for completion"
+	@echo "  all               - Complete setup: verify, create cluster, VMs, install, and wait for completion (enable-kata last if KATA_ENABLED=true)"
 	@echo "  create-cluster    - Create a new cluster"
 	@echo "  create-day2-cluster - Create a day2 cluster for worker nodes with DPUs"
 	@echo "  get-day2-iso      - Get ISO URL for worker nodes with DPUs (uses day2 cluster)"
@@ -368,6 +389,9 @@ help:
 	@echo "  prepare-dpu-files - Prepare post-installation manifests with custom values"
 	@echo "  generate-overrides - Write DPUServiceTemplate overrides ConfigMap (also via GENERATE_DPUSERVICETEMPLATE_OVERRIDES=true)"
 	@echo "  deploy-dpu-services - Deploy DPU services to the cluster"
+	@echo "  enable-kata       - OSC (inert KataConfig) + kata-coldplug on worker-dpu (also last make all step when KATA_ENABLED=true)"
+	@echo "  deploy-kata-test  - Deploy kata-dpu-test Deployment (KATA_TEST_REPLICAS, default 1)"
+	@echo "  cleanup-kata-vfs  - Rebind stale vfio-pci VFs to mlx5_core on worker-dpu (FORCE=true to skip running-pod check)"
 	@echo "  configure-flannel - Deploy flannel IPAM controller for automatic podCIDR assignment"
 	@echo "  add-worker-nodes  - Provision worker nodes via BMO/Redfish (uses WORKER_* env vars)"
 	@echo "  worker-status     - Display provisioning status for all configured workers"
@@ -439,6 +463,7 @@ help:
 	@echo ""
 	@echo "DPF Configuration:"
 	@echo "  DPF_VERSION      - DPF operator version (default: $(DPF_VERSION))"
+	@echo "  KATA_ENABLED     - If true, make all runs enable-kata last (default: false)"
 	@echo "  SKIP_DEPLOY_STORAGE - If true, skip LSO/LVM/ODF deployment; ETCD_STORAGE_CLASS must point to existing StorageClass (default: false)"
 	@echo "  ETCD_STORAGE_CLASS - StorageClass for hosted cluster etcd (default: $(ETCD_STORAGE_CLASS)); required when SKIP_DEPLOY_STORAGE=true"
 	@echo ""

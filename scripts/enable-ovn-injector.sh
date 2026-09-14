@@ -23,31 +23,49 @@ INJECTOR_WEBHOOK_PORT=19443
 INJECTOR_HEALTH_PROBE_PORT=18081
 INJECTOR_METRICS_PORT=29091
 
-log [INFO] "Enabling OVN resource injector..."
+log [INFO] "Enabling OVN resource injector (chart ${INJECTOR_CHART_VERSION})..."
 
 rm -rf "$GENERATED_DIR/ovn-injector" || true
 mkdir -p "$GENERATED_DIR/ovn-injector"
-
 
 helm pull "${OVN_CHART_URL}/ovn-kubernetes-chart" \
     --version "${INJECTOR_CHART_VERSION}" \
     --untar -d "$GENERATED_DIR/ovn-injector"
 
-helm template -n ${OVNK_NAMESPACE} ovn-kubernetes \
-    "$GENERATED_DIR/ovn-injector/ovn-kubernetes-chart" \
-    --set ovn-kubernetes-resource-injector.enabled=true \
-    --set ovn-kubernetes-resource-injector.resourceName="${INJECTOR_RESOURCE_NAME}" \
-    --set ovn-kubernetes-resource-injector.prioritizeOffloading=false \
-    --set ovn-kubernetes-resource-injector.controllerManager.hostNetwork=true \
-    --set ovn-kubernetes-resource-injector.controllerManager.webhookPort="${INJECTOR_WEBHOOK_PORT}" \
-    --set ovn-kubernetes-resource-injector.controllerManager.healthProbeBindAddress=":${INJECTOR_HEALTH_PROBE_PORT}" \
-    --set ovn-kubernetes-resource-injector.controllerManager.webhook.image.pullPolicy=IfNotPresent \
-    --set "ovn-kubernetes-resource-injector.controllerManager.webhook.args={--leader-elect,--metrics-bind-address=:${INJECTOR_METRICS_PORT}}" \
-    --set nodeWithDPUManifests.enabled=false \
-    --set nodeWithoutDPUManifests.enabled=false \
-    --set dpuManifests.enabled=false \
-    --set controlPlaneManifests.enabled=false \
-    --set commonManifests.enabled=false > "$GENERATED_DIR/ovn-injector-output.yaml"
+helm_args=(
+    template -n "${OVNK_NAMESPACE}" ovn-kubernetes
+    "$GENERATED_DIR/ovn-injector/ovn-kubernetes-chart"
+    --set ovn-kubernetes-resource-injector.enabled=true
+    --set ovn-kubernetes-resource-injector.resourceName="${INJECTOR_RESOURCE_NAME}"
+    --set ovn-kubernetes-resource-injector.prioritizeOffloading=false
+    --set ovn-kubernetes-resource-injector.controllerManager.hostNetwork=true
+    --set ovn-kubernetes-resource-injector.controllerManager.webhookPort="${INJECTOR_WEBHOOK_PORT}"
+    --set ovn-kubernetes-resource-injector.controllerManager.healthProbeBindAddress=":${INJECTOR_HEALTH_PROBE_PORT}"
+    --set ovn-kubernetes-resource-injector.controllerManager.webhook.image.pullPolicy=IfNotPresent
+    --set "ovn-kubernetes-resource-injector.controllerManager.webhook.args={--leader-elect,--metrics-bind-address=:${INJECTOR_METRICS_PORT}}"
+    --set-json 'ovn-kubernetes-resource-injector.runtimeClassMappings=[]'
+    --set nodeWithDPUManifests.enabled=false
+    --set nodeWithoutDPUManifests.enabled=false
+    --set dpuManifests.enabled=false
+    --set controlPlaneManifests.enabled=false
+    --set commonManifests.enabled=false
+)
+
+if [ "${KATA_ENABLED}" = "true" ]; then
+    log [INFO] "KATA_ENABLED=true: adding runtime class mapping ${KATA_RUNTIME_CLASS} -> ${KATA_NAD_NAME} (${KATA_INJECTOR_RESOURCE_NAME})"
+    helm_args+=(
+        --set "ovn-kubernetes-resource-injector.runtimeClassMappings[0].runtimeClass=${KATA_RUNTIME_CLASS}"
+        --set "ovn-kubernetes-resource-injector.runtimeClassMappings[0].nadName=${KATA_NAD_NAME}"
+        --set "ovn-kubernetes-resource-injector.runtimeClassMappings[0].resourceName=${KATA_INJECTOR_RESOURCE_NAME}"
+    )
+else
+    log [INFO] "KATA_ENABLED=${KATA_ENABLED:-false}: skipping kata runtime class mapping"
+fi
+
+if ! helm "${helm_args[@]}" > "$GENERATED_DIR/ovn-injector-output.yaml"; then
+    log [ERROR] "Helm template of OVN resource injector failed"
+    exit 1
+fi
 
 oc apply -f "$GENERATED_DIR/ovn-injector-output.yaml"
 
@@ -78,4 +96,15 @@ else
     exit 1
 fi
 
-log [INFO] "OVN resource injector enabled successfully"
+# Kata NAD exists only when the runtime class mapping was set above.
+if [ "${KATA_ENABLED}" = "true" ]; then
+    if oc get net-attach-def -n "${OVNK_NAMESPACE}" "${KATA_NAD_NAME}" &>/dev/null; then
+        log [INFO] "NetworkAttachmentDefinition '${KATA_NAD_NAME}' created successfully"
+    else
+        log [ERROR] "NetworkAttachmentDefinition '${KATA_NAD_NAME}' was not created"
+        exit 1
+    fi
+    log [INFO] "OVN resource injector enabled successfully (with Kata runtime class mapping)"
+else
+    log [INFO] "OVN resource injector enabled successfully"
+fi

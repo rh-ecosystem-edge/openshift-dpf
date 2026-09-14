@@ -1,0 +1,16 @@
+# IOMMU kargs for VFIO cold-plug. intel_iommu=on (Intel VT-d is off by
+# default) and amd_iommu=on (OSC/Itai; ignored on Intel). iommu=pt is
+# vendor-neutral passthrough mode.
+#
+# Role worker-dpu (the DPU host pool). Confirm: cat /proc/cmdline | grep iommu
+apiVersion: machineconfiguration.openshift.io/v1
+kind: MachineConfig
+metadata:
+  labels:
+    machineconfiguration.openshift.io/role: <KATA_MC_ROLE>
+  name: 99-iommu-enable
+spec:
+  kernelArguments:
+    - intel_iommu=on
+    - amd_iommu=on
+    - iommu=pt

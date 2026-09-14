@@ -9,6 +9,38 @@ if [ -n "${ENV_SH_SOURCED:-}" ]; then
 fi
 export ENV_SH_SOURCED=1
 
+# GNU Make's `include .env` leaves surrounding quotes in the value, so
+# KATA_ENABLED="true" is exported as "true" and boolean checks fail.
+_strip_surrounding_quotes() {
+    local value="$1"
+    value="${value#\"}"
+    value="${value%\"}"
+    value="${value#\'}"
+    value="${value%\'}"
+    printf '%s' "$value"
+}
+
+# Strip quotes from currently exported .env keys without re-reading file
+# values, so `make VAR=value` overrides are preserved.
+_strip_exported_env_quotes() {
+    local script_dir env_file key value stripped
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    env_file="${script_dir}/../.env"
+    [ -f "$env_file" ] || return 0
+
+    while IFS='=' read -r key _; do
+        [[ $key =~ ^#.*$ ]] && continue
+        [[ -z $key ]] && continue
+        [[ $key =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+        [ -n "${!key+x}" ] || continue
+        value="${!key}"
+        stripped="$(_strip_surrounding_quotes "$value")"
+        if [ "$stripped" != "$value" ]; then
+            export "$key=$stripped"
+        fi
+    done < "$env_file"
+}
+
 # Function to load environment variables from .env file
 load_env() {
     # Find the .env file relative to the script location
@@ -30,8 +62,7 @@ load_env() {
         # Skip comments and empty lines
         [[ $key =~ ^#.*$ ]] && continue
         [[ -z $key ]] && continue
-        # Remove any quotes from the value
-        value=$(echo "$value" | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//")
+        value="$(_strip_surrounding_quotes "$value")"
         
         # Export the variable
         export "$key=$value"
@@ -107,7 +138,9 @@ validate_mtu() {
 }
 
 # Load environment variables from .env file and validate aicli connectivity
-# (skip if already in Make context — the Makefile does `include .env` + `export`)
+# (skip load/validate if already in Make context — the Makefile does
+# `include .env` + `export`). Still strip quotes Make left on values;
+# do not re-read .env or `make VAR=value` overrides would be clobbered.
 if [ -z "${MAKELEVEL:-}" ]; then
     load_env
     validate_mtu
@@ -124,6 +157,8 @@ if [ -z "${MAKELEVEL:-}" ]; then
         echo "Error: aicli list clusters failed. Check token at ${AICLI_HOME}/.aicli/offlinetoken.txt and connectivity." >&2
         exit 1
     fi
+else
+    _strip_exported_env_quotes
 fi
 
 # Computed / conditional variables — derived from .env values at runtime.
@@ -155,6 +190,17 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
             OVN_KUBERNETES_IMAGE_TAG="${_ovnk_full##*sha256:}"
         fi
     fi
+
+    # Kata defaults for .env files generated before these variables existed.
+    KATA_ENABLED=${KATA_ENABLED:-false}
+    KATA_RUNTIME_CLASS=${KATA_RUNTIME_CLASS:-kata-coldplug}
+    KATA_SRIOV_DP_CONFIG_NAME=${KATA_SRIOV_DP_CONFIG_NAME:-bf3-p1-vfs-kata}
+    KATA_SRIOV_PF_INDEX=${KATA_SRIOV_PF_INDEX:-1}
+    KATA_NUM_VFS=${KATA_NUM_VFS:-24}
+    KATA_NAD_NAME=${KATA_NAD_NAME:-dpf-ovn-kubernetes-${KATA_RUNTIME_CLASS}}
+    KATA_INJECTOR_RESOURCE_NAME=${KATA_INJECTOR_RESOURCE_NAME:-${SRIOV_DP_RESOURCE_PREFIX}/${KATA_SRIOV_DP_CONFIG_NAME}}
+    KATA_TEST_REPLICAS=${KATA_TEST_REPLICAS:-1}
+    KATA_SKIP_RHCOS_LAYER=${KATA_SKIP_RHCOS_LAYER:-false}
 
     # Storage class — conditional on STORAGE_TYPE and SKIP_DEPLOY_STORAGE
     if [ "${STORAGE_TYPE}" == "odf" ] && [ "${VM_COUNT}" -lt 3 ]; then
