@@ -20,5 +20,13 @@ spec:
           start: 2
           end: <NUM_VFS_END>
         - pfIndex: 1
-          start: 0
+          start: 10
           end: <NUM_VFS_END>
+    - name: <SRIOV_DP_SECONDARY_POOL_NAME>
+      type: vf
+      options:
+        isRdma: true
+      ranges:
+        - pfIndex: 1
+          start: 0
+          end: 9
