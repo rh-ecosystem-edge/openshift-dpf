@@ -1,6 +1,6 @@
 # Kata DPU cold-plug: setup, debug, and runbook
 
-Notes from bringing up `kata-dpu-test` on a DPU worker (`worker-303ea712f378` / nvd-srv-45). Host-side pieces come from [jensfr/rhcos-layer-kata-dpu](https://github.com/jensfr/rhcos-layer-kata-dpu/tree/dpu-coldplug-nvidia-ref). DPF-side pieces (PF1 kata VF pool, OVN injector mapping) live in this repo.
+Notes from bringing up `kata-dpu-test` on a DPU worker (`worker-303ea712f378` / nvd-srv-45). Host-side pieces come from [jensfr/rhcos-layer-kata-dpu](https://github.com/jensfr/rhcos-layer-kata-dpu/tree/ds-installer). DPF-side pieces (PF1 kata VF pool, OVN injector mapping) live in this repo.
 
 **Do not use `ovs-ctl` to restart OVS on DPUs.** It wipes the database. Use:
 
@@ -61,20 +61,26 @@ On an already-installed cluster:
 ```bash
 KATA_ENABLED=true
 make enable-ovn-injector   # webhook + kata NAD
-make enable-kata           # PF1 kata VF pool (if missing), OSC, inert KataConfig, worker-dpu MCs, RuntimeClass
+make enable-kata           # PF1 kata VF pool (if missing), OSC DaemonSet + KataConfig on worker-dpu, MCs, RuntimeClass
 ```
 
 `enable-kata` updates `NodeSRIOVDevicePluginConfig` when the kata VF pool is missing (for example after an install with `KATA_ENABLED=false`). You can still run `make prepare-dpu-files` alone to regenerate manifests without applying.
 
-### OSC stays idle on DPU hosts
+### OSC DaemonSet on worker-dpu (not MCP kata-oc)
 
-Keep the OSC operator installed. Create a KataConfig whose `kataConfigPoolSelector` matches **no** nodes (`openshift-dpf.io/kata-oc-do-not-select: "true"`). OSC must not add `node-role.kubernetes.io/kata-oc` on DPU hosts.
+Install the OSC operator, then ConfigMap `osc-feature-gates` with `deploymentMode: DaemonSet`, then a KataConfig whose `kataConfigPoolSelector` is `node-role.kubernetes.io/worker-dpu`. DaemonSet mode lets OSC install stock `kata` (CRI-O handler, RuntimeClass `kata`, kata-monitor) on DPU hosts **without** creating MCP `kata-oc`.
 
-Those nodes stay exclusively in MCP `worker-dpu`. An empty MCP `kata-oc` may exist; that is fine. Labeling DPU nodes `kata-oc` while MCP `worker-dpu` exists fails with `belongs to 2 custom roles` ([RH KCS 7145443](https://access.redhat.com/solutions/7145443)).
+The feature gate must exist before KataConfig. Applying a worker-dpu KataConfig in default MachineConfig mode labels nodes `kata-oc`. That plus MCP `worker-dpu` fails with `belongs to 2 custom roles` ([RH KCS 7145443](https://access.redhat.com/solutions/7145443)).
 
-Kata RPM and CRI-O are already on the node (RHCOS layer or z-stream). Cold-plug MachineConfigs are labeled `worker-dpu`. RuntimeClass `kata-coldplug` selects `worker-dpu`.
+Cold-plug still comes from our MachineConfigs (RHCOS layer or z-stream, IOMMU, CRI-O `kata-coldplug`, vfio-pci). RuntimeClass `kata-coldplug` selects `worker-dpu`.
 
 Do **not** add `node-role.kubernetes.io/kata-oc` to DPU nodes.
+
+If nodes already have `kata-oc` (MCO Degraded, `worker-dpu` MCP shows 0 machines),
+`make enable-kata` on branch `kata-osc-daemonset-install` applies the feature gate,
+deletes a wrong KataConfig, removes `kata-oc` labels, then recreates KataConfig
+with the `worker-dpu` selector. Do **not** use the reverted "idle" KataConfig
+(`openshift-dpf.io/kata-oc-do-not-select`) on the bastion.
 
 Apply test pods (`KATA_TEST_REPLICAS` defaults to 1):
 
@@ -407,10 +413,11 @@ ps aux | grep qemu-kvm | grep -o 'vfio-pci,host=[^ ]*'
 
 | Path | Role |
 |------|------|
-| `scripts/enable-kata.sh` | OSC, inert KataConfig, worker-dpu MCs, RuntimeClass |
+| `scripts/enable-kata.sh` | OSC DaemonSet feature gate, KataConfig on worker-dpu, MCs, RuntimeClass |
 | `scripts/enable-ovn-injector.sh` | Injector + kata NAD mapping |
 | `manifests/kata/01-osc-operator.yaml` | OSC namespace, OperatorGroup, Subscription |
-| `manifests/kata/02-kataconfig.yaml` | KataConfig selector matches no nodes |
+| `manifests/kata/01b-feature-gate.yaml` | `osc-feature-gates` `deploymentMode: DaemonSet` |
+| `manifests/kata/02-kataconfig.yaml` | KataConfig selector `worker-dpu` (or `worker` on SNO) |
 | `manifests/kata/03-rhcos-layer.yaml` | `99-kata-dpu-layered` (`osImageURL`) |
 | `manifests/kata/03-iommu.yaml` | `99-iommu-enable` (`intel_iommu=on amd_iommu=on iommu=pt`) |
 | `manifests/kata/04-kata-coldplug.yaml` | CRI-O handler, coldplug.toml, vfio-pci modules-load |

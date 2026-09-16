@@ -1,0 +1,11 @@
+# OSC installs stock kata via DaemonSet instead of MCP kata-oc.
+# Apply after the OSC namespace exists and before KataConfig.
+# Without this, KataConfig on worker-dpu would label nodes kata-oc and MCO
+# degrades (two custom roles).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: osc-feature-gates
+  namespace: openshift-sandboxed-containers-operator
+data:
+  deploymentMode: DaemonSet
