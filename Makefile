@@ -49,7 +49,7 @@ _all: $(ALL_STEPS)
 	@$(VERIFY_SCRIPT) verify-deployment
 
 .PHONY: create-base-cluster
-create-base-cluster: verify-files check-cluster create-vms prepare-manifests cluster-install update-etc-hosts kubeconfig poweron-workers add-worker-nodes
+create-base-cluster: verify-files check-cluster create-vms prepare-manifests cluster-install update-etc-hosts kubeconfig poweron-workers add-worker-nodes verify-workers
 
 .PHONY: verify-files
 verify-files:
