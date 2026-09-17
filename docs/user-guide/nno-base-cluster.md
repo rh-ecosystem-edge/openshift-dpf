@@ -4,8 +4,8 @@ Use the `nno` deployment profile to create a base OpenShift cluster for
 NVIDIA Network Operator (NNO) without requiring DPF-specific configuration or
 installing DPF-specific prerequisites.
 
-This flow creates the cluster through the `kubeconfig` step. It does not deploy
-NNO itself yet.
+This flow creates the cluster and optionally provisions physical workers. It
+does not deploy NNO itself yet.
 
 ## Generate the environment
 
@@ -61,11 +61,17 @@ prepare-manifests
 cluster-install
 update-etc-hosts
 kubeconfig
+poweron-workers
+add-worker-nodes
 ```
 
+`poweron-workers` and `add-worker-nodes` are no-ops when `WORKER_COUNT=0`. Set
+the `WORKER_*` variables before generating `.env` to join physical workers as
+part of this target.
+
 The target is profile-aware. With the default `DEPLOYMENT_PROFILE=dpf` it still
-stops at kubeconfig, so it is a useful cluster-only checkpoint before the rest
-of `make all` deploys DPF.
+stops after worker provisioning, so it is a useful cluster checkpoint before
+the rest of `make all` deploys DPF.
 
 The shared manifest preparation installs NFD and cluster monitoring. The NNO
 profile skips DPF cert-manager, DPU worker manifests, and storage intended for

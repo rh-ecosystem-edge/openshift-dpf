@@ -155,7 +155,7 @@ Checks that every variable in `ci/env.defaults` has a corresponding entry in
 `DEPLOYMENT_PROFILE` accepts `dpf` or `nno` and defaults to `dpf`.
 
 - `dpf` keeps the complete existing deployment and uses `make all`.
-- `nno` creates a base OpenShift cluster through the kubeconfig step,
+- `nno` creates a base OpenShift cluster through worker provisioning,
   keeps shared NFD installation, and skips DPF-only requirements and manifests.
 
 Generate an NNO environment rather than editing `.env` manually:

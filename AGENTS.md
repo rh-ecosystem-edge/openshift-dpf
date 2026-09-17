@@ -58,7 +58,9 @@ make all                  # Full deployment (logs to logs/)
 make generate-env         # Generate .env from ci/ source files
 make validate-env-files   # Check env.defaults ↔ env.template consistency
 make create-cluster       # Create OpenShift cluster via Assisted Installer
+make create-base-cluster  # Cluster through worker provisioning (no DPF)
 make deploy-dpf           # Deploy DPF operator
+make poweron-workers      # Power on physical workers via ipmitool
 make add-worker-nodes     # Provision physical workers via BMO/Redfish
 make deploy-dpu-services  # Deploy DPU services (HBN, DTS, OVN)
 make worker-status        # Check worker provisioning status
