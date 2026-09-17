@@ -101,13 +101,21 @@ tft:
         # ------------------------------------------
         # For tests 27-29, defaults to "tft-secondary" if not set.
         # For other tests, uses primary network if unset.
-        # secondary_network_nad: "tft-secondary"
+        # Driven by TFT_SECONDARY_NAD; the generator removes this line when empty.
+        secondary_network_nad: "__TFT_SECONDARY_NAD__"
 
         # Resource Name (optional)
         # ------------------------
-        # Resource name for SR-IOV pods (resource limits/requests).
-        # Auto-detected from secondary_network_nad if not set.
-        # resource_name: ""
+        # Resource pool for the pod's SECONDARY interface (net1) VF, e.g.
+        # openshift.io/bf3_p1_vfs. On a DPU host this MUST be set for 2nd-interface
+        # tests (27-29): tft then renders the secondary NAD with a
+        # k8s.v1.cni.cncf.io/resourceName annotation and adds the VF request to the
+        # pod, so the secondary attach receives a device ID. Without it the pod fails
+        # with "pod request on dpu host. device ID must be provided".
+        # The PRIMARY interface (eth0) VF is handled separately by the OVN resource
+        # injector (openshift.io/bf3-p0-vfs) and needs nothing here.
+        # Driven by TFT_RESOURCE_NAME; the generator removes this line when empty.
+        resource_name: "__TFT_RESOURCE_NAME__"
 
 # Kubeconfig Files
 # ----------------
