@@ -9,6 +9,7 @@
 tft:
   - name: "DPF Traffic Flow Test"
     namespace: "default"
+    __TFT_RUNTIME_CLASS_NAME__
 
     # Test Cases Configuration
     # ------------------------

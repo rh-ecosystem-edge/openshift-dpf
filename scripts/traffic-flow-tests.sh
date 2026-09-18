@@ -248,18 +248,28 @@ generate_config() {
     log "INFO" "  Server node: ${TFT_SERVER_NODE}"
     log "INFO" "  Client node: ${TFT_CLIENT_NODE}"
     log "INFO" "  Kubeconfig: ${TFT_KUBECONFIG_ABS}"
+    if [ "${KATA_ENABLED}" = "true" ]; then
+        log "INFO" "  Runtime class: ${KATA_RUNTIME_CLASS}"
+    fi
     
-    # Process template
-    cp "${TFT_CONFIG_TEMPLATE}" "${TFT_CONFIG_OUTPUT}"
-    
-    # Replace placeholders
-    sed -i "s|__TFT_TEST_CASES__|${TFT_TEST_CASES}|g" "${TFT_CONFIG_OUTPUT}"
-    sed -i "s|__TFT_DURATION__|${TFT_DURATION}|g" "${TFT_CONFIG_OUTPUT}"
-    sed -i "s|__TFT_CONNECTION_TYPE__|${TFT_CONNECTION_TYPE}|g" "${TFT_CONFIG_OUTPUT}"
-    sed -i "s|__TFT_SERVER_NODE__|${TFT_SERVER_NODE}|g" "${TFT_CONFIG_OUTPUT}"
-    sed -i "s|__TFT_CLIENT_NODE__|${TFT_CLIENT_NODE}|g" "${TFT_CONFIG_OUTPUT}"
-    sed -i "s|__TFT_KUBECONFIG__|${TFT_KUBECONFIG_ABS}|g" "${TFT_CONFIG_OUTPUT}"
-    
+    mkdir -p "$(dirname "${TFT_CONFIG_OUTPUT}")"
+
+    local tft_runtime_class_name=""
+    if [ "${KATA_ENABLED}" = "true" ]; then
+        tft_runtime_class_name="runtime_class_name: \"${KATA_RUNTIME_CLASS}\""
+    fi
+
+    update_file_multi_replace \
+        "${TFT_CONFIG_TEMPLATE}" \
+        "${TFT_CONFIG_OUTPUT}" \
+        "__TFT_TEST_CASES__" "${TFT_TEST_CASES}" \
+        "__TFT_DURATION__" "${TFT_DURATION}" \
+        "__TFT_CONNECTION_TYPE__" "${TFT_CONNECTION_TYPE}" \
+        "__TFT_SERVER_NODE__" "${TFT_SERVER_NODE}" \
+        "__TFT_CLIENT_NODE__" "${TFT_CLIENT_NODE}" \
+        "__TFT_KUBECONFIG__" "${TFT_KUBECONFIG_ABS}" \
+        "__TFT_RUNTIME_CLASS_NAME__" "${tft_runtime_class_name}"
+
     log "INFO" "Configuration generated: ${TFT_CONFIG_OUTPUT}"
 }
 
@@ -435,6 +445,9 @@ show_config() {
     echo "  TFT_TEST_CASES:     ${TFT_TEST_CASES}"
     echo "  TFT_DURATION:       ${TFT_DURATION}s"
     echo "  TFT_CONNECTION_TYPE: ${TFT_CONNECTION_TYPE}"
+    if [ "${KATA_ENABLED}" = "true" ]; then
+        echo "  KATA_RUNTIME_CLASS:  ${KATA_RUNTIME_CLASS}"
+    fi
     echo ""
     echo "Cluster:"
     echo "  TFT_SERVER_NODE:    ${TFT_SERVER_NODE:-<auto-discover from cluster>}"
