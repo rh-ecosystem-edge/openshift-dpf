@@ -320,6 +320,15 @@ provision_all_workers() {
         [[ -z "$bmc_pass" ]] && { log "ERROR" "WORKER_${i}_BMC_PASSWORD not set"; return 1; }
         [[ -z "$boot_mac" ]] && { log "ERROR" "WORKER_${i}_BOOT_MAC not set"; return 1; }
 
+        # NNO only: regular ovnkube-node builds br-ex from the boot NIC on first
+        # start, so jumbo MTU must already be in CoreOS. DPF DPU-host workers do
+        # not take this path (overlay lives on the DPU; DPUFlavor / DPFOperatorConfig
+        # MTU is applied later). Match the boot NIC by WORKER_n_BOOT_MAC.
+        local jumbo_mtu=false
+        if [[ "${DEPLOYMENT_PROFILE:-dpf}" == "nno" && -n "${NODES_MTU:-}" && "${NODES_MTU}" != "1500" ]]; then
+            jumbo_mtu=true
+        fi
+
         log "INFO" "Creating manifests for $name (DPU: $is_dpu)..."
 
         # Generate BMC secret using process_template
@@ -343,9 +352,26 @@ provision_all_workers() {
             "<BOOT_MAC>" "$boot_mac" \
             "<BMC_IP>" "$bmc_ip" \
             "<ROOT_DEVICE>" "$root_dev"
-	
+
+        if [[ "$jumbo_mtu" == "true" ]]; then
+            log "INFO" "Attaching jumbo-frame NMState for $name (mtu: ${NODES_MTU}, mac: $boot_mac)"
+            process_template \
+                "${WORKER_TEMPLATE_DIR}/network-data-secret.yaml" \
+                "${WORKER_GENERATED_DIR}/${name}-network-data.yaml" \
+                "<WORKER_NAME>" "$name" \
+                "<BOOT_MAC>" "$boot_mac" \
+                "<NODES_MTU>" "$NODES_MTU"
+
+            cat >> "${WORKER_GENERATED_DIR}/${name}-bmh.yaml" << EOF
+  preprovisioningNetworkDataName: ${name}-network-data
+EOF
+        fi
+
         # Apply manifests (retry for transient API/controller or network failures)
         retry 5 10 apply_manifest "${WORKER_GENERATED_DIR}/${name}-bmc-secret.yaml" false
+        if [[ "$jumbo_mtu" == "true" ]]; then
+            retry 5 10 apply_manifest "${WORKER_GENERATED_DIR}/${name}-network-data.yaml" false
+        fi
         retry 5 10 apply_manifest "${WORKER_GENERATED_DIR}/${name}-bmh.yaml" false
 
         log "INFO" "BMH $name created"
@@ -467,6 +493,8 @@ delete_bmh_with_cleanup() {
     else
         log "INFO" "BareMetalHost $bmh_name not found, skipping"
     fi
+
+    oc delete secret -n openshift-machine-api "${bmh_name}-network-data" --ignore-not-found
 }
 
 # Helper function to delete the OpenShift Node object

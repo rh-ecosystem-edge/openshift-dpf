@@ -168,7 +168,7 @@ VCPUS=8                       # vCPUs per VM
 DISK_SIZE1=120               # Primary disk in GB
 DISK_SIZE2=80                # Secondary disk in GB
 
-# DPF Configuration
+# DPF Configuration (DPF is the default profile)
 DPF_VERSION=v25.7.1          # Use latest stable version
 ```
 

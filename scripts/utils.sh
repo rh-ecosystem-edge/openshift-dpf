@@ -58,9 +58,11 @@ function verify_files() {
         exit 1
     fi
 
-    if [ ! -f "${DPF_PULL_SECRET}" ]; then
-        log "ERROR" "${DPF_PULL_SECRET} not found"
-        exit 1
+    if [ "${DEPLOYMENT_PROFILE:-dpf}" = "dpf" ]; then
+        if [ ! -f "${DPF_PULL_SECRET}" ]; then
+            log "ERROR" "${DPF_PULL_SECRET} not found"
+            exit 1
+        fi
     fi
 
     log "INFO" "All required files verified successfully"

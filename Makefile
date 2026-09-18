@@ -48,6 +48,9 @@ _all: $(ALL_STEPS)
 	@echo "================================================================================"
 	@$(VERIFY_SCRIPT) verify-deployment
 
+.PHONY: create-base-cluster
+create-base-cluster: verify-files check-cluster create-vms prepare-manifests cluster-install update-etc-hosts kubeconfig poweron-workers add-worker-nodes verify-workers
+
 .PHONY: verify-files
 verify-files:
 	@$(UTILS_SCRIPT) verify-files
@@ -481,6 +484,7 @@ help:
 	@echo "Available targets:"
 	@echo "Cluster Management:"
 	@echo "  all               - Complete setup: verify, create cluster, VMs, install, and wait for completion (enable-kata last if KATA_ENABLED=true)"
+	@echo "  create-base-cluster - Create and install a base OpenShift cluster through worker provisioning"
 	@echo "  create-cluster    - Create a new cluster"
 	@echo "  create-day2-cluster - Create a day2 cluster for worker nodes with DPUs"
 	@echo "  get-day2-iso      - Get ISO URL for worker nodes with DPUs (uses day2 cluster)"
@@ -533,6 +537,7 @@ help:
 	@echo "  deploy-kata-test  - Deploy kata-dpu-test Deployment (KATA_TEST_REPLICAS, default 1)"
 	@echo "  cleanup-kata-vfs  - Rebind stale vfio-pci VFs to mlx5_core on worker-dpu (FORCE=true to skip running-pod check)"
 	@echo "  configure-flannel - Deploy flannel IPAM controller for automatic podCIDR assignment"
+	@echo "  poweron-workers  - Power on physical workers via ipmitool (no-op if WORKER_COUNT=0)"
 	@echo "  add-worker-nodes  - Provision worker nodes via BMO/Redfish (uses WORKER_* env vars)"
 	@echo "  worker-status     - Display provisioning status for all configured workers"
 	@echo "  delete-worker     - Delete a worker (usage: make delete-worker WORKER_NAME=<name>)"

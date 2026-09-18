@@ -484,6 +484,11 @@ function clean_all() {
 # management cluster is already installed so re-runs of `make all` still get a
 # working StorageClass (etcd stays Pending without one).
 function ensure_cluster_storage() {
+    if [ "${DEPLOYMENT_PROFILE:-dpf}" != "dpf" ]; then
+        log "INFO" "Skipping DPF hosted-cluster storage setup for ${DEPLOYMENT_PROFILE} profile"
+        return 0
+    fi
+
     if [ "${SKIP_DEPLOY_STORAGE}" = "true" ]; then
         log "INFO" "SKIP_DEPLOY_STORAGE=true: validating that required StorageClasses exist (user-provided storage)..."
         validate_storage_classes_available || return 1

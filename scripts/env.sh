@@ -167,6 +167,17 @@ validate_mtu() {
     fi
 }
 
+validate_deployment_profile() {
+    case "${DEPLOYMENT_PROFILE:-dpf}" in
+        dpf|nno)
+            ;;
+        *)
+            echo "Error: DEPLOYMENT_PROFILE must be either 'dpf' or 'nno'. Current value: ${DEPLOYMENT_PROFILE}" >&2
+            exit 1
+            ;;
+    esac
+}
+
 # Load environment variables from .env file and validate aicli connectivity
 # (skip load/validate if already in Make context — the Makefile does
 # `include .env` + `export`). Still strip quotes Make left on values;
@@ -191,13 +202,18 @@ else
     _strip_exported_env_quotes
 fi
 
+validate_deployment_profile
+
 # Computed / conditional variables — derived from .env values at runtime.
 # Only evaluate when sourced by other scripts (not when executed directly for
 # standalone commands like validate-env-files / generate-env).
 if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     HELM_CHARTS_DIR=${HELM_CHARTS_DIR:-"$MANIFESTS_DIR/helm-charts-values"}
     HOST_CLUSTER_API=${HOST_CLUSTER_API:-"api.$CLUSTER_NAME.$BASE_DOMAIN"}
-    HOSTED_CONTROL_PLANE_NAMESPACE=${HOSTED_CONTROL_PLANE_NAMESPACE:-"${CLUSTERS_NAMESPACE}-${HOSTED_CLUSTER_NAME}"}
+
+    if [ "${DEPLOYMENT_PROFILE:-dpf}" = "dpf" ]; then
+        HOSTED_CONTROL_PLANE_NAMESPACE=${HOSTED_CONTROL_PLANE_NAMESPACE:-"${CLUSTERS_NAMESPACE}-${HOSTED_CLUSTER_NAME}"}
+    fi
 
     # OLM Catalog Source — when OLM_WORKAROUND=true, use the previous OCP
     # minor version's catalog (e.g. 4.20→4.19, 4.22→4.21).
@@ -213,7 +229,7 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     # Auto-resolve OVN-Kubernetes image from the aarch64 OCP release payload.
     # The DPU is always aarch64 regardless of the host architecture.
     # Strip -multi suffix from the version since per-arch tags use e.g. 4.22.7-aarch64.
-    if [ -z "${OVN_KUBERNETES_IMAGE_TAG:-}" ] && command -v oc &>/dev/null; then
+    if [ "${DEPLOYMENT_PROFILE:-dpf}" = "dpf" ] && [ -z "${OVN_KUBERNETES_IMAGE_TAG:-}" ] && command -v oc &>/dev/null; then
         _ocp_base_version="${OPENSHIFT_VERSION%-multi}"
         _ovnk_full=$(oc adm release info --image-for=ovn-kubernetes \
             "quay.io/openshift-release-dev/ocp-release:${_ocp_base_version}-aarch64" 2>/dev/null || true)
@@ -236,12 +252,14 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     KATA_SKIP_RHCOS_LAYER=${KATA_SKIP_RHCOS_LAYER:-false}
 
     # Storage class — conditional on STORAGE_TYPE and SKIP_DEPLOY_STORAGE
-    if [ "${STORAGE_TYPE}" == "odf" ] && [ "${VM_COUNT}" -lt 3 ]; then
+    if [ "${DEPLOYMENT_PROFILE:-dpf}" = "dpf" ] && [ "${STORAGE_TYPE}" == "odf" ] && [ "${VM_COUNT}" -lt 3 ]; then
         echo "Warning: ODF requires at least 3 nodes. Falling back to LVM." >&2
         STORAGE_TYPE="lvm"
     fi
 
-    if [ "${SKIP_DEPLOY_STORAGE}" = "true" ]; then
+    if [ "${DEPLOYMENT_PROFILE:-dpf}" != "dpf" ]; then
+        :
+    elif [ "${SKIP_DEPLOY_STORAGE}" = "true" ]; then
         if [ -z "${ETCD_STORAGE_CLASS}" ]; then
             echo "Error: SKIP_DEPLOY_STORAGE=true requires ETCD_STORAGE_CLASS to be set in .env to your existing StorageClass name." >&2
             echo "Create the StorageClass in the cluster (e.g. via your storage operator), then set ETCD_STORAGE_CLASS in .env." >&2
