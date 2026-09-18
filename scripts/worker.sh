@@ -354,7 +354,7 @@ provision_all_workers() {
             "<ROOT_DEVICE>" "$root_dev"
 
         if [[ "$jumbo_mtu" == "true" ]]; then
-            log "INFO" "Attaching jumbo-frame networkData for $name (mtu: ${NODES_MTU}, mac: $boot_mac)"
+            log "INFO" "Attaching jumbo-frame NMState for $name (mtu: ${NODES_MTU}, mac: $boot_mac)"
             process_template \
                 "${WORKER_TEMPLATE_DIR}/network-data-secret.yaml" \
                 "${WORKER_GENERATED_DIR}/${name}-network-data.yaml" \
@@ -363,9 +363,7 @@ provision_all_workers() {
                 "<NODES_MTU>" "$NODES_MTU"
 
             cat >> "${WORKER_GENERATED_DIR}/${name}-bmh.yaml" << EOF
-  networkData:
-    name: ${name}-network-data
-    namespace: openshift-machine-api
+  preprovisioningNetworkDataName: ${name}-network-data
 EOF
         fi
 

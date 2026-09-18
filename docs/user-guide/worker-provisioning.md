@@ -53,7 +53,7 @@ AUTO_APPROVE_WORKER_CSR=false
 - Or use: `ip link show` on existing node with similar hardware
 - Usually the first network interface (not BMC interface)
 
-When `DEPLOYMENT_PROFILE=nno` and `NODES_MTU` is not 1500, BMH provisioning writes jumbo-frame NMState before first boot, matching the boot NIC by the existing `WORKER_n_BOOT_MAC` (kernel interface name is not required). DPF workers are unchanged.
+When `DEPLOYMENT_PROFILE=nno` and `NODES_MTU` is not 1500, BMH provisioning writes jumbo-frame NMState before first boot via `spec.preprovisioningNetworkDataName` (same mechanism as IPI `install_coreos`), matching the boot NIC by `WORKER_n_BOOT_MAC`. DPF workers are unchanged.
 
 ### 3. Deploy Workers
 
