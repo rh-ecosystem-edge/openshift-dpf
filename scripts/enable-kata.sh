@@ -2,9 +2,10 @@
 # enable-kata.sh - Install OSC and kata-coldplug host support on DPU workers
 #
 # Validates each component first and only creates it when missing.
-# DPU workers stay on MCP worker-dpu. OSC stays installed; KataConfig uses a
-# selector that matches no nodes so OSC does not add node-role kata-oc
-# (that plus worker-dpu is "belongs to 2 custom roles").
+# DPU workers stay on MCP worker-dpu. OSC uses DaemonSet install
+# (osc-feature-gates deploymentMode=DaemonSet) so KataConfig can select
+# worker-dpu without creating MCP kata-oc (that plus worker-dpu is
+# "belongs to 2 custom roles").
 # Creates RuntimeClass kata-coldplug when missing.
 #
 # Run after enable-ovn-injector with KATA_ENABLED=true so the kata NAD exists.
@@ -18,8 +19,11 @@ source "$(dirname "${BASH_SOURCE[0]}")/post-install.sh"
 KATA_MANIFESTS_DIR="${MANIFESTS_DIR}/kata"
 GENERATED_KATA_DIR="${GENERATED_DIR}/kata"
 OSC_NAMESPACE="openshift-sandboxed-containers-operator"
+OSC_WEBHOOK_SERVICE="controller-manager-service"
+OSC_CONTROLLER_LABEL="control-plane=controller-manager"
 KATA_CONFIG_CRD="kataconfigs.kataconfiguration.openshift.io"
 KATA_MC_APPLIED=false
+OSC_RESTART_NEEDED=false
 
 # DPU hosts are in MCP worker-dpu even when the management cluster is SNO.
 function kata_worker_role() {
@@ -81,6 +85,22 @@ function wait_for_kataconfig_crd() {
     oc wait --for=condition=Established "crd/${KATA_CONFIG_CRD}" --timeout=120s
 }
 
+# CSV/CRD can register before the validating webhook Service has endpoints.
+function wait_for_osc_webhook() {
+    log [INFO] "Waiting for OSC controller-manager pods..."
+    if ! wait_for_pods "${OSC_NAMESPACE}" "${OSC_CONTROLLER_LABEL}" 60 10; then
+        log [WARN] "OSC controller-manager pods not fully ready; checking webhook endpoints anyway"
+    fi
+
+    log [INFO] "Waiting for OSC validating webhook (${OSC_WEBHOOK_SERVICE}) endpoints..."
+    if ! retry 60 10 bash -c "oc get endpoints -n ${OSC_NAMESPACE} ${OSC_WEBHOOK_SERVICE} -o jsonpath='{.subsets[*].addresses[*].ip}' 2>/dev/null | grep -q '[0-9]'"; then
+        log [ERROR] "OSC webhook service ${OSC_WEBHOOK_SERVICE} has no endpoints after 10 minutes"
+        oc -n "${OSC_NAMESPACE}" get deploy,svc,endpoints,pods 2>/dev/null || true
+        return 1
+    fi
+    log [INFO] "OSC validating webhook endpoints are ready"
+}
+
 function ensure_osc() {
     if [ "$(osc_csv_phase)" = "Succeeded" ]; then
         log [INFO] "OSC operator already installed (CSV Succeeded), skipping create"
@@ -89,14 +109,206 @@ function ensure_osc() {
 
     log [INFO] "Installing OpenShift Sandboxed Containers operator..."
     apply_manifest "${KATA_MANIFESTS_DIR}/01-osc-operator.yaml" "true"
-    wait_for_osc_csv
 }
 
-# Selector matches no nodes so OSC does not label DPU hosts kata-oc.
+# Must exist before KataConfig. DaemonSet mode avoids MCP kata-oc.
+function ensure_osc_feature_gate() {
+    local mode
+    if ! oc get namespace "${OSC_NAMESPACE}" &>/dev/null; then
+        log [ERROR] "Namespace ${OSC_NAMESPACE} not found; install OSC before the feature gate"
+        return 1
+    fi
+    mode=$(oc -n "${OSC_NAMESPACE}" get cm osc-feature-gates \
+        -o jsonpath='{.data.deploymentMode}' 2>/dev/null || true)
+    if [ "${mode}" = "DaemonSet" ]; then
+        log [INFO] "OSC feature gate already set (deploymentMode=DaemonSet)"
+        return 0
+    fi
+    if [ -n "${mode}" ]; then
+        log [WARN] "OSC feature gate deploymentMode='${mode}', updating to DaemonSet"
+    fi
+    log [INFO] "Applying OSC feature gate (deploymentMode=DaemonSet)"
+    apply_manifest "${KATA_MANIFESTS_DIR}/01b-feature-gate.yaml" "true"
+    OSC_RESTART_NEEDED=true
+}
+
+function restart_osc_controller_if_needed() {
+    if [ "${OSC_RESTART_NEEDED}" != "true" ]; then
+        return 0
+    fi
+
+    local deploy
+    deploy=$(oc -n "${OSC_NAMESPACE}" get deploy -l "${OSC_CONTROLLER_LABEL}" \
+        -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+    if [ -z "${deploy}" ]; then
+        log [WARN] "OSC controller-manager deployment not found; skipping restart"
+        OSC_RESTART_NEEDED=false
+        return 0
+    fi
+
+    log [INFO] "Restarting OSC ${deploy} so DaemonSet feature gate is picked up before KataConfig"
+    oc -n "${OSC_NAMESPACE}" rollout restart "deploy/${deploy}"
+    if ! wait_for_pods "${OSC_NAMESPACE}" "${OSC_CONTROLLER_LABEL}" 60 10; then
+        log [ERROR] "OSC controller-manager did not become ready after restart"
+        return 1
+    fi
+    wait_for_osc_webhook
+    OSC_RESTART_NEEDED=false
+}
+
+function wait_for_kataconfig_deleted() {
+    if ! oc get kataconfig example-kataconfig &>/dev/null; then
+        return 0
+    fi
+    log [INFO] "Waiting for KataConfig example-kataconfig to delete..."
+    oc wait --for=delete kataconfig/example-kataconfig --timeout=600s
+}
+
+function kataconfig_targets_worker_pool() {
+    local role=$1
+    local labels
+    # Selector values are empty strings (""). jsonpath of the value is empty,
+    # so check that the key exists in matchLabels instead of grepping the value.
+    labels=$(oc get kataconfig example-kataconfig \
+        -o jsonpath='{.spec.kataConfigPoolSelector.matchLabels}' 2>/dev/null || true)
+    grep -Fq "node-role.kubernetes.io/${role}" <<< "${labels}"
+}
+
+function kata_oc_mcp_exists() {
+    oc get mcp kata-oc &>/dev/null
+}
+
+function kata_oc_labeled_nodes() {
+    oc get nodes -l node-role.kubernetes.io/kata-oc \
+        -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true
+}
+
+function remove_kata_oc_node_labels() {
+    local labeled node removed=false
+    labeled=$(kata_oc_labeled_nodes)
+    if [ -z "${labeled}" ]; then
+        return 0
+    fi
+    for node in ${labeled}; do
+        log [INFO] "Removing node-role.kubernetes.io/kata-oc from ${node} (MCP kata-oc present; conflicts with ${worker_role})"
+        oc label node "${node}" node-role.kubernetes.io/kata-oc-
+        removed=true
+    done
+    if [ "${removed}" = "true" ]; then
+        log [INFO] "Waiting for MCO to recover after kata-oc label removal..."
+        sleep 30
+    fi
+}
+
+# MachineConfig-mode OSC creates MCP kata-oc. That plus worker-dpu is
+# "belongs to 2 custom roles". DaemonSet mode still labels nodes kata-oc
+# (OSC's kata-node marker) but must not create the pool.
+function recover_kata_oc_role_conflict() {
+    if oc get kataconfig example-kataconfig &>/dev/null \
+        && ! kataconfig_targets_worker_pool "${worker_role}"; then
+        log [INFO] "KataConfig does not target node-role.kubernetes.io/${worker_role}; deleting before recreate"
+        oc delete kataconfig example-kataconfig
+        wait_for_kataconfig_deleted
+        OSC_RESTART_NEEDED=true
+    fi
+
+    if kata_oc_mcp_exists; then
+        log [WARN] "MCP kata-oc exists; OSC was in MachineConfig mode. Cleaning up labels."
+        remove_kata_oc_node_labels
+        OSC_RESTART_NEEDED=true
+    fi
+}
+
+function assert_no_kata_oc_mcp() {
+    local labeled
+    labeled=$(kata_oc_labeled_nodes)
+
+    if kata_oc_mcp_exists; then
+        log [ERROR] "MCP kata-oc exists; OSC is still in MachineConfig mode."
+        log [ERROR] "Feature gate must be DaemonSet before KataConfig. Nodes: ${labeled}"
+        return 1
+    fi
+
+    if [ -n "${labeled}" ]; then
+        log [INFO] "OSC labeled ${labeled} node-role.kubernetes.io/kata-oc (expected in DaemonSet mode; no MCP kata-oc)"
+    fi
+}
+
+function kataconfig_node_counts() {
+    local ready total
+    ready=$(oc get kataconfig example-kataconfig -o jsonpath='{.status.kataNodes.readyNodeCount}' 2>/dev/null || true)
+    total=$(oc get kataconfig example-kataconfig -o jsonpath='{.status.kataNodes.nodeCount}' 2>/dev/null || true)
+    if [ -z "${ready}" ]; then
+        ready=$(oc get kataconfig example-kataconfig -o jsonpath='{.status.readyNodeCount}' 2>/dev/null || true)
+    fi
+    if [ -z "${total}" ]; then
+        total=$(oc get kataconfig example-kataconfig -o jsonpath='{.status.totalNodesCount}' 2>/dev/null || true)
+    fi
+    echo "${ready:-}|${total:-}"
+}
+
+function wait_for_kataconfig_ready() {
+    log [INFO] "Waiting for KataConfig example-kataconfig DaemonSet install..."
+    local attempts=0
+    local max_attempts=60
+    while [ $attempts -lt $max_attempts ]; do
+        attempts=$((attempts + 1))
+
+        if ! oc get nodes &>/dev/null; then
+            log [INFO] "API unavailable (node rebooting)..."
+            wait_for_api
+            sleep 15
+            continue
+        fi
+
+        local inprog failed counts ready total
+        inprog=$(oc get kataconfig example-kataconfig -o jsonpath='{.status.conditions[?(@.type=="InProgress")].status}' 2>/dev/null || true)
+        failed=$(oc get kataconfig example-kataconfig -o jsonpath='{.status.conditions[?(@.type=="Failed")].status}' 2>/dev/null || true)
+        counts=$(kataconfig_node_counts)
+        ready="${counts%%|*}"
+        total="${counts##*|}"
+
+        log [INFO] "KataConfig: inProgress=${inprog:-?} failed=${failed:-?} ready=${ready:-?}/${total:-?} (attempt ${attempts}/${max_attempts})"
+
+        if [ "${failed}" = "True" ]; then
+            log [ERROR] "KataConfig example-kataconfig is Failed"
+            oc get kataconfig example-kataconfig -o yaml || true
+            return 1
+        fi
+
+        if [ "${inprog}" = "False" ] && [ -n "${total}" ] && [ "${total}" != "0" ] \
+            && [ -n "${ready}" ] && [ "${ready}" = "${total}" ]; then
+            log [INFO] "KataConfig example-kataconfig is ready (${ready}/${total})"
+            return 0
+        fi
+
+        # Some OSC versions only clear InProgress when install finished.
+        if [ "${inprog}" = "False" ] && [ -n "${total}" ] && [ "${total}" != "0" ] && [ -z "${ready}" ]; then
+            log [INFO] "KataConfig InProgress=False with ${total} node(s)"
+            return 0
+        fi
+
+        sleep 15
+    done
+
+    log [ERROR] "Timed out waiting for KataConfig example-kataconfig"
+    oc get kataconfig example-kataconfig -o yaml || true
+    return 1
+}
+
 function ensure_kataconfig() {
     wait_for_kataconfig_crd
-    log [INFO] "Applying KataConfig example-kataconfig (selector matches no nodes; DPU hosts stay on worker-dpu)"
-    apply_manifest "${KATA_MANIFESTS_DIR}/02-kataconfig.yaml" "true"
+    wait_for_osc_webhook
+    log [INFO] "Applying KataConfig example-kataconfig (selector node-role.kubernetes.io/${worker_role})"
+    render_kata_manifest \
+        "${KATA_MANIFESTS_DIR}/02-kataconfig.yaml" \
+        "${GENERATED_KATA_DIR}/02-kataconfig.yaml" \
+        "<KATA_MC_ROLE>" "${worker_role}"
+    if ! retry 12 10 apply_manifest "${GENERATED_KATA_DIR}/02-kataconfig.yaml" "true"; then
+        log [ERROR] "Failed to apply KataConfig after retries (OSC webhook may still be unavailable)"
+        return 1
+    fi
+    wait_for_kataconfig_ready
 }
 
 function cluster_has_kata_sriov_pool() {
@@ -122,14 +334,6 @@ function ensure_kata_sriov_pool() {
     log [INFO] "NodeSRIOVDevicePluginConfig applied"
 }
 
-function warn_if_dpu_nodes_have_kata_oc_role() {
-    local labeled
-    labeled=$(oc get nodes -l node-role.kubernetes.io/kata-oc -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)
-    if [ -n "${labeled}" ]; then
-        log [WARN] "Nodes have node-role.kubernetes.io/kata-oc (conflicts with worker-dpu): ${labeled}"
-        log [WARN] "Remove it: oc label node <name> node-role.kubernetes.io/kata-oc-"
-    fi
-}
 
 function wait_for_mcp() {
     local pool=$1
@@ -385,10 +589,14 @@ function enable_kata() {
 
     mkdir -p "${GENERATED_KATA_DIR}"
 
-    # KataConfig selector matches no nodes. Do not label DPU hosts kata-oc.
+    # Feature gate before CSV/KataConfig so OSC uses DaemonSet mode (not MCP kata-oc).
     ensure_osc
+    ensure_osc_feature_gate
+    recover_kata_oc_role_conflict
+    restart_osc_controller_if_needed
+    wait_for_osc_csv
     ensure_kataconfig
-    warn_if_dpu_nodes_have_kata_oc_role
+    assert_no_kata_oc_mcp
     ensure_machineconfigs
 
     if [ "${KATA_MC_APPLIED}" = "true" ]; then
