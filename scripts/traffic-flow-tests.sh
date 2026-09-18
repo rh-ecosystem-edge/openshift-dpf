@@ -29,8 +29,9 @@ TFT_WORK_DIR="${TFT_WORK_DIR:-${SCRIPT_DIR}/../repos/kubernetes-traffic-flow-tes
 TFT_VENV_DIR="${TFT_WORK_DIR}/tft-venv"
 
 # Python Configuration
-# TFT recommends Python >= 3.11 (upstream CI tests 3.11, 3.12, 3.13)
-TFT_PYTHON="${TFT_PYTHON:-python3}"
+# TFT requires Python >= 3.11 (upstream CI tests 3.11, 3.12, 3.13)
+TFT_PYTHON_MIN_VERSION="3.11"
+TFT_PYTHON="${TFT_PYTHON:-python${TFT_PYTHON_MIN_VERSION}}"
 
 # Test Configuration
 TFT_CONFIG_TEMPLATE="${SCRIPT_DIR}/../ci/tft-config.yaml.template"
@@ -139,22 +140,70 @@ discover_tft_nodes() {
 # -----------------------------------------------------------------------------
 # Ensure Python >= 3.11 is available
 # -----------------------------------------------------------------------------
+python_meets_tft_min() {
+    local python_bin=$1
+    command -v "${python_bin}" &>/dev/null || return 1
+    "${python_bin}" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)'
+}
+
+find_tft_python() {
+    local candidate
+    for candidate in "${TFT_PYTHON}" python3.13 python3.12 python3.11; do
+        if python_meets_tft_min "${candidate}"; then
+            TFT_PYTHON="${candidate}"
+            return 0
+        fi
+    done
+    return 1
+}
+
+install_tft_python() {
+    log "WARN" "Python >= ${TFT_PYTHON_MIN_VERSION} not found, attempting to install..."
+
+    if command -v dnf &>/dev/null; then
+        log "INFO" "Installing Python ${TFT_PYTHON_MIN_VERSION} via dnf..."
+        sudo dnf install -y \
+            "python${TFT_PYTHON_MIN_VERSION}" \
+            "python${TFT_PYTHON_MIN_VERSION}-pip" \
+            "python${TFT_PYTHON_MIN_VERSION}-devel" || return 1
+    elif command -v yum &>/dev/null; then
+        log "INFO" "Installing Python ${TFT_PYTHON_MIN_VERSION} via yum..."
+        sudo yum install -y \
+            "python${TFT_PYTHON_MIN_VERSION}" \
+            "python${TFT_PYTHON_MIN_VERSION}-pip" \
+            "python${TFT_PYTHON_MIN_VERSION}-devel" || return 1
+    elif command -v apt-get &>/dev/null; then
+        log "INFO" "Installing Python ${TFT_PYTHON_MIN_VERSION} via apt..."
+        sudo apt-get update
+        sudo apt-get install -y \
+            "python${TFT_PYTHON_MIN_VERSION}" \
+            "python${TFT_PYTHON_MIN_VERSION}-venv" \
+            "python${TFT_PYTHON_MIN_VERSION}-dev" || return 1
+    else
+        log "ERROR" "No supported package manager found to install Python ${TFT_PYTHON_MIN_VERSION}"
+        return 1
+    fi
+
+    TFT_PYTHON="python${TFT_PYTHON_MIN_VERSION}"
+}
+
 ensure_python() {
-    if ! command -v "${TFT_PYTHON}" &>/dev/null; then
-        log "ERROR" "${TFT_PYTHON} not found. Please install Python >= 3.11"
+    log "INFO" "Checking for Python >= ${TFT_PYTHON_MIN_VERSION}..."
+
+    if ! find_tft_python; then
+        install_tft_python || {
+            log "ERROR" "Python >= ${TFT_PYTHON_MIN_VERSION} is required for traffic flow tests"
+            log "ERROR" "Install python${TFT_PYTHON_MIN_VERSION} manually or set TFT_PYTHON to a compatible interpreter"
+            return 1
+        }
+    fi
+
+    if ! python_meets_tft_min "${TFT_PYTHON}"; then
+        log "ERROR" "Python >= ${TFT_PYTHON_MIN_VERSION} required (found $("${TFT_PYTHON}" --version 2>&1))"
         return 1
     fi
 
-    local version
-    version=$("${TFT_PYTHON}" --version 2>&1)
-    log "INFO" "Found ${version}"
-
-    local meets_min
-    meets_min=$("${TFT_PYTHON}" -c "import sys; print(int(sys.version_info >= (3, 11)))")
-    if [[ "$meets_min" -ne 1 ]]; then
-        log "ERROR" "Python >= 3.11 required (found ${version})"
-        return 1
-    fi
+    log "INFO" "Using $("${TFT_PYTHON}" --version 2>&1) (${TFT_PYTHON})"
 }
 
 # -----------------------------------------------------------------------------
@@ -434,6 +483,7 @@ show_config() {
     echo "  TFT_WORK_DIR:       ${TFT_WORK_DIR}"
     echo ""
     echo "Python:"
+    echo "  Required version:   >= ${TFT_PYTHON_MIN_VERSION}"
     echo "  TFT_PYTHON:         ${TFT_PYTHON}"
     if command -v "${TFT_PYTHON}" &>/dev/null; then
         echo "  Status:             $(${TFT_PYTHON} --version 2>&1)"
@@ -513,7 +563,7 @@ case "${1:-}" in
         echo "  TFT_KUBECONFIG      - Path to cluster kubeconfig"
         echo "  TFT_SERVER_NODE     - Kubernetes node name for server (default: auto-discover DPU worker)"
         echo "  TFT_CLIENT_NODE     - Kubernetes node name for client (default: auto-discover)"
-        echo "  TFT_PYTHON          - Python interpreter, requires >= 3.11 (default: python3)"
+        echo "  TFT_PYTHON          - Python interpreter, requires >= 3.11 (default: python3.11)"
         echo ""
         echo "Note: Python 3.11 is required. If not installed, the script will attempt"
         echo "      to install it automatically using dnf/yum/apt."
