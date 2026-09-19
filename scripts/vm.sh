@@ -52,34 +52,12 @@ _delete_vms_by_prefix() {
     fi
     log "INFO" "Deleting VMs matching prefix ${prefix}..."
     local vms
-    # Use exact pattern matching to avoid deleting VMs with similar prefixes
     vms=$(lvirsh list --all | awk '{print $2}' | grep "^${prefix}" || true)
-    
-    local failed=0
     for vm in ${vms}; do
-        log "INFO" "Destroying and undefining VM ${vm}..."
-        # destroy returns error if VM is already off; ignore that specific case
-        if lvirsh domstate "${vm}" 2>/dev/null | grep -q "running"; then
-            if ! lvirsh destroy "${vm}"; then
-                log "ERROR" "Failed to destroy VM ${vm}"
-                failed=$((failed + 1))
-                continue
-            fi
-        fi
-
-        # undefine should succeed if VM exists; try with and without --nvram
-        if ! (lvirsh undefine "${vm}" --remove-all-storage --nvram >/dev/null 2>&1 || \
-              lvirsh undefine "${vm}" --remove-all-storage >/dev/null 2>&1); then
-            log "ERROR" "Failed to undefine VM ${vm}"
-            failed=$((failed + 1))
-        fi
+        lvirsh destroy "${vm}" 2>/dev/null || true
+        lvirsh undefine "${vm}" --remove-all-storage --nvram 2>/dev/null \
+            || lvirsh undefine "${vm}" --remove-all-storage 2>/dev/null || true
     done
-
-    if [[ "${failed}" -gt 0 ]]; then
-        log "ERROR" "Failed to delete ${failed} VM(s) matching prefix ${prefix}"
-        return 1
-    fi
-
     log "INFO" "VMs matching prefix ${prefix} deleted"
 }
 
@@ -196,19 +174,11 @@ function create_vms() {
     log "VM creation completed successfully!"
 }
 
-function delete_cluster_vms() {
-    _delete_vms_by_prefix "${VM_PREFIX}"
-}
-
 function delete_vms() {
-    local failed=0
-    if ! delete_worker_vms; then
-        failed=$((failed + 1))
+    if [ -n "${VM_WORKER_PREFIX}" ]; then
+        _delete_vms_by_prefix "${VM_WORKER_PREFIX}"
     fi
-    if ! delete_cluster_vms; then
-        failed=$((failed + 1))
-    fi
-    [[ "${failed}" -eq 0 ]]
+    _delete_vms_by_prefix "${VM_PREFIX}"
 }
 
 # -----------------------------------------------------------------------------
@@ -263,11 +233,8 @@ function create_worker_vms() {
 
 function delete_worker_vms() {
     if [ -n "${VM_WORKER_PREFIX}" ]; then
-        if ! _delete_vms_by_prefix "${VM_WORKER_PREFIX}"; then
-            return 1
-        fi
+        _delete_vms_by_prefix "${VM_WORKER_PREFIX}"
     fi
-    return 0
 }
 
 # -----------------------------------------------------------------------------

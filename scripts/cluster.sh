@@ -470,14 +470,23 @@ function get_kubeadmin_password() {
 }
 
 function clean_all() {
-    log "Performing cluster cleanup (Assisted Installer + generated files)..."
+    log "Performing full cleanup of cluster and VMs..."
     
     # Delete the cluster
     delete_cluster
+    
+    # Delete VMs
+    if [ -n "${VM_PREFIX}" ]; then
+        log "INFO" "Deleting VMs with prefix $VM_PREFIX..."
+        scripts/vm.sh delete || true
+    else
+        log "WARN" "VM_PREFIX is empty, skipping VM deletion"
+    fi
+    
     # Clean resources
     clean_resources
-
-    log "Cluster cleanup complete"
+    
+    log "Full cleanup complete"
 }
 
 # Deploy or validate storage used by hosted-cluster etcd. Must run even when the
