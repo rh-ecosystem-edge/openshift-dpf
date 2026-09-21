@@ -13,9 +13,6 @@ source "$(dirname "${BASH_SOURCE[0]}")/cluster.sh"
 # Most VM configuration variables are defined in env.sh:
 # VM_PREFIX, VM_COUNT, API_VIP, BRIDGE_NAME, DISK_PATH, RAM, VCPUS, DISK_SIZE1, DISK_SIZE2
 
-# Get the default physical NIC (not defined in env.sh)
-PHYSICAL_NIC=${PHYSICAL_NIC:-$(ip route | awk '/default/ {print $5; exit}')}
-
 # ISO path derived from env.sh variables
 ISO_PATH="${ISO_FOLDER}/${CLUSTER_NAME}_infra-env.iso"
 

@@ -265,13 +265,13 @@ update-etc-hosts:
 .PHONY: clean-all
 clean-all:
 	@echo "Step 1/4: Powering off physical workers via ipmitool (release ingress/API VIPs)..."
-	@$(WORKER_SCRIPT) shutoff-all-workers
+	-@$(WORKER_SCRIPT) shutoff-all-workers
 	@echo "Step 2/4: Destroying worker VMs (release ingress/API VIPs)..."
-	@$(VM_SCRIPT) delete-worker-vms
+	-@$(VM_SCRIPT) delete-worker-vms
 	@echo "Step 3/4: Deleting Assisted Installer cluster and generated files..."
-	@$(CLUSTER_SCRIPT) clean-all
+	-@$(CLUSTER_SCRIPT) clean-all
 	@echo "Step 4/4: Destroying remaining VMs (control-plane; worker VMs already removed in step 2)..."
-	@$(VM_SCRIPT) delete
+	-@$(VM_SCRIPT) delete
 
 .PHONY: kubeconfig
 kubeconfig:
