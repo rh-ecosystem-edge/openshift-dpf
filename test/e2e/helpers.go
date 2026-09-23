@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"strings"
 
+	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -22,6 +25,68 @@ func isReady(conditions []metav1.Condition) bool {
 		}
 	}
 	return false
+}
+
+// listDPUServiceRevisions lists the DPUService revisions generated for a
+// named service in a DPUDeployment.
+func listDPUServiceRevisions(ctx context.Context, c client.Client, namespace, deploymentName, serviceName string) ([]dpuservicev1.DPUService, error) {
+	serviceList := &dpuservicev1.DPUServiceList{}
+	err := c.List(ctx, serviceList,
+		client.InNamespace(namespace),
+		client.MatchingLabels{
+			dpuservicev1.ParentDPUDeploymentNameLabel:            namespace + "_" + deploymentName,
+			dpuservicev1.ServiceReferenceInDPUDeploymentLabelKey: serviceName,
+		})
+	if err != nil {
+		return nil, fmt.Errorf("listing DPUService revisions for %s: %w", serviceName, err)
+	}
+	return serviceList.Items, nil
+}
+
+// dpuServiceUIDs returns the UIDs of the supplied DPUService revisions.
+func dpuServiceUIDs(services []dpuservicev1.DPUService) map[types.UID]bool {
+	uids := make(map[types.UID]bool, len(services))
+	for _, service := range services {
+		uids[service.UID] = true
+	}
+	return uids
+}
+
+// podUIDsByNode groups pod UIDs by the node on which each pod is scheduled.
+func podUIDsByNode(pods []corev1.Pod) map[string]map[types.UID]bool {
+	uids := make(map[string]map[types.UID]bool)
+	for _, pod := range pods {
+		if _, ok := uids[pod.Spec.NodeName]; !ok {
+			uids[pod.Spec.NodeName] = make(map[types.UID]bool)
+		}
+		uids[pod.Spec.NodeName][pod.UID] = true
+	}
+	return uids
+}
+
+// podIsReady reports whether a pod is Running, not terminating, PodReady, and
+// has no unready containers.
+func podIsReady(pod *corev1.Pod) bool {
+	if pod == nil || pod.DeletionTimestamp != nil || pod.Status.Phase != corev1.PodRunning {
+		return false
+	}
+
+	readyCondition := false
+	for _, condition := range pod.Status.Conditions {
+		if condition.Type == corev1.PodReady && condition.Status == corev1.ConditionTrue {
+			readyCondition = true
+			break
+		}
+	}
+	if !readyCondition || len(pod.Status.ContainerStatuses) == 0 {
+		return false
+	}
+	for _, status := range pod.Status.ContainerStatuses {
+		if !status.Ready {
+			return false
+		}
+	}
+	return true
 }
 
 type PodInfo struct {
