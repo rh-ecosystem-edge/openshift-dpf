@@ -1,6 +1,6 @@
 # Configuration Guide
 
-Environment variable reference for OpenShift DPF automation. All configuration is done through the `.env` file.
+Environment variable reference for the OpenShift DPF and NNO automation. All configuration is done through the `.env` file.
 
 ## Quick Start Configuration
 
@@ -11,7 +11,7 @@ cp .env.example .env
 # Edit essential settings
 nano .env
 
-# Most common settings to change:
+# Most common settings to change (DPF is the default profile):
 CLUSTER_NAME=my-dpf-cluster
 BASE_DOMAIN=example.com
 OPENSHIFT_VERSION=4.20.0
@@ -20,6 +20,17 @@ OPENSHIFT_VERSION=4.20.0
 **💡 Essential Setup**: Only these settings are required for basic deployment. Advanced options are documented below for customization.
 
 ## Essential Configuration
+
+### Deployment Profile
+
+```bash
+DEPLOYMENT_PROFILE=dpf  # dpf or nno; defaults to dpf
+```
+
+The `dpf` profile retains the complete existing deployment. The `nno` profile
+creates a base OpenShift cluster while skipping the DPF pull secret, DPU
+network inputs, NFD operator, cert-manager, DPU worker manifests, and DPF
+hosted-cluster storage. See [NNO Base Cluster](nno-base-cluster.md).
 
 ### Cluster Settings (Required)
 
@@ -31,7 +42,7 @@ OPENSHIFT_VERSION=4.20.0                 # Supported versions: 4.20.x
 
 # Credentials (Required)
 OPENSHIFT_PULL_SECRET=openshift_pull.json   # Red Hat pull secret
-DPF_PULL_SECRET=pull-secret.txt             # NGC registry credentials
+DPF_PULL_SECRET=pull-secret.txt             # NGC registry credentials (dpf only)
 SSH_KEY=~/.ssh/id_ed25519                   # SSH key for access
 ```
 
@@ -211,7 +222,7 @@ bash -n .env
 | `BASE_DOMAIN` | DNS domain | `example.com` |
 | `OPENSHIFT_VERSION` | OpenShift version | `4.20.0` |
 | `OPENSHIFT_PULL_SECRET` | Red Hat pull secret file | `openshift_pull.json` |
-| `DPF_PULL_SECRET` | NGC registry credentials | `pull-secret.txt` |
+| `DPF_PULL_SECRET` | NGC registry credentials (`dpf` only) | `pull-secret.txt` |
 
 ### Commonly Changed Variables
 
@@ -268,4 +279,5 @@ AUTO_APPROVE_WORKER_CSR=true
 - **Workers**: Add worker nodes with [Worker Provisioning](worker-provisioning.md)
 - **Optimization**: Advanced settings in [Advanced Topics](advanced-topics.md)
 
-**Remember**: Start with the defaults in `.env.example` and only change what you need. Most deployments work with minimal configuration changes.
+**Remember**: Start with the defaults in `.env.example` and only change what
+you need. Most deployments work with minimal configuration changes.
