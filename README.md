@@ -1,10 +1,11 @@
-# OpenShift DPF Automation
+# OpenShift DPF and NNO Automation
 
-Complete automation framework for deploying NVIDIA DPF (DPU Platform Framework) on Red Hat OpenShift clusters with NVIDIA BlueField-3 DPUs.
+Automation for creating Red Hat OpenShift clusters for NVIDIA DPF (DPU Platform
+Framework) on Red Hat OpenShift clusters with NVIDIA BlueField-3 DPUs and NVIDIA Network Operator (NNO) deployments.
 
 ## 🚀 Quick Deployment
 
-**One command does everything:**
+**One command runs the complete DPF deployment:**
 ```bash
 make all
 ```
@@ -70,7 +71,7 @@ EOF
 # Edit .env file with your settings
 nano .env
 
-# Essential settings:
+# Essential settings (DPF is the default profile):
 CLUSTER_NAME=my-dpf-cluster
 BASE_DOMAIN=example.com
 VM_COUNT=1                    # 1=SNO, 3+=Multi-node
@@ -102,6 +103,7 @@ for your local setup.
 1. **Export your required variables** (and any optional overrides):
 
    ```bash
+   # DPF is the default; set DEPLOYMENT_PROFILE only when using NNO
    export CLUSTER_NAME=my-cluster
    export BASE_DOMAIN=example.com
    export API_VIP=10.1.150.100
@@ -148,11 +150,37 @@ make validate-env-files
 Checks that every variable in `ci/env.defaults` has a corresponding entry in
 `ci/env.template` so nothing is silently dropped, and report template-only variables that have no default.
 
+### Deployment profiles
+
+`DEPLOYMENT_PROFILE` accepts `dpf` or `nno` and defaults to `dpf`.
+
+- `dpf` keeps the complete existing deployment and uses `make all`.
+- `nno` creates a base OpenShift cluster through worker provisioning and
+  skips DPF-only requirements and manifests, including the NFD operator.
+
+Generate an NNO environment rather than editing `.env` manually:
+
+```bash
+export DEPLOYMENT_PROFILE=nno
+export CLUSTER_NAME=my-nno-cluster
+export BASE_DOMAIN=example.com
+export VM_COUNT=1
+export OPENSHIFT_PULL_SECRET=openshift_pull.json
+
+make generate-env FORCE=true
+make create-base-cluster
+```
+
+For a multi-node cluster, also set `API_VIP` and `INGRESS_VIP`. See the
+[NNO base cluster guide](docs/user-guide/nno-base-cluster.md) for
+the complete workflow and instructions for switching an existing environment.
+
 ## 📖 Documentation
 
 | Guide | Purpose |
 |-------|---------|
 | **[Getting Started](docs/user-guide/getting-started.md)** | Step-by-step setup guide |
+| **[NNO Base Cluster](docs/user-guide/nno-base-cluster.md)** | Create a base OpenShift cluster for NNO |
 | **[Configuration](docs/user-guide/configuration.md)** | Environment variables |
 | **[Worker Provisioning](docs/user-guide/worker-provisioning.md)** | Add physical worker nodes |
 | **[Troubleshooting](docs/user-guide/troubleshooting.md)** | Fix common issues |

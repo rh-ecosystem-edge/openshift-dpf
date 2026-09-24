@@ -167,6 +167,59 @@ validate_mtu() {
     fi
 }
 
+validate_deployment_profile() {
+    case "${DEPLOYMENT_PROFILE:-dpf}" in
+        dpf|nno)
+            ;;
+        *)
+            echo "Error: DEPLOYMENT_PROFILE must be either 'dpf' or 'nno'. Current value: ${DEPLOYMENT_PROFILE}" >&2
+            exit 1
+            ;;
+    esac
+}
+
+is_dpf_profile() {
+    [ "${DEPLOYMENT_PROFILE:-dpf}" = "dpf" ]
+}
+
+is_nno_profile() {
+    [ "${DEPLOYMENT_PROFILE:-dpf}" = "nno" ]
+}
+
+# DPF workers are DPU hosts unless WORKER_n_DPU=false.
+# NNO workers are regular nodes unless WORKER_n_DPU=true.
+default_worker_is_dpu() {
+    if is_nno_profile; then
+        printf '%s' false
+    else
+        printf '%s' true
+    fi
+}
+
+# ODF fallback and ETCD class defaults are DPF-only. NNO has no hosted-cluster
+# etcd. Do not set SKIP_DEPLOY_STORAGE for NNO; that flag means DPF with a
+# user-provided StorageClass and requires ETCD_STORAGE_CLASS.
+resolve_dpf_storage_class() {
+    is_dpf_profile || return 0
+
+    if [ "${STORAGE_TYPE}" == "odf" ] && [ "${VM_COUNT}" -lt 3 ]; then
+        echo "Warning: ODF requires at least 3 nodes. Falling back to LVM." >&2
+        STORAGE_TYPE="lvm"
+    fi
+
+    if [ "${SKIP_DEPLOY_STORAGE}" = "true" ]; then
+        if [ -z "${ETCD_STORAGE_CLASS}" ]; then
+            echo "Error: SKIP_DEPLOY_STORAGE=true requires ETCD_STORAGE_CLASS to be set in .env to your existing StorageClass name." >&2
+            echo "Create the StorageClass in the cluster (e.g. via your storage operator), then set ETCD_STORAGE_CLASS in .env." >&2
+            exit 1
+        fi
+    elif [ "${STORAGE_TYPE}" == "odf" ]; then
+        ETCD_STORAGE_CLASS=${ETCD_STORAGE_CLASS:-"ocs-storagecluster-ceph-rbd"}
+    else
+        ETCD_STORAGE_CLASS=${ETCD_STORAGE_CLASS:-"lvms-vg1"}
+    fi
+}
+
 # Load environment variables from .env file and validate aicli connectivity
 # (skip load/validate if already in Make context — the Makefile does
 # `include .env` + `export`). Still strip quotes Make left on values;
@@ -191,6 +244,8 @@ else
     _strip_exported_env_quotes
 fi
 
+validate_deployment_profile
+
 # Computed / conditional variables — derived from .env values at runtime.
 # Only evaluate when sourced by other scripts (not when executed directly for
 # standalone commands like validate-env-files / generate-env).
@@ -213,7 +268,7 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     # Auto-resolve OVN-Kubernetes image from the aarch64 OCP release payload.
     # The DPU is always aarch64 regardless of the host architecture.
     # Strip -multi suffix from the version since per-arch tags use e.g. 4.22.7-aarch64.
-    if [ -z "${OVN_KUBERNETES_IMAGE_TAG:-}" ] && command -v oc &>/dev/null; then
+    if is_dpf_profile && [ -z "${OVN_KUBERNETES_IMAGE_TAG:-}" ] && command -v oc &>/dev/null; then
         _ocp_base_version="${OPENSHIFT_VERSION%-multi}"
         _ovnk_full=$(oc adm release info --image-for=ovn-kubernetes \
             "quay.io/openshift-release-dev/ocp-release:${_ocp_base_version}-aarch64" 2>/dev/null || true)
@@ -235,23 +290,7 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     KATA_TEST_REPLICAS=${KATA_TEST_REPLICAS:-1}
     KATA_SKIP_RHCOS_LAYER=${KATA_SKIP_RHCOS_LAYER:-false}
 
-    # Storage class — conditional on STORAGE_TYPE and SKIP_DEPLOY_STORAGE
-    if [ "${STORAGE_TYPE}" == "odf" ] && [ "${VM_COUNT}" -lt 3 ]; then
-        echo "Warning: ODF requires at least 3 nodes. Falling back to LVM." >&2
-        STORAGE_TYPE="lvm"
-    fi
-
-    if [ "${SKIP_DEPLOY_STORAGE}" = "true" ]; then
-        if [ -z "${ETCD_STORAGE_CLASS}" ]; then
-            echo "Error: SKIP_DEPLOY_STORAGE=true requires ETCD_STORAGE_CLASS to be set in .env to your existing StorageClass name." >&2
-            echo "Create the StorageClass in the cluster (e.g. via your storage operator), then set ETCD_STORAGE_CLASS in .env." >&2
-            exit 1
-        fi
-    elif [ "${STORAGE_TYPE}" == "odf" ]; then
-        ETCD_STORAGE_CLASS=${ETCD_STORAGE_CLASS:-"ocs-storagecluster-ceph-rbd"}
-    else
-        ETCD_STORAGE_CLASS=${ETCD_STORAGE_CLASS:-"lvms-vg1"}
-    fi
+    resolve_dpf_storage_class
 fi
 
 # If script is executed directly (not sourced), handle commands
