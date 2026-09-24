@@ -56,7 +56,7 @@ spec:
           serviceAccountName: csr-approver
           containers:
           - name: approver
-            image: registry.redhat.io/openshift4/ose-cli:latest
+            image: registry.redhat.io/openshift4/ose-cli:v4.14
             command:
             - /bin/bash
             - -c
