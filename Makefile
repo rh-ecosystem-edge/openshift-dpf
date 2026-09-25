@@ -1,5 +1,5 @@
 # Include environment variables (skip for targets that don't need a .env)
-ifeq ($(filter generate-env validate-env-files help,$(MAKECMDGOALS)),)
+ifeq ($(filter generate-env validate-env-files test-go-e2e help,$(MAKECMDGOALS)),)
 include .env
 export
 endif
@@ -42,7 +42,7 @@ WORKER_SCRIPT := scripts/worker.sh
         delete-dpf-hcp-provisioner-operator \
         verify-deployment verify-workers verify-dpu-nodes verify-dpudeployment \
         run-traffic-flow-tests tft-setup tft-cleanup tft-show-config tft-results aicli-list \
-        validate-env-files generate-env deploy-observability
+        validate-env-files generate-env deploy-observability test-go-e2e
 
 all: 
 	@mkdir -p logs
@@ -261,6 +261,25 @@ run-dpf-sanity:
 	@echo "Running $(SANITY_CHECKS_SCRIPT) ..."
 	@$(SANITY_CHECKS_SCRIPT)
 
+# E2E Tests (library-import based, runs against a pre-existing deployment)
+E2E_GO_LABEL_FILTER ?= dpudeployment-lifecycle
+E2E_GINKGO_TIMEOUT ?= 4h
+E2E_GO_TIMEOUT ?= 4h30m
+E2E_ENV_FILE ?= .env.test
+E2E_ENV_FILE := $(abspath $(E2E_ENV_FILE))
+
+.PHONY: test-go-e2e
+test-go-e2e:
+	@echo "================================================================================"
+	@echo "Running Go E2E tests (label-filter: $(E2E_GO_LABEL_FILTER))..."
+	@echo "  ENV_FILE: $(E2E_ENV_FILE)"
+	@echo "================================================================================"
+	cd test && GOTOOLCHAIN=auto go test -v -count=1 -timeout $(E2E_GO_TIMEOUT) ./e2e/ \
+		-ginkgo.v \
+		-ginkgo.timeout=$(E2E_GINKGO_TIMEOUT) \
+		-ginkgo.label-filter="$(E2E_GO_LABEL_FILTER)" \
+		-env-file="$(E2E_ENV_FILE)"
+
 # Traffic Flow Tests
 run-traffic-flow-tests:
 	@echo "================================================================================"
@@ -405,6 +424,9 @@ help:
 	@echo "  verify-workers        - Wait for worker nodes to be Ready in host cluster"
 	@echo "  verify-dpu-nodes      - Wait for DPU nodes to be Ready in DPUCluster"
 	@echo "  verify-dpudeployment  - Wait for DPUDeployment to be Ready"
+	@echo ""
+	@echo "E2E Tests:"
+	@echo "  test-go-e2e            - Run Go e2e tests (E2E_GO_LABEL_FILTER=dpudeployment-lifecycle)"
 	@echo ""
 	@echo "Traffic Flow Tests:"
 	@echo "  run-traffic-flow-tests - Run kubernetes-traffic-flow-tests for network validation"

@@ -1,0 +1,274 @@
+# 1. Namespace
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: workload
+
+
+# 2. SCC RoleBinding (grants 'default' ServiceAccount in 'workload' NS access to 'privileged' SCC)
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: privileged-scc-default-sa
+  namespace: workload
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: workload
+roleRef:
+  kind: ClusterRole
+  name: system:openshift:scc:privileged
+  apiGroup: rbac.authorization.k8s.io
+
+
+# 3. Deployments and Services
+# Deployment: sriov-test-master
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sriov-test-master
+  namespace: workload
+  labels:
+    app: sriov-test-master
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sriov-test-master
+  template:
+    metadata:
+      labels:
+        app: sriov-test-master
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: sriov-test-master
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
+      tolerations:
+        - key: node-role.kubernetes.io/master
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: nginx
+          securityContext:
+            privileged: true
+            capabilities:
+              add:
+                - NET_ADMIN
+          image: quay.io/wabouham/ecosys-nvidia/nicolaka-netshoot:latest
+          command: ["nc", "-kl", "5000"]
+          ports:
+            - containerPort: 5000
+              name: tcp-server
+          resources:
+            requests:
+              cpu: 1
+              memory: 1Gi
+            limits:
+              cpu: 1
+              memory: 1Gi
+---
+# Service: sriov-test-master
+apiVersion: v1
+kind: Service
+metadata:
+  name: sriov-test-master
+  namespace: workload
+  labels:
+    app: sriov-test-master
+spec:
+  selector:
+    app: sriov-test-master
+  ports:
+    - protocol: TCP
+      port: 5000
+      targetPort: 5000
+---
+# Service: sriov-test-master-nodeport
+apiVersion: v1
+kind: Service
+metadata:
+  name: sriov-test-master-nodeport
+  namespace: workload
+  labels:
+    app: sriov-test-master
+spec:
+  type: NodePort
+  selector:
+    app: sriov-test-master
+  ports:
+    - protocol: TCP
+      port: 5000
+      targetPort: 5000
+---
+# Deployment: sriov-test-worker
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sriov-test-worker
+  namespace: workload
+  labels:
+    app: sriov-test-worker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: sriov-test-worker
+  template:
+    metadata:
+      labels:
+        app: sriov-test-worker
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: sriov-test-worker
+      nodeSelector:
+        feature.node.kubernetes.io/dpu-enabled: ""
+      containers:
+        - name: nginx
+          securityContext:
+            privileged: true
+            capabilities:
+              add:
+                - NET_ADMIN
+          image: quay.io/wabouham/ecosys-nvidia/nicolaka-netshoot:latest
+          command: ["nc", "-kl", "5000"]
+          ports:
+            - containerPort: 5000
+              name: tcp-server
+          resources:
+            requests:
+              cpu: 16
+              memory: 6Gi
+            limits:
+              cpu: 16
+              memory: 6Gi
+---
+# Service: sriov-test-worker
+apiVersion: v1
+kind: Service
+metadata:
+  name: sriov-test-worker
+  namespace: workload
+  labels:
+    app: sriov-test-worker
+spec:
+  selector:
+    app: sriov-test-worker
+  ports:
+    - protocol: TCP
+      port: 5000
+      targetPort: 5000
+---
+# Service: sriov-test-worker-nodeport
+apiVersion: v1
+kind: Service
+metadata:
+  name: sriov-test-worker-nodeport
+  namespace: workload
+  labels:
+    app: sriov-test-worker
+spec:
+  type: NodePort
+  selector:
+    app: sriov-test-worker
+  ports:
+    - protocol: TCP
+      port: 5000
+      targetPort: 5000
+---
+# Deployment: sriov-test-worker-hostnetwork
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sriov-test-worker-hostnetwork
+  namespace: workload
+  labels:
+    app: sriov-test-worker-hostnetwork
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: sriov-test-worker-hostnetwork
+  template:
+    metadata:
+      labels:
+        app: sriov-test-worker-hostnetwork
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: sriov-test-worker-hostnetwork
+      nodeSelector:
+        feature.node.kubernetes.io/dpu-enabled: ""
+      hostNetwork: true
+      containers:
+        - name: nginx
+          securityContext:
+            privileged: true
+            capabilities:
+              add:
+                - NET_ADMIN
+          image: quay.io/wabouham/ecosys-nvidia/nicolaka-netshoot:latest
+          command: ["nc", "-kl", "5000"]
+          ports:
+            - containerPort: 5000
+              name: tcp-server
+          resources:
+            requests:
+              cpu: 1
+              memory: 1Gi
+            limits:
+              cpu: 1
+              memory: 1Gi
+---
+# Service: sriov-test-worker-hostnetwork
+apiVersion: v1
+kind: Service
+metadata:
+  name: sriov-test-worker-hostnetwork
+  namespace: workload
+  labels:
+    app: sriov-test-worker-hostnetwork
+spec:
+  selector:
+    app: sriov-test-worker-hostnetwork
+  ports:
+    - protocol: TCP
+      port: 5000
+      targetPort: 5000
+---
+# Service: sriov-test-worker-hostnetwork-nodeport
+apiVersion: v1
+kind: Service
+metadata:
+  name: sriov-test-worker-hostnetwork-nodeport
+  namespace: workload
+  labels:
+    app: sriov-test-worker-hostnetwork
+spec:
+  type: NodePort
+  selector:
+    app: sriov-test-worker-hostnetwork
+  ports:
+    - protocol: TCP
+      port: 5000
+      targetPort: 5000
