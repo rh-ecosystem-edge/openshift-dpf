@@ -20,9 +20,7 @@ log() {
 
     # Debugging output
 
-    # Skip empty messages
     if [ -z "$message" ]; then
-        echo "DEBUG: log function received an empty message, skipping..." >&2
         return
     fi
 
@@ -239,6 +237,120 @@ function apply_manifest() {
     return 0
 }
 
+_resolve_hosted_kubeconfig_for_dump() {
+    local path="${HOSTED_CLUSTER_NAME:-}.kubeconfig"
+    if [[ -n "${HOSTED_CLUSTER_NAME:-}" && -f "$path" && -s "$path" ]]; then
+        echo "$path"
+        return 0
+    fi
+
+    if [[ -z "${HOSTED_CLUSTER_NAME:-}" || -z "${CLUSTERS_NAMESPACE:-}" ]]; then
+        return 1
+    fi
+
+    local secret_name="${HOSTED_CLUSTER_NAME}-admin-kubeconfig"
+    if oc get secret -n "${CLUSTERS_NAMESPACE}" "$secret_name" &>/dev/null; then
+        local tmpfile
+        tmpfile=$(mktemp "${TMPDIR:-/tmp}/hosted-kubeconfig-dump.XXXXXX")
+        if oc get secret -n "${CLUSTERS_NAMESPACE}" "$secret_name" \
+            -o jsonpath='{.data.kubeconfig}' | base64 -d > "$tmpfile" 2>/dev/null && [[ -s "$tmpfile" ]]; then
+            echo "$tmpfile"
+            return 0
+        fi
+        rm -f "$tmpfile"
+    fi
+    return 1
+}
+
+_dump_oc_section() {
+    local title="$1"
+    shift
+    log "WARN" "--- ${title} ---"
+    "$@" 2>&1 || log "WARN" "Failed to collect: ${title}"
+}
+
+_should_dump_status_on_retry() {
+    local attempt=$1
+    local retries=$2
+
+    if [[ "${DUMP_STATUS_ON_RETRY_FAILURE:-true}" != "true" ]]; then
+        return 1
+    fi
+
+    local interval="${DUMP_STATUS_RETRY_INTERVAL:-10}"
+    # Final failed attempt is dumped after the retry loop exits.
+    if [[ "$attempt" -eq "$retries" ]]; then
+        return 1
+    fi
+    if [[ "$attempt" -eq 1 || $(( attempt % interval )) -eq 0 ]]; then
+        return 0
+    fi
+    return 1
+}
+
+# Print a snapshot of management + hosted cluster health (best-effort; never fails).
+dump_system_status() {
+    local reason="${1:-unspecified}"
+    local divider="================================================================================"
+
+    log "WARN" "${divider}"
+    log "WARN" "SYSTEM STATUS DUMP (${reason})"
+    log "WARN" "${divider}"
+
+    (
+        set +e
+
+        _dump_oc_section "Management cluster: nodes" oc get nodes -o wide
+
+        _dump_oc_section "Management cluster: cluster operators (non-healthy)" \
+            bash -c 'oc get co --no-headers 2>/dev/null | awk '\''$3!="True" || $4!="False" || $5!="False" {print}'\'''
+
+        _dump_oc_section "Management cluster: pending CSRs" \
+            bash -c 'oc get csr 2>/dev/null | grep -i pending || echo "(none pending)"'
+
+        _dump_oc_section "Management cluster: BareMetalHosts" \
+            oc get bmh -n openshift-machine-api
+
+        _dump_oc_section "Management cluster: machines" \
+            oc get machines -n openshift-machine-api
+
+        if [[ -n "${CLUSTERS_NAMESPACE:-}" && -n "${HOSTED_CLUSTER_NAME:-}" ]]; then
+            _dump_oc_section "Hosted cluster: HostedCluster / DPFHCPProvisioner" \
+                bash -c "oc get hostedcluster -n '${CLUSTERS_NAMESPACE}' '${HOSTED_CLUSTER_NAME}' -o wide 2>/dev/null; oc get dpfhcpprovisioner -n '${CLUSTERS_NAMESPACE}' '${HOSTED_CLUSTER_NAME}' -o wide 2>/dev/null"
+        fi
+
+        _dump_oc_section "DPF: DPU / DPUDeployment / DPUService" \
+            bash -c 'oc get dpu,dpudeployment,dpuservice -A 2>/dev/null'
+
+        _dump_oc_section "DPF operator pods" \
+            oc get pods -n dpf-operator-system -o wide
+
+        _dump_oc_section "Machine API pods" \
+            oc get pods -n openshift-machine-api -o wide
+
+        local hosted_kcfg hosted_kcfg_temp=""
+        if hosted_kcfg=$(_resolve_hosted_kubeconfig_for_dump); then
+            if [[ "$hosted_kcfg" == *"/hosted-kubeconfig-dump."* ]]; then
+                hosted_kcfg_temp="$hosted_kcfg"
+            fi
+            _dump_oc_section "Hosted cluster: nodes" \
+                env KUBECONFIG="$hosted_kcfg" oc get nodes -o wide
+            _dump_oc_section "Hosted cluster: cluster operators (non-healthy)" \
+                env KUBECONFIG="$hosted_kcfg" bash -c 'oc get co --no-headers 2>/dev/null | awk '\''$3!="True" || $4!="False" || $5!="False" {print}'\'''
+            _dump_oc_section "Hosted cluster: OVN-Kubernetes pods" \
+                env KUBECONFIG="$hosted_kcfg" oc get pods -n openshift-ovn-kubernetes -o wide
+        else
+            log "WARN" "Hosted cluster kubeconfig not available for status dump"
+        fi
+
+        [[ -n "$hosted_kcfg_temp" ]] && rm -f "$hosted_kcfg_temp"
+    )
+
+    log "WARN" "${divider}"
+    log "WARN" "END SYSTEM STATUS DUMP"
+    log "WARN" "${divider}"
+}
+
 function retry() {
     local retries=$1
     local delay=$2
@@ -250,10 +362,18 @@ function retry() {
             return 0
         fi
         attempt=$(( attempt + 1 ))
+        if [[ "${VERIFY_RETRY_NO_DUMP:-}" != "true" ]]; then
+            if _should_dump_status_on_retry "$attempt" "$retries"; then
+                dump_system_status "retry attempt ${attempt}/${retries} failed: $*"
+            fi
+        fi
         echo "Attempt $attempt failed. Retrying in $delay seconds..."
         sleep "$delay"
     done
 
+    if [[ "${VERIFY_RETRY_NO_DUMP:-}" != "true" ]]; then
+        dump_system_status "all ${retries} retry attempts failed: $*"
+    fi
     echo "All $retries attempts failed."
     return 1
 }
@@ -545,9 +665,12 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         verify-files)
             verify_files
             ;;
+        dump-system-status)
+            dump_system_status "${2:-manual}"
+            ;;
         *)
             log "ERROR" "Unknown command: $command"
-            echo "Available commands: verify-files"
+            echo "Available commands: verify-files, dump-system-status [reason]"
             exit 1
             ;;
     esac

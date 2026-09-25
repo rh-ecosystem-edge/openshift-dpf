@@ -18,7 +18,6 @@ DPF_SCRIPT := scripts/dpf.sh
 VM_SCRIPT := scripts/vm.sh
 UTILS_SCRIPT := scripts/utils.sh
 POST_INSTALL_SCRIPT := scripts/post-install.sh
-CUSTOM_POSTINSTALL_RUNNER := scripts/custom-postinstall-script.sh
 VERIFY_SCRIPT := scripts/verify.sh
 ENV_SCRIPT := scripts/env.sh
 
@@ -40,8 +39,6 @@ ALL_STEPS := verify-files check-cluster create-vms prepare-manifests cluster-ins
 ifeq ($(KATA_ENABLED),true)
 ALL_STEPS += enable-kata
 endif
-# User-supplied post-install script runs last so it can build on the full deployment.
-ALL_STEPS += run-custom-postinstall-script
 
 .PHONY: _all
 _all: $(ALL_STEPS)
@@ -216,10 +213,6 @@ deploy-dpu-services: prepare-dpu-files
 .PHONY: deploy-observability
 deploy-observability:
 	@$(POST_INSTALL_SCRIPT) observability
-
-.PHONY: run-custom-postinstall-script
-run-custom-postinstall-script:
-	@$(CUSTOM_POSTINSTALL_RUNNER) run
 
 .PHONY: deploy-hypershift
 deploy-hypershift: install-helm
@@ -458,6 +451,10 @@ deploy-proxy:
 verify-deployment:
 	@$(VERIFY_SCRIPT) verify-deployment
 
+.PHONY: dump-system-status
+dump-system-status:
+	@$(UTILS_SCRIPT) dump-system-status "${REASON:-manual}"
+
 .PHONY: verify-workers
 verify-workers:
 	@$(VERIFY_SCRIPT) verify-workers
@@ -540,7 +537,6 @@ help:
 	@echo "  prepare-dpu-files - Prepare post-installation manifests with custom values"
 	@echo "  generate-overrides - Write DPUServiceTemplate overrides ConfigMap (also via GENERATE_DPUSERVICETEMPLATE_OVERRIDES=true)"
 	@echo "  deploy-dpu-services - Deploy DPU services to the cluster"
-	@echo "  run-custom-postinstall-script - Run CUSTOM_POSTINSTALL_SCRIPT (file or http(s) URL, with args); also last make all step"
 	@echo "  enable-kata       - OSC (inert KataConfig) + kata-coldplug on worker-dpu (also last make all step when KATA_ENABLED=true)"
 	@echo "  deploy-kata-test  - Deploy kata-dpu-test Deployment (KATA_TEST_REPLICAS, default 1)"
 	@echo "  cleanup-kata-vfs  - Rebind stale vfio-pci VFs to mlx5_core on worker-dpu (FORCE=true to skip running-pod check)"
@@ -657,7 +653,6 @@ help:
 	@echo "  VERIFY_DEPLOYMENT    - Run verification after 'make all' completes (default: false)"
 	@echo "  VERIFY_MAX_RETRIES   - Max retry attempts for verification (default: 60)"
 	@echo "  VERIFY_SLEEP_SECONDS - Seconds between verification retries (default: 30)"
-	@echo "  CUSTOM_POSTINSTALL_SCRIPT - Script to run at end of make all; file path or http(s) URL, may include args (default: empty)"
 	@echo ""
 	@echo "Traffic Flow Tests Configuration:"
 	@echo "  TFT_REPO_URL         - TFT git repository URL"
