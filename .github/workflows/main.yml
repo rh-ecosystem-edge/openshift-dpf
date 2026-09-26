@@ -1,0 +1,78 @@
+name: Release
+
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: "Which channel to build (schedule always builds all)"
+        required: false
+        default: "all"
+        type: choice
+        options:
+          - all
+          - stable-26.4
+          - stable-26.8
+          - stable-26.10
+      ref:
+        description: "Override git tag for a single channel. Ignored when channel is all."
+        required: false
+        default: ""
+        type: string
+      tag:
+        description: "Immutable prerelease override for a single channel (e.g. 26.4.0-stable.1). Ignored when channel is all."
+        required: false
+        default: ""
+        type: string
+      dry_run:
+        description: "Dry run: build only, skip push"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  stable-26-4:
+    if: ${{ github.event_name == 'schedule' || inputs.channel == 'all' || inputs.channel == 'stable-26.4' }}
+    concurrency:
+      group: release-26.4.0-stable
+      cancel-in-progress: false
+    uses: ./.github/workflows/release-build.yml
+    with:
+      source_ref: ${{ inputs.channel == 'stable-26.4' && inputs.ref || 'v26.4.0-latest-stable' }}
+      release_version: "26.4.0"
+      release_channel: "stable"
+      tag: ${{ inputs.channel == 'stable-26.4' && inputs.tag || '' }}
+      dry_run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
+    secrets: inherit
+
+  stable-26-8:
+    if: ${{ github.event_name == 'schedule' || inputs.channel == 'all' || inputs.channel == 'stable-26.8' }}
+    concurrency:
+      group: release-26.8.0-stable
+      cancel-in-progress: false
+    uses: ./.github/workflows/release-build.yml
+    with:
+      source_ref: ${{ inputs.channel == 'stable-26.8' && inputs.ref || 'v26.8.0-latest-stable' }}
+      release_version: "26.8.0"
+      release_channel: "stable"
+      tag: ${{ inputs.channel == 'stable-26.8' && inputs.tag || '' }}
+      dry_run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
+    secrets: inherit
+
+  stable-26-10:
+    if: ${{ github.event_name == 'schedule' || inputs.channel == 'all' || inputs.channel == 'stable-26.10' }}
+    concurrency:
+      group: release-26.10.0-stable
+      cancel-in-progress: false
+    uses: ./.github/workflows/release-build.yml
+    with:
+      source_ref: ${{ inputs.channel == 'stable-26.10' && inputs.ref || 'v26.10.0-latest-stable' }}
+      release_version: "26.10.0"
+      release_channel: "stable"
+      tag: ${{ inputs.channel == 'stable-26.10' && inputs.tag || '' }}
+      dry_run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
+    secrets: inherit
