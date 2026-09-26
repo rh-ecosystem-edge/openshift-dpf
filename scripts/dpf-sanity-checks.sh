@@ -503,6 +503,7 @@ for i in "${!dpu_host_workers[@]}"; do
   ping_mtu_test "$testcase_title" "${sriov_test_worker_pods[$i]}" "${SANITY_TESTS_WORKLOAD_NAMESPACE}" "${mgmt_kubecfg}" "${SANITY_TESTS_PING_COUNT}" 1490 "${doca_hbn_worker_pod_ip[$i]}"
 
   # Test pings mtu 1490 from sriov test-worker hostnetwork pod on worker node i:
+  ## This test passes on 4.22.2, need to uncomment later
   ## testcase_title="Test pings mtu 1490 from sriov worker test pod on hostnetwork '${sriov_test_worker_pods_hostnetwork[$i]}' to doca-hbn pod ip '${doca_hbn_worker_pod_ip[$i]}' on DPU worker '${dpu_workers[$i]}'"
   ## ping_mtu_test "$testcase_title" "${sriov_test_worker_pods_hostnetwork[$i]}" "${SANITY_TESTS_WORKLOAD_NAMESPACE}" "${mgmt_kubecfg}" "${SANITY_TESTS_PING_COUNT}" 1490 "${doca_hbn_worker_pod_ip[$i]}"
 
