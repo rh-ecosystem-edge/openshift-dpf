@@ -156,7 +156,7 @@ RAM=131072                    # High memory for HPC workloads
 VCPUS=32                      # Maximum CPU for compute
 
 # HPC DPU optimization
-NUM_VFS=64                    # Maximum VFs for HPC networking
+NUM_VFS=92                    # Default; tune per workload needs
 NODES_MTU=9000               # Jumbo frames for HPC traffic
 ```
 
