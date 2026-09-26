@@ -453,23 +453,15 @@ function get_kubeadmin_password() {
 }
 
 function clean_all() {
-    log "Performing full cleanup of cluster and VMs..."
+    log "Performing cluster cleanup (Assisted Installer + generated files)..."
     
     # Delete the cluster
     delete_cluster
     
-    # Delete VMs
-    if [ -n "${VM_PREFIX}" ]; then
-        log "INFO" "Deleting VMs with prefix $VM_PREFIX..."
-        scripts/vm.sh delete || true
-    else
-        log "WARN" "VM_PREFIX is empty, skipping VM deletion"
-    fi
-    
     # Clean resources
     clean_resources
     
-    log "Full cleanup complete"
+    log "Cluster cleanup complete"
 }
 
 # Validates that StorageClasses required when SKIP_DEPLOY_STORAGE=true exist in the cluster.
