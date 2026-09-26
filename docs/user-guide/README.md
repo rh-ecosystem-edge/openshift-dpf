@@ -17,6 +17,7 @@ This automation handles the complete deployment lifecycle:
 | Document | Purpose | When to Use |
 |----------|---------|-------------|
 | **[Getting Started](getting-started.md)** | Complete setup guide | First-time users |
+| **[NNO Base Cluster](nno-base-cluster.md)** | Create a base OpenShift cluster for NVIDIA Network Operator | Running the NNO profile |
 | **[Configuration Guide](configuration.md)** | Environment variables reference | Customizing deployments |
 | **[Deployment Scenarios](deployment-scenarios.md)** | SNO, multi-node, and production setups | Choosing deployment type |
 | **[Worker Provisioning](worker-provisioning.md)** | Adding worker nodes with DPUs | Scaling clusters |
@@ -67,7 +68,7 @@ cp .env.example .env
 cp ~/Downloads/openshift-pull-secret.json openshift_pull.json
 # Add NGC credentials to pull-secret.txt
 
-# 3. Deploy everything
+# 3. Deploy everything (DPF is the default profile)
 make all
 
 # 4. Check status

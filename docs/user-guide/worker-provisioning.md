@@ -53,6 +53,10 @@ AUTO_APPROVE_WORKER_CSR=false
 - Or use: `ip link show` on existing node with similar hardware
 - Usually the first network interface (not BMC interface)
 
+When `DEPLOYMENT_PROFILE=nno` and `NODES_MTU` is not 1500, BMH provisioning writes jumbo-frame NMState before first boot via `spec.preprovisioningNetworkDataName` (same mechanism as IPI `install_coreos`), matching the boot NIC by `WORKER_n_BOOT_MAC`. DPF workers are unchanged.
+
+If the BareMetalHost already exists, `make add-worker-nodes` skips that worker and does not change MTU or boot MAC. Applying a new MTU or boot MAC to a worker that is already in the cluster needs a full reprovision (the node leaves the cluster). `make delete-worker` deletes the BareMetalHost and the Node; it is not an in-place refresh.
+
 ### 3. Deploy Workers
 
 ```bash

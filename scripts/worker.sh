@@ -264,6 +264,36 @@ poweron_all_workers() {
     log "INFO" "All configured workers powered on"
 }
 
+# NNO only: regular ovnkube-node builds br-ex from the boot NIC on first start,
+# so jumbo MTU must already be in CoreOS. DPF DPU-host workers do not take this
+# path (overlay lives on the DPU; DPUFlavor / DPFOperatorConfig MTU is applied
+# later). Match the boot NIC by WORKER_n_BOOT_MAC.
+# Apply the network-data Secret before the BMH. If the BMH already exists,
+# provision_all_workers skips that worker; a new MTU or boot MAC needs a full
+# reprovision (the node leaves the cluster).
+maybe_attach_nno_jumbo_mtu() {
+    local name="$1"
+    local boot_mac="$2"
+    local bmh_file="$3"
+
+    is_nno_profile || return 0
+    [ -n "${NODES_MTU:-}" ] && [ "${NODES_MTU}" != "1500" ] || return 0
+
+    log "INFO" "Attaching jumbo-frame NMState for $name (mtu: ${NODES_MTU}, mac: $boot_mac)"
+    process_template \
+        "${WORKER_TEMPLATE_DIR}/network-data-secret.yaml" \
+        "${WORKER_GENERATED_DIR}/${name}-network-data.yaml" \
+        "<WORKER_NAME>" "$name" \
+        "<BOOT_MAC>" "$boot_mac" \
+        "<NODES_MTU>" "$NODES_MTU"
+
+    cat >> "$bmh_file" << EOF
+  preprovisioningNetworkDataName: ${name}-network-data
+EOF
+
+    retry 5 10 apply_manifest "${WORKER_GENERATED_DIR}/${name}-network-data.yaml" true
+}
+
 provision_all_workers() {
     local count="${WORKER_COUNT:-0}"
     [[ "$count" -eq 0 ]] && { log "INFO" "WORKER_COUNT=0, skipping"; return 0; }
@@ -275,7 +305,7 @@ provision_all_workers() {
     local dpu_count=0
     for i in $(seq 1 "$count"); do
         local dpu_var="WORKER_${i}_DPU"
-        [[ "${!dpu_var:-true}" == "true" ]] && ((dpu_count++)) || true
+        [[ "${!dpu_var:-$(default_worker_is_dpu)}" == "true" ]] && ((dpu_count++)) || true
     done
 
     # Apply short worker hostnames MachineConfig if enabled
@@ -300,7 +330,9 @@ provision_all_workers() {
         local name="${!name_var}"
         [[ -z "$name" ]] && { log "ERROR" "${name_var} not set"; return 1; }
 
-        # Skip if already exists (idempotent)
+        # Skip if already exists (idempotent). Existing BMHs are not updated, so a
+        # changed NODES_MTU or WORKER_n_BOOT_MAC needs a full reprovision; the node
+        # leaves the cluster. delete_worker removes the BareMetalHost and the Node.
         if oc get bmh -n openshift-machine-api "$name" &>/dev/null; then
             log "INFO" "BMH $name already exists, skipping"
             continue
@@ -312,7 +344,7 @@ provision_all_workers() {
         local bmc_pass_var="WORKER_${i}_BMC_PASSWORD"; local bmc_pass="${!bmc_pass_var}"
         local boot_mac_var="WORKER_${i}_BOOT_MAC"; local boot_mac="${!boot_mac_var}"
         local root_dev_var="WORKER_${i}_ROOT_DEVICE"; local root_dev="${!root_dev_var:-/dev/sda}"
-        local dpu_var="WORKER_${i}_DPU"; local is_dpu="${!dpu_var:-true}"
+        local dpu_var="WORKER_${i}_DPU"; local is_dpu="${!dpu_var:-$(default_worker_is_dpu)}"
 
         # Validate required vars
         [[ -z "$bmc_ip" ]] && { log "ERROR" "WORKER_${i}_BMC_IP not set"; return 1; }
@@ -343,7 +375,9 @@ provision_all_workers() {
             "<BOOT_MAC>" "$boot_mac" \
             "<BMC_IP>" "$bmc_ip" \
             "<ROOT_DEVICE>" "$root_dev"
-	
+
+        maybe_attach_nno_jumbo_mtu "$name" "$boot_mac" "${WORKER_GENERATED_DIR}/${name}-bmh.yaml"
+
         # Apply manifests (retry for transient API/controller or network failures)
         retry 5 10 apply_manifest "${WORKER_GENERATED_DIR}/${name}-bmc-secret.yaml" false
         retry 5 10 apply_manifest "${WORKER_GENERATED_DIR}/${name}-bmh.yaml" false
@@ -467,6 +501,8 @@ delete_bmh_with_cleanup() {
     else
         log "INFO" "BareMetalHost $bmh_name not found, skipping"
     fi
+
+    oc delete secret -n openshift-machine-api "${bmh_name}-network-data" --ignore-not-found
 }
 
 # Helper function to delete the OpenShift Node object
