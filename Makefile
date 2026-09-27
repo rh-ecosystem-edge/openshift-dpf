@@ -460,7 +460,7 @@ dump-system-status:
 
 .PHONY: verify-deployment
 verify-deployment:
-	@$(VERIFY_SCRIPT) verify-deployment
+	@VERIFY_DEPLOYMENT=true $(VERIFY_SCRIPT) verify-deployment
 
 .PHONY: verify-workers
 verify-workers:

@@ -338,6 +338,11 @@ function retry() {
     local retries=$1
     local delay=$2
     shift 2
+    local dump_on_failure=true
+    if [[ "${1:-}" == "--no-dump-on-failure" ]]; then
+        dump_on_failure=false
+        shift
+    fi
     local attempt=0
 
     while (( attempt < retries )); do
@@ -349,8 +354,7 @@ function retry() {
         sleep "$delay"
     done
 
-    if [[ "${DUMP_STATUS_ON_RETRY_FAILURE:-true}" == "true" ]] \
-        && [[ "${VERIFY_RETRY_NO_DUMP:-}" != "true" ]]; then
+    if [[ "$dump_on_failure" == true ]]; then
         dump_system_status "all ${retries} retry attempts failed: $*"
     fi
     echo "All $retries attempts failed."
