@@ -454,6 +454,10 @@ deploy-proxy:
 	@scripts/proxy/deploy.sh
 
 # Verification targets
+.PHONY: dump-system-status
+dump-system-status:
+	@$(UTILS_SCRIPT) dump-system-status "$(or $(REASON),manual)"
+
 .PHONY: verify-deployment
 verify-deployment:
 	@$(VERIFY_SCRIPT) verify-deployment
