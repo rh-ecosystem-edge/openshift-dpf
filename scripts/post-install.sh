@@ -311,6 +311,14 @@ function apply_post_installation() {
         fi
     fi
 
+    local hosted_kcfg_rc=0
+    ensure_hosted_kubeconfig || hosted_kcfg_rc=$?
+    if [[ "$hosted_kcfg_rc" -eq 0 ]]; then
+        wait_for_hosted_cluster_api "$HOSTED_KUBECONFIG" || return 1
+    elif [[ "$hosted_kcfg_rc" -eq 2 ]]; then
+        return 1
+    fi
+
     # Apply each YAML file in the generated post-installation directory
     for file in "${GENERATED_POST_INSTALL_DIR}"/*.yaml; do
         if [ -f "$file" ]; then
@@ -318,10 +326,14 @@ function apply_post_installation() {
             # Skip dpudeployment.yaml as it will be applied last
             if [[ "${filename}" != "dpudeployment.yaml" ]]; then
                 # Special handling for SCC - must be applied to hosted cluster
-                if [[ "${filename}" == "dpu-services-scc.yaml" ]] && [[ -f "${HOSTED_CLUSTER_NAME}.kubeconfig" ]]; then
+                if [[ "${filename}" == "dpu-services-scc.yaml" ]]; then
+                    if ! ensure_hosted_kubeconfig; then
+                        log [ERROR] "Hosted cluster kubeconfig required to apply ${filename}"
+                        return 1
+                    fi
                     log [INFO] "Applying SCC to hosted cluster: ${filename}"
                     local saved_kubeconfig="${KUBECONFIG}"
-                    export KUBECONFIG="${HOSTED_CLUSTER_NAME}.kubeconfig"
+                    export KUBECONFIG="${HOSTED_KUBECONFIG}"
                     retry 5 30  apply_manifest "$file" "true"
                     export KUBECONFIG="${saved_kubeconfig}"
                 else

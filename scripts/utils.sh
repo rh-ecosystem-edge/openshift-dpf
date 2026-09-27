@@ -108,6 +108,69 @@ function wait_for_secret_with_data() {
     ' _ "$namespace" "$secret_name" "$key"
 }
 
+# Returns 0 on success, 1 if secret missing (skip hosted checks), 2 on error.
+ensure_hosted_kubeconfig() {
+    HOSTED_KUBECONFIG="${HOSTED_CLUSTER_NAME}.kubeconfig"
+
+    if [[ -f "$HOSTED_KUBECONFIG" ]] && [[ -s "$HOSTED_KUBECONFIG" ]]; then
+        return 0
+    fi
+
+    log "INFO" "Fetching DPUCluster kubeconfig..."
+    local secret_name="${HOSTED_CLUSTER_NAME}-admin-kubeconfig"
+    local get_output
+    if ! get_output=$(oc get secret -n "${CLUSTERS_NAMESPACE}" "$secret_name" -o name 2>&1); then
+        if echo "$get_output" | grep -q "NotFound"; then
+            log "WARN" "DPUCluster kubeconfig secret not found"
+            return 1
+        fi
+        log "ERROR" "Failed to query secret ${secret_name}: ${get_output}"
+        return 2
+    fi
+
+    local tmpfile="${HOSTED_KUBECONFIG}.tmp"
+    if ! oc get secret -n "${CLUSTERS_NAMESPACE}" "$secret_name" \
+        -o jsonpath='{.data.kubeconfig}' | base64 -d > "$tmpfile"; then
+        log "ERROR" "Failed to decode kubeconfig from secret ${secret_name}"
+        rm -f "$tmpfile"
+        return 2
+    fi
+
+    if [[ ! -s "$tmpfile" ]]; then
+        log "ERROR" "Decoded kubeconfig from secret ${secret_name} is empty"
+        rm -f "$tmpfile"
+        return 2
+    fi
+
+    mv "$tmpfile" "$HOSTED_KUBECONFIG"
+}
+
+_check_hosted_cluster_api_ready() {
+    local kubeconfig_path="$1"
+    KUBECONFIG="$kubeconfig_path" oc get --raw /readyz >/dev/null 2>&1
+}
+
+# Wait until the hosted cluster API accepts requests (kubeconfig file must exist).
+wait_for_hosted_cluster_api() {
+    local kubeconfig_path="$1"
+    local max_attempts="${2:-${VERIFY_MAX_RETRIES:-60}}"
+    local delay="${3:-${VERIFY_SLEEP_SECONDS:-30}}"
+
+    if [[ ! -f "$kubeconfig_path" || ! -s "$kubeconfig_path" ]]; then
+        log "ERROR" "Hosted cluster kubeconfig not found or empty: ${kubeconfig_path}"
+        return 1
+    fi
+
+    log "INFO" "Waiting for hosted cluster API to become reachable (${kubeconfig_path})..."
+    if retry "$max_attempts" "$delay" --no-dump-on-failure _check_hosted_cluster_api_ready "$kubeconfig_path"; then
+        log "INFO" "Hosted cluster API is reachable"
+        return 0
+    fi
+
+    log "ERROR" "Timed out waiting for hosted cluster API (${kubeconfig_path})"
+    return 1
+}
+
 function wait_for_pods() {
     local namespace=$1
     local label=$2
@@ -239,31 +302,6 @@ function apply_manifest() {
     return 0
 }
 
-_resolve_hosted_kubeconfig_for_dump() {
-    local path="${HOSTED_CLUSTER_NAME:-}.kubeconfig"
-    if [[ -n "${HOSTED_CLUSTER_NAME:-}" && -f "$path" && -s "$path" ]]; then
-        echo "$path"
-        return 0
-    fi
-
-    if [[ -z "${HOSTED_CLUSTER_NAME:-}" || -z "${CLUSTERS_NAMESPACE:-}" ]]; then
-        return 1
-    fi
-
-    local secret_name="${HOSTED_CLUSTER_NAME}-admin-kubeconfig"
-    if oc get secret -n "${CLUSTERS_NAMESPACE}" "$secret_name" &>/dev/null; then
-        local tmpfile
-        tmpfile=$(mktemp "${TMPDIR:-/tmp}/hosted-kubeconfig-dump.XXXXXX")
-        if oc get secret -n "${CLUSTERS_NAMESPACE}" "$secret_name" \
-            -o jsonpath='{.data.kubeconfig}' | base64 -d > "$tmpfile" 2>/dev/null && [[ -s "$tmpfile" ]]; then
-            echo "$tmpfile"
-            return 0
-        fi
-        rm -f "$tmpfile"
-    fi
-    return 1
-}
-
 _dump_oc_section() {
     local title="$1"
     shift
@@ -311,22 +349,16 @@ dump_system_status() {
         _dump_oc_section "Machine API pods" \
             oc get pods -n openshift-machine-api -o wide
 
-        local hosted_kcfg hosted_kcfg_temp=""
-        if hosted_kcfg=$(_resolve_hosted_kubeconfig_for_dump); then
-            if [[ "$hosted_kcfg" == *"/hosted-kubeconfig-dump."* ]]; then
-                hosted_kcfg_temp="$hosted_kcfg"
-            fi
+        if ensure_hosted_kubeconfig; then
             _dump_oc_section "Hosted cluster: nodes" \
-                env KUBECONFIG="$hosted_kcfg" oc get nodes -o wide
+                env KUBECONFIG="$HOSTED_KUBECONFIG" oc get nodes -o wide
             _dump_oc_section "Hosted cluster: cluster operators (non-healthy)" \
-                env KUBECONFIG="$hosted_kcfg" bash -c 'oc get co --no-headers 2>/dev/null | awk '\''$3!="True" || $4!="False" || $5!="False" {print}'\'''
+                env KUBECONFIG="$HOSTED_KUBECONFIG" bash -c 'oc get co --no-headers 2>/dev/null | awk '\''$3!="True" || $4!="False" || $5!="False" {print}'\'''
             _dump_oc_section "Hosted cluster: OVN-Kubernetes pods" \
-                env KUBECONFIG="$hosted_kcfg" oc get pods -n openshift-ovn-kubernetes -o wide
+                env KUBECONFIG="$HOSTED_KUBECONFIG" oc get pods -n openshift-ovn-kubernetes -o wide
         else
             log "WARN" "Hosted cluster kubeconfig not available for status dump"
         fi
-
-        [[ -n "$hosted_kcfg_temp" ]] && rm -f "$hosted_kcfg_temp"
     )
 
     log "WARN" "${divider}"
