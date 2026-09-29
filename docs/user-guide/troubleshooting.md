@@ -264,19 +264,11 @@ grep -E "CLUSTER_NAME|BASE_DOMAIN|OPENSHIFT_VERSION" .env
 ```bash
 # Check pull secret format
 jq . openshift_pull.json
-cat pull-secret.txt
-
-# Verify pull secret is applied
-oc get secret pull-secret -n dpf-operator-system
-
-# Test NGC registry access
-podman login nvcr.io --username '$oauthtoken' --password-stdin < pull-secret.txt
 
 # Common fixes:
 # 1. Re-download Red Hat pull secret
-# 2. Verify NGC API key is valid
-# 3. Merge pull secrets correctly
-# 4. Check internet connectivity
+# 2. Check internet connectivity
+# 3. Confirm DPF/OVN images are reachable (public ghcr.io for DPF v26.4+)
 ```
 
 ## Recovery Procedures

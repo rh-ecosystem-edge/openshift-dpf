@@ -239,32 +239,6 @@ prepare_dpf_manifests() {
         "<KUBERNETES_VERSION>" "$OPENSHIFT_VERSION" \
         "<HOSTED_CLUSTER_NAME>" "$HOSTED_CLUSTER_NAME"
 
-    # Extract NGC API key and update secrets
-    NGC_API_KEY=$(jq -r '.auths."nvcr.io".password // empty' "$DPF_PULL_SECRET" 2>/dev/null)
-    if [ -z "$NGC_API_KEY" ] || [ "$NGC_API_KEY" = "null" ]; then
-        log "ERROR" "Failed to extract NGC API key from pull secret"
-        return 1
-    fi
-    
-    # Process ngc-secrets.yaml using process_template function
-    update_file_multi_replace \
-        "$MANIFESTS_DIR/dpf-installation/ngc-secrets.yaml" \
-        "$GENERATED_DIR/ngc-secrets.yaml" \
-        "<NGC_API_KEY>" "$NGC_API_KEY"
-
-    # Update pull secret
-    # Encode pull secret (Linux/GNU base64)
-    PULL_SECRET=$(cat "$DPF_PULL_SECRET" | base64 -w 0)
-    if [ -z "$PULL_SECRET" ]; then
-        log "ERROR" "Failed to encode pull secret"
-        return 1
-    fi
-    local escaped_secret=$(escape_sed_replacement "$PULL_SECRET")
-    update_file_multi_replace \
-        "$GENERATED_DIR/dpf-pull-secret.yaml" \
-        "$GENERATED_DIR/dpf-pull-secret.yaml" \
-        "<PULL_SECRET_BASE64>" "$escaped_secret"
-
     # For OCP >= 4.22, Hypershift handles node CIDR allocation natively so
     # the dpu-node-ipam-controller is not deployed.  Instead, tell DPF's
     # Flannel the cluster CIDR that the provisioner operator configures on

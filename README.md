@@ -31,7 +31,6 @@ This handles the complete deployment lifecycle:
 ### Required Credentials
 - **Red Hat Pull Secret**: Download from [Red Hat Console](https://console.redhat.com/openshift/install/pull-secret)
 - **Red Hat Offline Token**: Generate at [cloud.redhat.com/openshift/token](https://cloud.redhat.com/openshift/token)
-- **NVIDIA NGC API Key**: Create at [NGC Portal](https://ngc.nvidia.com/) → Account → Setup
 
 ## 🏃 Quick Start
 
@@ -50,19 +49,6 @@ echo "YOUR_OFFLINE_TOKEN" > ~/.aicli/offlinetoken.txt
 
 # Add OpenShift pull secret (downloaded from Red Hat)
 cp ~/Downloads/openshift-pull-secret.json openshift_pull.json
-
-# Create NGC pull secret
-cat > pull-secret.txt << 'EOF'
-{
-  "auths": {
-    "nvcr.io": {
-      "username": "$oauthtoken",
-      "password": "YOUR_NGC_API_KEY",
-      "auth": "BASE64_ENCODED_CREDENTIALS"
-    }
-  }
-}
-EOF
 ```
 
 ### 3. Configure Deployment

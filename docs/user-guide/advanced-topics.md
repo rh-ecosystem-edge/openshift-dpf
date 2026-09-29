@@ -198,7 +198,7 @@ PRIVATE_REGISTRY=registry.example.com
 DPF_OPERATOR_IMAGE=${PRIVATE_REGISTRY}/dpf-operator:v25.4
 
 # Registry authentication (add to pull secrets)
-# Update openshift_pull.json and pull-secret.txt with your registry credentials
+# Update openshift_pull.json with your registry credentials
 ```
 
 ## Security Hardening
