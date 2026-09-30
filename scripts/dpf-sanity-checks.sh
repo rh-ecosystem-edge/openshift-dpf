@@ -204,7 +204,8 @@ check_ping_packet_loss() {
   PACKET_LOSS=$(echo "${output}" | grep -Eo '[0-9]+% packet loss' | awk '{print $1}' | tr -d '%')
 
   if [ -z "$PACKET_LOSS" ]; then
-    echo "Failed to extract packet loss from ping output"
+    echo "❌ Failed to extract packet loss from ping output. Raw output:"
+    echo "${output}"
     echo "Fail"
     ((failed_testcase_count++))
     return 1
