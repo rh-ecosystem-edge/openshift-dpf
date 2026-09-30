@@ -1,10 +1,9 @@
-# RHCOS layered image with patched kata-containers RPM (cold-plug VFIO).
-# Targets MCP worker-dpu (DPU host pool). Skip with KATA_SKIP_RHCOS_LAYER=true
-# when kata-containers 3.31.0-5+ already ships on the node.
+# RHCOS layer with Kata 4.1.0-3 and DPU cold-plug VFIO support.
+# The layer also supplies the CRI-O handler, kata config, and vfio-pci module
+# configuration; do not add a separate cold-plug MachineConfig.
 #
-# The layer MUST match the cluster RHCOS digest. A mismatched (especially
-# older) osImageURL still applies and can downgrade workers; MCO does not
-# fail closed on version skew.
+# This default image is for OpenShift 4.22 x86_64. Custom images must be built
+# from the matching cluster RHCOS release or MCO can downgrade workers.
 apiVersion: machineconfiguration.openshift.io/v1
 kind: MachineConfig
 metadata:
