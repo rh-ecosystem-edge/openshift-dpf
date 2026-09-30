@@ -249,7 +249,7 @@ configure-flannel: deploy-dpu-services
 	@echo "✅ Flannel IPAM controller is deployed as part of DPU services"
 
 .PHONY: enable-ovn-injector
-enable-ovn-injector: install-helm
+enable-ovn-injector:
 	@scripts/enable-ovn-injector.sh
 
 .PHONY: enable-kata
