@@ -21,6 +21,16 @@ function ensure_helm_installed() {
 }
 
 function install_helm() {
+    if command -v helm &> /dev/null; then
+        local installed_version
+        installed_version=$(helm version --short)
+        if [[ -z "${HELM_VERSION:-}" || "${installed_version}" == *"${HELM_VERSION}"* ]]; then
+            log "INFO" "Helm is already installed (${installed_version}). Skipping installation."
+            return 0
+        fi
+        log "INFO" "Installed Helm version ${installed_version} does not match requested ${HELM_VERSION}; installing requested version."
+    fi
+
     log "INFO" "Installing Helm $(if [ -n "$HELM_VERSION" ]; then echo $HELM_VERSION; else echo "latest"; fi)..."
     
     curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
