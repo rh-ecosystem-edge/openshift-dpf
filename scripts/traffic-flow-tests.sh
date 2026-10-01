@@ -40,6 +40,7 @@ TFT_CONFIG_OUTPUT="${TFT_WORK_DIR}/tft-config.yaml"
 TFT_TEST_CASES="${TFT_TEST_CASES:-1-25,32-34,69}"
 TFT_DURATION="${TFT_DURATION:-10}"
 TFT_CONNECTION_TYPE="${TFT_CONNECTION_TYPE:-iperf-tcp}"
+TFT_EVAL_CONFIG="${TFT_EVAL_CONFIG:-}"
 
 # Kubeconfig path (relative to working directory by default)
 TFT_KUBECONFIG="${TFT_KUBECONFIG:-$(pwd)/kubeconfig.${CLUSTER_NAME}}"
@@ -74,11 +75,6 @@ resolve_kubeconfig() {
 discover_tft_nodes() {
     local kubeconfig_path="$1"
 
-    if [[ -n "${TFT_SERVER_NODE}" ]] && [[ -n "${TFT_CLIENT_NODE}" ]]; then
-        log "INFO" "Using explicitly set TFT nodes: server=${TFT_SERVER_NODE}, client=${TFT_CLIENT_NODE}"
-        return 0
-    fi
-
     if ! command -v oc &>/dev/null; then
         log "ERROR" "oc is required to discover TFT nodes from the cluster"
         return 1
@@ -100,6 +96,12 @@ discover_tft_nodes() {
     fi
 
     log "INFO" "Found ${#workers[@]} Ready DPU worker(s): ${workers[*]}"
+    TFT_DPU_WORKER_COUNT=${#workers[@]}
+
+    if [[ -n "${TFT_SERVER_NODE}" ]] && [[ -n "${TFT_CLIENT_NODE}" ]]; then
+        log "INFO" "Using explicitly set TFT nodes: server=${TFT_SERVER_NODE}, client=${TFT_CLIENT_NODE}"
+        return 0
+    fi
 
     if [[ -z "${TFT_SERVER_NODE}" ]]; then
         TFT_SERVER_NODE="${workers[0]}"
@@ -236,6 +238,16 @@ generate_config() {
     # Discover actual Kubernetes node names unless explicitly overridden
     discover_tft_nodes "${TFT_KUBECONFIG_ABS}" || return 1
 
+    # Auto-select eval config based on DPU worker count if not explicitly set
+    if [[ -z "${TFT_EVAL_CONFIG}" ]]; then
+        if [[ ${TFT_DPU_WORKER_COUNT:-0} -ge 2 ]]; then
+            TFT_EVAL_CONFIG="${SCRIPT_DIR}/../ci/eval-config-2dpu.yaml"
+        else
+            TFT_EVAL_CONFIG="${SCRIPT_DIR}/../ci/eval-config-1dpu.yaml"
+        fi
+        log "INFO" "Auto-selected eval config for ${TFT_DPU_WORKER_COUNT} DPU worker(s): ${TFT_EVAL_CONFIG}"
+    fi
+
     if [[ -z "${TFT_SERVER_NODE}" ]] || [[ -z "${TFT_CLIENT_NODE}" ]]; then
         log "ERROR" "TFT_SERVER_NODE and TFT_CLIENT_NODE must be set after discovery"
         return 1
@@ -285,10 +297,16 @@ run_tests() {
     source "${TFT_VENV_DIR}/bin/activate"
     
     # Run the tests
-    log "INFO" "Executing: ./tft.py ${TFT_CONFIG_OUTPUT} --output-base ${output_base}"
+    local eval_config_args=()
+    if [[ -n "${TFT_EVAL_CONFIG}" ]] && [[ -f "${TFT_EVAL_CONFIG}" ]]; then
+        eval_config_args=("${TFT_EVAL_CONFIG}")
+        log "INFO" "Using eval config: ${TFT_EVAL_CONFIG}"
+    fi
+
+    log "INFO" "Executing: ./tft.py ${TFT_CONFIG_OUTPUT} ${eval_config_args[*]} --output-base ${output_base}"
 
     # Run tft.py - ignore exit code as it may return 0 even on test failures
-    ./tft.py "${TFT_CONFIG_OUTPUT}" --output-base "${output_base}" || true
+    ./tft.py "${TFT_CONFIG_OUTPUT}" "${eval_config_args[@]}" --output-base "${output_base}" || true
     
     # Find the results JSON file - tft.py writes to <output_base><milliseconds>.json
     local results_file
@@ -435,6 +453,7 @@ show_config() {
     echo "  TFT_TEST_CASES:     ${TFT_TEST_CASES}"
     echo "  TFT_DURATION:       ${TFT_DURATION}s"
     echo "  TFT_CONNECTION_TYPE: ${TFT_CONNECTION_TYPE}"
+    echo "  TFT_EVAL_CONFIG:    ${TFT_EVAL_CONFIG:-<auto-select based on DPU worker count>}"
     echo ""
     echo "Cluster:"
     echo "  TFT_SERVER_NODE:    ${TFT_SERVER_NODE:-<auto-discover from cluster>}"
@@ -497,6 +516,7 @@ case "${1:-}" in
         echo "  TFT_TEST_CASES      - Test cases to run (default: 1-25,32-34,69)"
         echo "  TFT_DURATION        - Duration per test in seconds (default: 10)"
         echo "  TFT_CONNECTION_TYPE - Connection type: iperf-tcp, iperf-udp, etc. (default: iperf-tcp)"
+        echo "  TFT_EVAL_CONFIG     - Path to eval config YAML with bitrate thresholds (default: auto-select based on DPU worker count)"
         echo "  TFT_KUBECONFIG      - Path to cluster kubeconfig"
         echo "  TFT_SERVER_NODE     - Kubernetes node name for server (default: auto-discover DPU worker)"
         echo "  TFT_CLIENT_NODE     - Kubernetes node name for client (default: auto-discover)"
