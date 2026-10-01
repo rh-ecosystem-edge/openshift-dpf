@@ -4,6 +4,7 @@ metadata:
   name: dpfoperatorconfig
   namespace: dpf-operator-system
 spec:
+  deploymentMode: host-trusted
   imagePullSecrets:
     - dpf-pull-secret
   # Kamaji is permanently disabled - only Hypershift is supported
