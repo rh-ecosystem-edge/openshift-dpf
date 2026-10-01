@@ -1,5 +1,5 @@
 # IOMMU kargs for VFIO cold-plug. intel_iommu=on (Intel VT-d is off by
-# default) and amd_iommu=on (OSC/Itai; ignored on Intel). iommu=pt is
+# default) and amd_iommu=on (ignored on Intel). iommu=pt is
 # vendor-neutral passthrough mode.
 #
 # Role worker-dpu (the DPU host pool). Confirm: cat /proc/cmdline | grep iommu
