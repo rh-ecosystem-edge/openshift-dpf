@@ -81,6 +81,21 @@ function wait_for_kataconfig_crd() {
     oc wait --for=condition=Established "crd/${KATA_CONFIG_CRD}" --timeout=120s
 }
 
+function osc_webhook_endpoint_ready() {
+    oc get endpoints -n "${OSC_NAMESPACE}" controller-manager-service \
+        -o jsonpath='{.subsets[*].addresses[*].ip}' 2>/dev/null | grep -q .
+}
+
+function wait_for_osc_webhook() {
+    log [INFO] "Waiting for OSC controller-manager webhook endpoint..."
+    if ! retry 60 10 --no-dump-on-failure osc_webhook_endpoint_ready; then
+        log [ERROR] "OSC controller-manager webhook endpoint was not ready after 10 minutes"
+        oc -n "${OSC_NAMESPACE}" get deploy,pods,svc,endpoints -o wide || true
+        return 1
+    fi
+    log [INFO] "OSC controller-manager webhook endpoint is ready"
+}
+
 function ensure_osc() {
     if [ "$(osc_csv_phase)" = "Succeeded" ]; then
         log [INFO] "OSC operator already installed (CSV Succeeded), skipping create"
@@ -95,6 +110,8 @@ function ensure_osc() {
 # Selector matches no nodes so OSC does not label DPU hosts kata-oc.
 function ensure_kataconfig() {
     wait_for_kataconfig_crd
+    # CSV and CRD readiness can precede the validating webhook's first endpoint.
+    wait_for_osc_webhook
     log [INFO] "Applying KataConfig example-kataconfig (selector matches no nodes; DPU hosts stay on worker-dpu)"
     apply_manifest "${KATA_MANIFESTS_DIR}/02-kataconfig.yaml" "true"
 }
