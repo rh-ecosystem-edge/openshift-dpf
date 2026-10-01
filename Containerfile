@@ -10,7 +10,9 @@ USER root
 COPY --from=oc-cli /usr/bin/oc /usr/bin/oc
 RUN ln -s /usr/bin/oc /usr/bin/kubectl
 
-RUN dnf install -y findutils gettext git golang jq make openssh-clients podman python3 python3-devel python3-pip rsync && dnf clean all
+RUN dnf install -y findutils gettext git golang jq libvirt-client make openssh-clients podman python3-pip rsync virt-install && \
+    dnf install -y --allowerasing python3-devel && \
+    dnf clean all
 
 # Copying helm binary
 COPY --from=helm-cli /usr/bin/helm /usr/bin/helm
