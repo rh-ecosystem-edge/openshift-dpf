@@ -64,24 +64,14 @@ function prepare_cluster_manifests() {
     # Copy all manifests except excluded files using utility function
     copy_manifests_with_exclusions "$MANIFESTS_DIR/cluster-installation" "$GENERATED_DIR" "${excluded_files[@]}"
 
-    # Process subscription manifests with catalog source name
-    if [ -f "$MANIFESTS_DIR/cluster-installation/nfd-subscription.yaml" ]; then
-        update_file_multi_replace \
-            "$MANIFESTS_DIR/cluster-installation/nfd-subscription.yaml" \
-            "$GENERATED_DIR/nfd-subscription.yaml" \
-            "<CATALOG_SOURCE_NAME>" "$CATALOG_SOURCE_NAME"
+    if is_dpf_profile; then
+        prepare_dpf_cluster_dependencies
+    else
+        log [INFO] "Skipping DPF cluster-install dependencies for ${DEPLOYMENT_PROFILE} profile"
     fi
 
     # Configure cluster components
     log [INFO] "Configuring cluster installation..."
-    
-
-    # Always copy Cert-Manager manifest (required for DPF operator)
-    log [INFO] "Copying Cert-Manager manifest (required for DPF operator)..."
-    update_file_multi_replace \
-        "$MANIFESTS_DIR/cluster-installation/openshift-cert-manager.yaml" \
-        "$GENERATED_DIR/openshift-cert-manager.yaml" \
-        "<CATALOG_SOURCE_NAME>" "$CATALOG_SOURCE_NAME"
 
     # Verify no Helm values files are in the generated directory before proceeding
     if find "$GENERATED_DIR" -maxdepth 1 -type f -name "*-values.yaml" | grep -q .; then
@@ -89,11 +79,6 @@ function prepare_cluster_manifests() {
         find "$GENERATED_DIR" -maxdepth 1 -type f -name "*-values.yaml" -delete
         log "INFO" "Removed Helm values files from generated directory"
     fi
-
-
-    enable_storage
-
-    update_worker_manifest
 
     # Install manifests to cluster
     # Check if cluster is already installed
@@ -107,6 +92,32 @@ function prepare_cluster_manifests() {
     log [INFO] "Cluster manifests preparation complete."
 }
 
+# NFD operator without its CR is a partial install and breaks NNO nvidia-ci.
+# DPF still applies the subscription at cluster install; the NodeFeatureDiscovery
+# CR is created later by deploy_nfd. NNO leaves NFD to a later post-install step.
+generate_nfd_subscription() {
+    if [ ! -f "$MANIFESTS_DIR/cluster-installation/nfd-subscription.yaml" ]; then
+        return 0
+    fi
+    update_file_multi_replace \
+        "$MANIFESTS_DIR/cluster-installation/nfd-subscription.yaml" \
+        "$GENERATED_DIR/nfd-subscription.yaml" \
+        "<CATALOG_SOURCE_NAME>" "$CATALOG_SOURCE_NAME"
+}
+
+prepare_dpf_cluster_dependencies() {
+    generate_nfd_subscription
+
+    log [INFO] "Copying Cert-Manager manifest (required for DPF operator)..."
+    update_file_multi_replace \
+        "$MANIFESTS_DIR/cluster-installation/openshift-cert-manager.yaml" \
+        "$GENERATED_DIR/openshift-cert-manager.yaml" \
+        "<CATALOG_SOURCE_NAME>" "$CATALOG_SOURCE_NAME"
+
+    enable_storage
+    update_worker_manifest
+}
+
 update_worker_manifest() {
     # Count DPU workers from WORKER_* environment variables
     local worker_count="${WORKER_COUNT:-0}"
@@ -114,7 +125,7 @@ update_worker_manifest() {
 
     for i in $(seq 1 "$worker_count"); do
         local dpu_var="WORKER_${i}_DPU"
-        local is_dpu="${!dpu_var:-true}"
+        local is_dpu="${!dpu_var:-$(default_worker_is_dpu)}"
         [[ "$is_dpu" == "true" ]] && ((dpu_count++)) || true
     done
 
@@ -163,11 +174,12 @@ function deploy_core_operator_sources() {
 
     mkdir -p "$GENERATED_DIR"
 
-    update_file_multi_replace \
-        "$MANIFESTS_DIR/cluster-installation/nfd-subscription.yaml" \
-        "$GENERATED_DIR/nfd-subscription.yaml" \
-        "<CATALOG_SOURCE_NAME>" "$CATALOG_SOURCE_NAME"
-    apply_manifest "$GENERATED_DIR/nfd-subscription.yaml" true
+    if is_dpf_profile; then
+        generate_nfd_subscription
+        apply_manifest "$GENERATED_DIR/nfd-subscription.yaml" true
+    else
+        log [INFO] "Skipping NFD operator subscription for ${DEPLOYMENT_PROFILE} profile"
+    fi
 
     if [[ "${OLM_WORKAROUND}" == "true" ]]; then
         log [INFO] "Deploying catalog source for v${OLM_WORKAROUND_VERSION} (OLM workaround enabled)"
@@ -358,4 +370,3 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     
     main "$@"
 fi
-

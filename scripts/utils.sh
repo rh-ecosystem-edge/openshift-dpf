@@ -58,7 +58,7 @@ function verify_files() {
         exit 1
     fi
 
-    if [ ! -f "${DPF_PULL_SECRET}" ]; then
+    if is_dpf_profile && [ ! -f "${DPF_PULL_SECRET}" ]; then
         log "ERROR" "${DPF_PULL_SECRET} not found"
         exit 1
     fi
@@ -106,6 +106,69 @@ function wait_for_secret_with_data() {
         data=$(oc get secret -n "$ns" "$secret" -o jsonpath="{.data.${key}}" 2>/dev/null)
         [ -n "$data" ]
     ' _ "$namespace" "$secret_name" "$key"
+}
+
+# Returns 0 on success, 1 if secret missing (skip hosted checks), 2 on error.
+ensure_hosted_kubeconfig() {
+    HOSTED_KUBECONFIG="${HOSTED_CLUSTER_NAME}.kubeconfig"
+
+    if [[ -f "$HOSTED_KUBECONFIG" ]] && [[ -s "$HOSTED_KUBECONFIG" ]]; then
+        return 0
+    fi
+
+    log "INFO" "Fetching DPUCluster kubeconfig..."
+    local secret_name="${HOSTED_CLUSTER_NAME}-admin-kubeconfig"
+    local get_output
+    if ! get_output=$(oc get secret -n "${CLUSTERS_NAMESPACE}" "$secret_name" -o name 2>&1); then
+        if echo "$get_output" | grep -q "NotFound"; then
+            log "WARN" "DPUCluster kubeconfig secret not found"
+            return 1
+        fi
+        log "ERROR" "Failed to query secret ${secret_name}: ${get_output}"
+        return 2
+    fi
+
+    local tmpfile="${HOSTED_KUBECONFIG}.tmp"
+    if ! oc get secret -n "${CLUSTERS_NAMESPACE}" "$secret_name" \
+        -o jsonpath='{.data.kubeconfig}' | base64 -d > "$tmpfile"; then
+        log "ERROR" "Failed to decode kubeconfig from secret ${secret_name}"
+        rm -f "$tmpfile"
+        return 2
+    fi
+
+    if [[ ! -s "$tmpfile" ]]; then
+        log "ERROR" "Decoded kubeconfig from secret ${secret_name} is empty"
+        rm -f "$tmpfile"
+        return 2
+    fi
+
+    mv "$tmpfile" "$HOSTED_KUBECONFIG"
+}
+
+_check_hosted_cluster_api_ready() {
+    local kubeconfig_path="$1"
+    KUBECONFIG="$kubeconfig_path" oc get --raw /readyz >/dev/null 2>&1
+}
+
+# Wait until the hosted cluster API accepts requests (kubeconfig file must exist).
+wait_for_hosted_cluster_api() {
+    local kubeconfig_path="$1"
+    local max_attempts="${2:-${VERIFY_MAX_RETRIES:-60}}"
+    local delay="${3:-${VERIFY_SLEEP_SECONDS:-30}}"
+
+    if [[ ! -f "$kubeconfig_path" || ! -s "$kubeconfig_path" ]]; then
+        log "ERROR" "Hosted cluster kubeconfig not found or empty: ${kubeconfig_path}"
+        return 1
+    fi
+
+    log "INFO" "Waiting for hosted cluster API to become reachable (${kubeconfig_path})..."
+    if retry "$max_attempts" "$delay" --no-dump-on-failure _check_hosted_cluster_api_ready "$kubeconfig_path"; then
+        log "INFO" "Hosted cluster API is reachable"
+        return 0
+    fi
+
+    log "ERROR" "Timed out waiting for hosted cluster API (${kubeconfig_path})"
+    return 1
 }
 
 function wait_for_pods() {
@@ -239,10 +302,79 @@ function apply_manifest() {
     return 0
 }
 
+_dump_oc_section() {
+    local title="$1"
+    shift
+    log "WARN" "--- ${title} ---"
+    "$@" 2>&1 || log "WARN" "Failed to collect: ${title}"
+}
+
+# Print a snapshot of management + hosted cluster health (best-effort; never fails).
+dump_system_status() {
+    local reason="${1:-unspecified}"
+    local divider="================================================================================"
+
+    log "WARN" "${divider}"
+    log "WARN" "SYSTEM STATUS DUMP (${reason})"
+    log "WARN" "${divider}"
+
+    (
+        set +e
+
+        _dump_oc_section "Management cluster: nodes" oc get nodes -o wide
+
+        _dump_oc_section "Management cluster: cluster operators (non-healthy)" \
+            bash -c 'oc get co --no-headers 2>/dev/null | awk '\''$3!="True" || $4!="False" || $5!="False" {print}'\'''
+
+        _dump_oc_section "Management cluster: pending CSRs" \
+            bash -c 'oc get csr 2>/dev/null | grep -i pending || echo "(none pending)"'
+
+        _dump_oc_section "Management cluster: BareMetalHosts" \
+            oc get bmh -n openshift-machine-api
+
+        _dump_oc_section "Management cluster: machines" \
+            oc get machines -n openshift-machine-api
+
+        if [[ -n "${CLUSTERS_NAMESPACE:-}" && -n "${HOSTED_CLUSTER_NAME:-}" ]]; then
+            _dump_oc_section "Hosted cluster: HostedCluster / DPFHCPProvisioner" \
+                bash -c "oc get hostedcluster -n '${CLUSTERS_NAMESPACE}' '${HOSTED_CLUSTER_NAME}' -o wide 2>/dev/null; oc get dpfhcpprovisioner -n '${CLUSTERS_NAMESPACE}' '${HOSTED_CLUSTER_NAME}' -o wide 2>/dev/null"
+        fi
+
+        _dump_oc_section "DPF: DPU / DPUDeployment / DPUService" \
+            bash -c 'oc get dpu,dpudeployment,dpuservice -A 2>/dev/null'
+
+        _dump_oc_section "DPF operator pods" \
+            oc get pods -n dpf-operator-system -o wide
+
+        _dump_oc_section "Machine API pods" \
+            oc get pods -n openshift-machine-api -o wide
+
+        if ensure_hosted_kubeconfig; then
+            _dump_oc_section "Hosted cluster: nodes" \
+                env KUBECONFIG="$HOSTED_KUBECONFIG" oc get nodes -o wide
+            _dump_oc_section "Hosted cluster: cluster operators (non-healthy)" \
+                env KUBECONFIG="$HOSTED_KUBECONFIG" bash -c 'oc get co --no-headers 2>/dev/null | awk '\''$3!="True" || $4!="False" || $5!="False" {print}'\'''
+            _dump_oc_section "Hosted cluster: OVN-Kubernetes pods" \
+                env KUBECONFIG="$HOSTED_KUBECONFIG" oc get pods -n openshift-ovn-kubernetes -o wide
+        else
+            log "WARN" "Hosted cluster kubeconfig not available for status dump"
+        fi
+    )
+
+    log "WARN" "${divider}"
+    log "WARN" "END SYSTEM STATUS DUMP"
+    log "WARN" "${divider}"
+}
+
 function retry() {
     local retries=$1
     local delay=$2
     shift 2
+    local dump_on_failure=true
+    if [[ "${1:-}" == "--no-dump-on-failure" ]]; then
+        dump_on_failure=false
+        shift
+    fi
     local attempt=0
 
     while (( attempt < retries )); do
@@ -254,6 +386,9 @@ function retry() {
         sleep "$delay"
     done
 
+    if [[ "$dump_on_failure" == true ]]; then
+        dump_system_status "all ${retries} retry attempts failed: $*"
+    fi
     echo "All $retries attempts failed."
     return 1
 }
@@ -545,9 +680,12 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         verify-files)
             verify_files
             ;;
+        dump-system-status)
+            dump_system_status "${2:-manual}"
+            ;;
         *)
             log "ERROR" "Unknown command: $command"
-            echo "Available commands: verify-files"
+            echo "Available commands: verify-files, dump-system-status [reason]"
             exit 1
             ;;
     esac
