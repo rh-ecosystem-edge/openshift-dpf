@@ -367,7 +367,7 @@ function cleanup_stale_vfs() {
     # driver_override=vfio-pci. Idle mlx5_core + (null) override is left alone.
     for node in ${nodes}; do
         log [INFO] "Rebinding stale VFIO VFs on ${node}..."
-        oc debug "node/${node}" --quiet -- chroot /host bash -c '
+        oc debug "node/${node}" --to-namespace=default --quiet -- chroot /host bash -c '
 for pf in $(ls /sys/class/net | grep np); do
   for vf in /sys/class/net/$pf/device/virtfn*; do
     [ -e "$vf" ] || continue
@@ -406,15 +406,15 @@ function enable_kata() {
         exit 1
     fi
 
-    ensure_kata_sriov_pool
-
     if ! oc get net-attach-def -n "${OVNK_NAMESPACE}" "${KATA_NAD_NAME}" &>/dev/null; then
         log [ERROR] "NetworkAttachmentDefinition '${KATA_NAD_NAME}' not found in ${OVNK_NAMESPACE}."
         log [ERROR] "Set KATA_ENABLED=true and run make enable-ovn-injector before make enable-kata."
         exit 1
     fi
 
+    # Check node prerequisites before changing the SR-IOV device plugin config.
     check_kvm_on_workers
+    ensure_kata_sriov_pool
 
     mkdir -p "${GENERATED_KATA_DIR}"
 
