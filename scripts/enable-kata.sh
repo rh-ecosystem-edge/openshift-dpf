@@ -412,6 +412,8 @@ function enable_kata() {
         exit 1
     fi
 
+    # Do not probe or mutate worker hosts while their MCP is still rolling out.
+    wait_for_mcp "${worker_role}"
     # Check node prerequisites before changing the SR-IOV device plugin config.
     check_kvm_on_workers
     ensure_kata_sriov_pool
