@@ -319,8 +319,24 @@ function check_kvm_on_workers() {
     fi
     for node in ${nodes}; do
         log [INFO] "Checking /dev/kvm on ${node}..."
-        if ! oc debug "node/${node}" --quiet -- chroot /host test -e /dev/kvm; then
-            log [ERROR] "/dev/kvm missing on ${node} (VMX/SVM disabled in BIOS). Enable virtualization and cold-boot the host before enable-kata."
+        local debug_output
+        if ! debug_output=$(oc debug "node/${node}" --to-namespace=default --quiet -- chroot /host sh -c '
+            if [ -e /dev/kvm ]; then
+                echo KATA_KVM_DEVICE_PRESENT
+            else
+                echo KATA_KVM_DEVICE_MISSING
+            fi
+        ' 2>&1); then
+            log [ERROR] "Unable to inspect /dev/kvm on ${node}; oc debug failed"
+            echo "${debug_output}"
+            return 1
+        fi
+        if grep -q '^KATA_KVM_DEVICE_MISSING$' <<< "${debug_output}"; then
+            log [ERROR] "/dev/kvm is absent on ${node}. Confirm VMX/SVM is enabled and the host was cold-booted after changing firmware settings."
+            return 1
+        elif ! grep -q '^KATA_KVM_DEVICE_PRESENT$' <<< "${debug_output}"; then
+            log [ERROR] "Unable to determine /dev/kvm status on ${node}; unexpected oc debug output"
+            echo "${debug_output}"
             return 1
         fi
     done
