@@ -43,7 +43,7 @@ Key scripts and their responsibilities:
 
 The E2E suite lives in `test/e2e/` and uses Ginkgo/Gomega with management-cluster and hosted-cluster clients. Read [`test/e2e/AGENTS.md`](test/e2e/AGENTS.md) before changing or adding an E2E test, and use [`test/e2e/README.md`](test/e2e/README.md) for the suite structure and validation commands.
 
-The tool-neutral implementation workflow for coding agents is documented in [`skills/e2e-test-implementation/SKILL.md`](skills/e2e-test-implementation/SKILL.md).
+The tool-neutral implementation workflow for coding agents is documented in [`.agents/skills/e2e-test-implementation/SKILL.md`](.agents/skills/e2e-test-implementation/SKILL.md).
 
 ### Manifests
 
