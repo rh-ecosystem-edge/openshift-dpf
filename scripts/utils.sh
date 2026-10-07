@@ -329,8 +329,8 @@ dump_system_status() {
         _dump_oc_section "Management cluster: pending CSRs" \
             bash -c 'oc get csr 2>/dev/null | grep -i pending || echo "(none pending)"'
 
-        _dump_oc_section "Management cluster: BareMetalHosts" \
-            oc get bmh -n openshift-machine-api
+        _dump_oc_section "Management cluster: BareMetalHosts (all namespaces)" \
+            oc get bmh -A -o wide
 
         _dump_oc_section "Management cluster: machines" \
             oc get machines -n openshift-machine-api
