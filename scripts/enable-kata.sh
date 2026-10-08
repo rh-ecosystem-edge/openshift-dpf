@@ -81,6 +81,21 @@ function wait_for_kataconfig_crd() {
     oc wait --for=condition=Established "crd/${KATA_CONFIG_CRD}" --timeout=120s
 }
 
+function osc_webhook_endpoint_ready() {
+    oc get endpoints -n "${OSC_NAMESPACE}" controller-manager-service \
+        -o jsonpath='{.subsets[*].addresses[*].ip}' 2>/dev/null | grep -q .
+}
+
+function wait_for_osc_webhook() {
+    log [INFO] "Waiting for OSC controller-manager webhook endpoint..."
+    if ! retry 60 10 --no-dump-on-failure osc_webhook_endpoint_ready; then
+        log [ERROR] "OSC controller-manager webhook endpoint was not ready after 10 minutes"
+        oc -n "${OSC_NAMESPACE}" get deploy,pods,svc,endpoints -o wide || true
+        return 1
+    fi
+    log [INFO] "OSC controller-manager webhook endpoint is ready"
+}
+
 function ensure_osc() {
     if [ "$(osc_csv_phase)" = "Succeeded" ]; then
         log [INFO] "OSC operator already installed (CSV Succeeded), skipping create"
@@ -95,6 +110,8 @@ function ensure_osc() {
 # Selector matches no nodes so OSC does not label DPU hosts kata-oc.
 function ensure_kataconfig() {
     wait_for_kataconfig_crd
+    # CSV and CRD readiness can precede the validating webhook's first endpoint.
+    wait_for_osc_webhook
     log [INFO] "Applying KataConfig example-kataconfig (selector matches no nodes; DPU hosts stay on worker-dpu)"
     apply_manifest "${KATA_MANIFESTS_DIR}/02-kataconfig.yaml" "true"
 }
@@ -302,8 +319,24 @@ function check_kvm_on_workers() {
     fi
     for node in ${nodes}; do
         log [INFO] "Checking /dev/kvm on ${node}..."
-        if ! oc debug "node/${node}" --quiet -- chroot /host test -e /dev/kvm; then
-            log [ERROR] "/dev/kvm missing on ${node} (VMX/SVM disabled in BIOS). Enable virtualization and cold-boot the host before enable-kata."
+        local debug_output
+        if ! debug_output=$(oc debug "node/${node}" --to-namespace=default --quiet -- chroot /host sh -c '
+            if [ -e /dev/kvm ]; then
+                echo KATA_KVM_DEVICE_PRESENT
+            else
+                echo KATA_KVM_DEVICE_MISSING
+            fi
+        ' 2>&1); then
+            log [ERROR] "Unable to inspect /dev/kvm on ${node}; oc debug failed"
+            echo "${debug_output}"
+            return 1
+        fi
+        if grep -q '^KATA_KVM_DEVICE_MISSING$' <<< "${debug_output}"; then
+            log [ERROR] "/dev/kvm is absent on ${node}. Confirm VMX/SVM is enabled and the host was cold-booted after changing firmware settings."
+            return 1
+        elif ! grep -q '^KATA_KVM_DEVICE_PRESENT$' <<< "${debug_output}"; then
+            log [ERROR] "Unable to determine /dev/kvm status on ${node}; unexpected oc debug output"
+            echo "${debug_output}"
             return 1
         fi
     done
@@ -334,7 +367,7 @@ function cleanup_stale_vfs() {
     # driver_override=vfio-pci. Idle mlx5_core + (null) override is left alone.
     for node in ${nodes}; do
         log [INFO] "Rebinding stale VFIO VFs on ${node}..."
-        oc debug "node/${node}" --quiet -- chroot /host bash -c '
+        oc debug "node/${node}" --to-namespace=default --quiet -- chroot /host bash -c '
 for pf in $(ls /sys/class/net | grep np); do
   for vf in /sys/class/net/$pf/device/virtfn*; do
     [ -e "$vf" ] || continue
@@ -373,15 +406,15 @@ function enable_kata() {
         exit 1
     fi
 
-    ensure_kata_sriov_pool
-
     if ! oc get net-attach-def -n "${OVNK_NAMESPACE}" "${KATA_NAD_NAME}" &>/dev/null; then
         log [ERROR] "NetworkAttachmentDefinition '${KATA_NAD_NAME}' not found in ${OVNK_NAMESPACE}."
         log [ERROR] "Set KATA_ENABLED=true and run make enable-ovn-injector before make enable-kata."
         exit 1
     fi
 
+    # Check node prerequisites before changing the SR-IOV device plugin config.
     check_kvm_on_workers
+    ensure_kata_sriov_pool
 
     mkdir -p "${GENERATED_KATA_DIR}"
 
