@@ -1,0 +1,5 @@
+spec:
+  unsupportedConfigOverrides:
+    apiServerArguments:
+      enable-bootstrap-token-auth:
+        - "true"

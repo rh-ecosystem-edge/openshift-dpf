@@ -34,6 +34,77 @@ This handles the complete deployment lifecycle:
 - **Red Hat Offline Token**: Generate at [cloud.redhat.com/openshift/token](https://cloud.redhat.com/openshift/token)
 - **NVIDIA NGC API Key**: Create at [NGC Portal](https://ngc.nvidia.com/) → Account → Setup
 
+### Zero Trust DPU BMC Prerequisites
+
+Complete these manual steps on every DPU BMC before running `make all-zt`:
+
+1. Configure the same `root` password on every DPU BMC. Set
+   `ZT_BMC_ROOT_PASSWORD` to this password when generating `.env`.
+2. Enable and start the `rshim` service on every DPU BMC:
+
+   ```bash
+   ssh root@<DPU_BMC_IP>
+   systemctl enable rshim
+   systemctl start rshim
+   systemctl is-enabled rshim
+   systemctl is-active rshim
+   ```
+
+   The last two commands must report `enabled` and `active`.
+3. Verify that the BMC Redfish endpoint is reachable. This command prompts for
+   the shared `root` password instead of putting it in the shell history:
+
+   ```bash
+   curl -k -u root https://<DPU_BMC_IP>/redfish/v1/Systems/Bluefield
+   ```
+
+4. Provide a numbered serial variable for every DPU: `DPU1_SERIAL`,
+   `DPU2_SERIAL`, `DPU3_SERIAL`, and so on. Every serial value must be
+   lowercase.
+
+   To retrieve a DPU serial number in lowercase, run:
+
+   ```bash
+   curl -k -u root:'BMC root password' https://<DPU_BMC_IP>/redfish/v1/Systems/Bluefield | jq -r '.SerialNumber | ascii_downcase'
+   ```
+
+### Zero Trust Single-Node OpenShift
+
+Set `VM_COUNT=1` to use an SNO management cluster. `API_VIP` and `INGRESS_VIP`
+are not required. `HYPERSHIFT_API_IP` is ignored, MetalLB is skipped, and the
+hosted control plane uses `SingleReplica`.
+
+Add the SNO management-node network configuration to `user.env`:
+
+```bash
+# Zero Trust SNO management cluster
+export VM_COUNT=1
+export VM_STATIC_IP=true
+export VM_EXT_IPS=10.6.135.30
+export VM_EXT_PL=24
+export VM_GW=10.6.135.254
+export VM_DNS=10.11.5.160
+```
+
+Replace the example values with the environment's reserved SNO address,
+prefix length, gateway, and DNS server. The address in `VM_EXT_IPS` must be
+unused before deployment, and DNS must resolve
+`api.<CLUSTER_NAME>.<BASE_DOMAIN>` to that address so DPUs can reach the
+management API.
+
+Generate `.env` and confirm that the static network values were preserved:
+
+```bash
+source user.env
+make generate-env FORCE=true
+grep -E '^VM_(COUNT|STATIC_IP|EXT_IPS|EXT_PL|GW|DNS)=' .env
+```
+
+The DPU BMCs must still reach the BFB registry. By default, manifest
+preparation resolves `HOST_CLUSTER_API` to the SNO management-node address
+after `make update-etc-hosts`. Multi-node deployments use
+`HYPERSHIFT_API_IP` for the registry address.
+
 ## 🏃 Quick Start
 
 ### 1. Clone and Setup

@@ -50,7 +50,7 @@ The tool-neutral implementation workflow for coding agents is documented in [`sk
 `manifests/` contains YAML templates organized by deployment phase:
 - `cluster-installation/` — OpenShift day-1 manifests (MachineConfigs, LSO, LVM, SR-IOV)
 - `dpf-installation/` — DPF operator CRs (NFD, DPFOperatorConfig)
-- `post-installation/` — DPU service definitions (BFB, HBN, DTS, OVN, DPUDeployment)
+- `post-installation/{common,host-trusted,zero-trust}/` — shared and mode-specific DPU service definitions (BFB, HBN, DTS, OVN, DPUDeployment)
 - `helm-charts-values/` — Helm values files for OVN and DPF charts
 - `worker-provisioning/` — BareMetalHost and Secret templates for physical workers
 - `observability/` — Grafana dashboards and monitoring operator manifests

@@ -136,7 +136,21 @@ _do_generate_env() {
         source "$defaults_file"
         set +a
         source "$required_file"
+        if [ "$(basename "${required_file}")" = "env.required" ] &&
+           [ "${DPF_DEPLOYMENT_MODE:-}" = "zero-trust" ]; then
+            validate_zero_trust_mode
+        fi
         envsubst < "$template_file" > "$output_file"
+
+        # Persist optional DPU3_SERIAL, DPU4_SERIAL, ... variables supplied by
+        # the installer. DPU1_SERIAL and DPU2_SERIAL already have canonical
+        # positions in the template and are therefore skipped here.
+        local serial_variable
+        while IFS= read -r serial_variable; do
+            if ! grep -q "^${serial_variable}=" "$output_file"; then
+                printf '%s=%s\n' "${serial_variable}" "${!serial_variable}" >> "$output_file"
+            fi
+        done < <(list_dpu_serial_variables)
     )
 }
 
@@ -220,6 +234,125 @@ resolve_dpf_storage_class() {
     fi
 }
 
+# Print DPU1_SERIAL, DPU2_SERIAL, DPU3_SERIAL, ... in numeric order. Additional
+# numbered variables can be supplied through .env, the process environment, or
+# the make command line without changing the deployment scripts.
+list_dpu_serial_variables() {
+    compgen -A variable | grep -E '^DPU[1-9][0-9]*_SERIAL$' | sort -V || true
+}
+
+validate_zero_trust_dpu_serials() {
+    local invalid=0
+    local variable serial
+    local -A seen_serials=()
+
+    if [ -z "${DPU1_SERIAL:-}" ]; then
+        echo "ERROR: Zero Trust installation requires DPU1_SERIAL" >&2
+        invalid=1
+    fi
+
+    while IFS= read -r variable; do
+        serial="${!variable:-}"
+        [ -n "${serial}" ] || continue
+
+        if [[ "${serial}" =~ [[:upper:]] ]]; then
+            echo "ERROR: ${variable} must be lowercase" >&2
+            invalid=1
+        fi
+        if [ -n "${seen_serials[${serial}]+x}" ]; then
+            echo "ERROR: ${variable} duplicates another DPU serial: ${serial}" >&2
+            invalid=1
+        else
+            seen_serials["${serial}"]=1
+        fi
+    done < <(list_dpu_serial_variables)
+
+    [ "${invalid}" -eq 0 ]
+}
+
+_ipv4_to_integer() {
+    local ip="$1"
+    local first second third fourth extra
+    IFS=. read -r first second third fourth extra <<< "${ip}"
+
+    if [ -n "${extra}" ] ||
+       ! [[ "${first}" =~ ^[0-9]+$ && "${second}" =~ ^[0-9]+$ &&
+            "${third}" =~ ^[0-9]+$ && "${fourth}" =~ ^[0-9]+$ ]] ||
+       [ "$((10#${first}))" -gt 255 ] || [ "$((10#${second}))" -gt 255 ] ||
+       [ "$((10#${third}))" -gt 255 ] || [ "$((10#${fourth}))" -gt 255 ]; then
+        return 1
+    fi
+
+    printf '%u\n' "$(( (10#${first} << 24) + (10#${second} << 16) + (10#${third} << 8) + 10#${fourth} ))"
+}
+
+validate_worker_power_on_delay() {
+    if ! [[ "${WORKER_POWER_ON_DELAY}" =~ ^[0-9]+$ ]]; then
+        echo "ERROR: WORKER_POWER_ON_DELAY must be a non-negative integer" >&2
+        return 1
+    fi
+}
+
+validate_zero_trust_redfish_configuration() {
+    [ "${DPF_DEPLOYMENT_MODE:-host-trusted}" = "zero-trust" ] || return 0
+
+    local variable
+    for variable in \
+        ZT_DPU_BMC_IP_RANGE_START \
+        ZT_DPU_BMC_IP_RANGE_END \
+        ZT_BMC_ROOT_PASSWORD; do
+        if [ -z "${!variable:-}" ]; then
+            echo "ERROR: Zero Trust installation requires ${variable}" >&2
+            return 1
+        fi
+    done
+
+    validate_worker_power_on_delay || return 1
+
+    local start_value end_value
+    if ! start_value=$(_ipv4_to_integer "${ZT_DPU_BMC_IP_RANGE_START}") ||
+       ! end_value=$(_ipv4_to_integer "${ZT_DPU_BMC_IP_RANGE_END}") ||
+       [ "${start_value}" -gt "${end_value}" ]; then
+        echo "ERROR: Invalid Zero Trust DPU BMC IP range: ${ZT_DPU_BMC_IP_RANGE_START}-${ZT_DPU_BMC_IP_RANGE_END}" >&2
+        return 1
+    fi
+}
+
+validate_zero_trust_mode() {
+    local variable
+
+    if [ "${DPF_DEPLOYMENT_MODE:-}" != "zero-trust" ]; then
+        echo "ERROR: Zero Trust validation requires DPF_DEPLOYMENT_MODE=zero-trust" >&2
+        return 1
+    fi
+    if [ "${NODES_MTU:-}" != "9000" ]; then
+        echo "ERROR: all-zt requires NODES_MTU=9000" >&2
+        return 1
+    fi
+    if [ "${HYPERSHIFT_INSTALL_METHOD:-}" != "binary" ]; then
+        echo "ERROR: Zero Trust installation requires HYPERSHIFT_INSTALL_METHOD=binary" >&2
+        return 1
+    fi
+    validate_zero_trust_redfish_configuration || return 1
+
+    for variable in \
+        BFB_URL \
+        ZT_BFB_REGISTRY_PORT \
+        ZT_DPU_DISCOVERY_NAME; do
+        if [ -z "${!variable:-}" ]; then
+            echo "ERROR: Zero Trust installation requires ${variable}" >&2
+            return 1
+        fi
+    done
+    if [ "${VM_COUNT}" -gt 1 ] && [ -z "${HYPERSHIFT_API_IP:-}" ]; then
+        echo "ERROR: Multi-node Zero Trust installation requires HYPERSHIFT_API_IP" >&2
+        return 1
+    fi
+
+    validate_zero_trust_dpu_serials || return 1
+    echo "OK  Zero Trust mode validation passed"
+}
+
 # Load environment variables from .env file and validate aicli connectivity
 # (skip load/validate if already in Make context — the Makefile does
 # `include .env` + `export`). Still strip quotes Make left on values;
@@ -250,6 +383,30 @@ validate_deployment_profile
 # Only evaluate when sourced by other scripts (not when executed directly for
 # standalone commands like validate-env-files / generate-env).
 if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
+    # Compatibility default for .env files generated before deployment profiles
+    # were introduced.
+    DPF_DEPLOYMENT_MODE=${DPF_DEPLOYMENT_MODE:-host-trusted}
+    case "${DPF_DEPLOYMENT_MODE}" in
+        host-trusted|zero-trust)
+            ;;
+        *)
+            echo "Error: DPF_DEPLOYMENT_MODE must be 'host-trusted' or 'zero-trust'. Current value: ${DPF_DEPLOYMENT_MODE}" >&2
+            exit 1
+            ;;
+    esac
+
+    if [ "${DPF_DEPLOYMENT_MODE}" = "zero-trust" ]; then
+        if [ "${NODES_MTU}" != "9000" ]; then
+            echo "Error: Zero Trust installation requires NODES_MTU=9000. Current value: ${NODES_MTU}" >&2
+            exit 1
+        fi
+
+        if [ "${VM_COUNT}" -eq 1 ]; then
+            HYPERSHIFT_API_IP=""
+            export HYPERSHIFT_API_IP
+        fi
+    fi
+
     HELM_CHARTS_DIR=${HELM_CHARTS_DIR:-"$MANIFESTS_DIR/helm-charts-values"}
     HOST_CLUSTER_API=${HOST_CLUSTER_API:-"api.$CLUSTER_NAME.$BASE_DOMAIN"}
     HOSTED_CONTROL_PLANE_NAMESPACE=${HOSTED_CONTROL_PLANE_NAMESPACE:-"${CLUSTERS_NAMESPACE}-${HOSTED_CLUSTER_NAME}"}
@@ -309,9 +466,15 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         generate-env-test)
             generate_env_test "${2:-false}"
             ;;
+        validate-zt-serials)
+            validate_zero_trust_dpu_serials
+            ;;
+        validate-zt-mode)
+            validate_zero_trust_mode
+            ;;
         *)
             echo "ERROR: Unknown command: $command"
-            echo "Available commands: validate-env-files, generate-env, validate-env-test-files, generate-env-test"
+            echo "Available commands: validate-env-files, generate-env, validate-env-test-files, generate-env-test, validate-zt-serials, validate-zt-mode"
             exit 1
             ;;
     esac

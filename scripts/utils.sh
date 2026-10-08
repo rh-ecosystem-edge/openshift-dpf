@@ -113,6 +113,7 @@ ensure_hosted_kubeconfig() {
     HOSTED_KUBECONFIG="${HOSTED_CLUSTER_NAME}.kubeconfig"
 
     if [[ -f "$HOSTED_KUBECONFIG" ]] && [[ -s "$HOSTED_KUBECONFIG" ]]; then
+        chmod 600 "$HOSTED_KUBECONFIG"
         return 0
     fi
 
@@ -129,8 +130,8 @@ ensure_hosted_kubeconfig() {
     fi
 
     local tmpfile="${HOSTED_KUBECONFIG}.tmp"
-    if ! oc get secret -n "${CLUSTERS_NAMESPACE}" "$secret_name" \
-        -o jsonpath='{.data.kubeconfig}' | base64 -d > "$tmpfile"; then
+    if ! (umask 077; oc get secret -n "${CLUSTERS_NAMESPACE}" "$secret_name" \
+        -o jsonpath='{.data.kubeconfig}' | base64 -d > "$tmpfile"); then
         log "ERROR" "Failed to decode kubeconfig from secret ${secret_name}"
         rm -f "$tmpfile"
         return 2

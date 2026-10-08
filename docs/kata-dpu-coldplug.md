@@ -416,5 +416,5 @@ ps aux | grep qemu-kvm | grep -o 'vfio-pci,host=[^ ]*'
 | `manifests/kata/04-kata-coldplug.yaml` | CRI-O handler, coldplug.toml, vfio-pci modules-load |
 | `manifests/kata/05-runtimeclass.yaml` | `kata-coldplug` (nodeSelector worker-dpu) |
 | `manifests/kata/06-test-deployment.yaml` | kata-dpu-test Deployment (KATA_TEST_REPLICAS) |
-| `manifests/post-installation/nodesriovdevicepluginconfig.yaml` | Regular RDMA pool; `<KATA_SRIOV_POOL>` filled only when KATA_ENABLED=true |
+| `manifests/post-installation/host-trusted/nodesriovdevicepluginconfig.yaml` | Regular RDMA pool; `<KATA_SRIOV_POOL>` filled only when KATA_ENABLED=true |
 | `ci/env.defaults` | `KATA_*` variables |

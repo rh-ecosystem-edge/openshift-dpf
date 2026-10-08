@@ -489,6 +489,11 @@ function ensure_cluster_storage() {
         return 0
     fi
 
+    if [ "${DPF_DEPLOYMENT_MODE:-host-trusted}" = "zero-trust" ]; then
+        log "INFO" "Refreshing the management API address before storage configuration..."
+        update_etc_hosts || return 1
+    fi
+
     if [ "${SKIP_DEPLOY_STORAGE}" = "true" ]; then
         log "INFO" "SKIP_DEPLOY_STORAGE=true: validating that required StorageClasses exist (user-provided storage)..."
         validate_storage_classes_available || return 1
@@ -586,8 +591,14 @@ function deploy_lvm() {
     log "INFO" "Waiting for LVMS operator to be ready..."
     wait_for_pods "openshift-storage" "app.kubernetes.io/name=lvms-operator" 60 10
 
-    if oc get lvmcluster -n openshift-storage my-lvmcluster &>/dev/null; then
-        log "INFO" "LVMCluster already exists. Skipping creation."
+    # Assisted Installer may create an LVMCluster under a different name.
+    # LVMS permits only one instance, so reuse whichever one already exists.
+    local existing_lvmcluster
+    existing_lvmcluster=$(oc get lvmcluster -n openshift-storage \
+        -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+
+    if [ -n "${existing_lvmcluster}" ]; then
+        log "INFO" "LVMCluster ${existing_lvmcluster} already exists. Skipping creation."
     else
         log "INFO" "Creating LVMCluster..."
         retry 30 10 oc apply -f "${MANIFESTS_DIR}/cluster-installation/lvm/lvmcluster.yaml"

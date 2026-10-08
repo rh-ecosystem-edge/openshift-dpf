@@ -1,0 +1,40 @@
+apiVersion: operator.dpu.nvidia.com/v1alpha1
+kind: DPFOperatorConfig
+metadata:
+  name: dpfoperatorconfig
+  namespace: dpf-operator-system
+spec:
+  <FLANNEL_CONFIG>
+  dpuDetector:
+    disable: true
+  kamajiClusterManager:
+    disable: true
+  multus:
+    disable: true
+  cniInstaller:
+    disable: true
+  networking:
+    controlPlaneMTU: <NODES_MTU>
+    highSpeedMTU: <NODES_MTU>
+  overrides:
+    dpuCNIBinPath: /var/lib/cni/bin/
+    dpuCNIPath: /run/multus/cni/net.d/
+    dpuOpenvSwitchSystemSharedLib64Path: /lib64
+    dpuLinkerCachePath: /etc/ld.so.cache
+    dpuOptLibraryPath: /usr/opt
+    flannelSkipCNIConfigInstallation: false
+    kubernetesAPIServerPort: 6443
+    kubernetesAPIServerVIP: <HOST_CLUSTER_API>
+  provisioningController:
+    enableDynamicBFCFGTemplates: true
+    hostAgentDNSPolicy: Default
+    dmsTimeout: 900
+    nodeEffectRemovalTimeout: "3600s"
+    installInterface:
+      installViaRedfish:
+        bfbRegistryAddress: "<BFB_REGISTRY_HOST>:<ZT_BFB_REGISTRY_PORT>"
+        bfbRegistry:
+          port: <ZT_BFB_REGISTRY_PORT>
+        skipDPUNodeDiscovery: false
+  staticClusterManager:
+    disable: false

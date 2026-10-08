@@ -1,0 +1,49 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUDeployment
+metadata:
+  name: dpudeployment
+  namespace: dpf-operator-system
+spec:
+  dpus:
+    bfb: bf-bundle
+    flavor: flavor-zt
+    dpuSetStrategy:
+      type: RollingUpdate
+    nodeEffect:
+      noEffect: true
+    dpuSets:
+      - nameSuffix: "dpuset1"
+        nodeSelector:
+          matchLabels:
+            feature.node.kubernetes.io/dpu-enabled: ""
+  services:
+    hbn:
+      serviceTemplate: hbn
+      serviceConfiguration: hbn
+  serviceChains:
+    switches:
+      - serviceMTU: 9000
+        ports:
+          - serviceInterface:
+              matchLabels:
+                uplink: p0
+          - service:
+              name: hbn
+              interface: p0_if
+      - serviceMTU: 9000
+        ports:
+          - serviceInterface:
+              matchLabels:
+                uplink: p1
+          - service:
+              name: hbn
+              interface: p1_if
+      - serviceMTU: 9000
+        ports:
+          - serviceInterface:
+              matchLabels:
+                interface: pf0hpf
+          - service:
+              interface: pf0hpf_if
+              name: hbn

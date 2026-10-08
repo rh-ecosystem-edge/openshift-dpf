@@ -196,6 +196,55 @@ function deploy_core_operator_sources() {
 }
 
 # Function to prepare DPF manifests
+resolve_zero_trust_bfb_registry_host() {
+    local -n resolved_host=$1
+
+    if [ "${VM_COUNT}" -gt 1 ]; then
+        resolved_host="${HYPERSHIFT_API_IP}"
+        return 0
+    fi
+
+    resolved_host=$(getent ahostsv4 "${HOST_CLUSTER_API}" 2>/dev/null | awk 'NR == 1 { print $1 }' || true)
+    if ! is_valid_ip "${resolved_host}"; then
+        resolved_host=$(find_vm_ip "${VM_PREFIX}" 2>/dev/null || true)
+    fi
+    if ! is_valid_ip "${resolved_host}"; then
+        log "ERROR" "Unable to resolve the SNO management address for the Zero Trust BFB registry"
+        return 1
+    fi
+
+    log "INFO" "Zero Trust SNO: using ${resolved_host} for the BFB registry"
+}
+
+prepare_zero_trust_objects() {
+    local flannel_config="$1"
+    local bfb_registry_host
+
+    validate_zero_trust_mode || return 1
+    resolve_zero_trust_bfb_registry_host bfb_registry_host || return 1
+
+    update_file_multi_replace \
+        "$MANIFESTS_DIR/dpf-installation/zero-trust/dpfoperatorconfig.yaml" \
+        "$GENERATED_DIR/dpfoperatorconfig.yaml" \
+        "<HOST_CLUSTER_API>" "$HOST_CLUSTER_API" \
+        "<FLANNEL_CONFIG>" "$flannel_config" \
+        "<NODES_MTU>" "$NODES_MTU" \
+        "<BFB_REGISTRY_HOST>" "$bfb_registry_host" \
+        "<ZT_BFB_REGISTRY_PORT>" "$ZT_BFB_REGISTRY_PORT"
+
+    update_file_multi_replace \
+        "$MANIFESTS_DIR/dpf-installation/zero-trust/bmc-shared-password.yaml" \
+        "$GENERATED_DIR/bmc-shared-password.yaml" \
+        "<ZT_BMC_ROOT_PASSWORD_SECRET>" "$(printf '%s' "$ZT_BMC_ROOT_PASSWORD" | base64 -w 0)"
+
+    update_file_multi_replace \
+        "$MANIFESTS_DIR/dpf-installation/dpudiscovery-zero-trust.yaml" \
+        "$GENERATED_DIR/dpudiscovery.yaml" \
+        "<ZT_DPU_DISCOVERY_NAME>" "$ZT_DPU_DISCOVERY_NAME" \
+        "<ZT_DPU_BMC_IP_RANGE_START>" "$ZT_DPU_BMC_IP_RANGE_START" \
+        "<ZT_DPU_BMC_IP_RANGE_END>" "$ZT_DPU_BMC_IP_RANGE_END"
+}
+
 prepare_dpf_manifests() {
     log [INFO] "Starting DPF manifest preparation..."
     echo "Using manifests directory: ${MANIFESTS_DIR}"
@@ -233,6 +282,8 @@ prepare_dpf_manifests() {
     # Build list of files to exclude (all Helm values files)
     local excluded_files=(
         "*-values.yaml"
+        "dpfoperatorconfig.yaml"
+        "dpudiscovery-zero-trust.yaml"
     )
     
     # Copy all manifests except Helm values files using utility function
@@ -288,14 +339,18 @@ prepare_dpf_manifests() {
     podCIDR: ${FLANNEL_POD_CIDR}"
     fi
 
-    update_file_multi_replace \
-        "$MANIFESTS_DIR/dpf-installation/dpfoperatorconfig.yaml" \
-        "$GENERATED_DIR/dpfoperatorconfig.yaml" \
-        "<CLUSTER_NAME>" "$CLUSTER_NAME" \
-        "<BASE_DOMAIN>" "$BASE_DOMAIN" \
-        "<SRIOV_DP_RESOURCE_PREFIX>" "$SRIOV_DP_RESOURCE_PREFIX" \
-        "<FLANNEL_CONFIG>" "$flannel_config" \
-        "<NODES_MTU>" "$NODES_MTU"
+    if [ "${DPF_DEPLOYMENT_MODE}" = "zero-trust" ]; then
+        prepare_zero_trust_objects "${flannel_config}" || return 1
+    else
+        update_file_multi_replace \
+            "$MANIFESTS_DIR/dpf-installation/dpfoperatorconfig.yaml" \
+            "$GENERATED_DIR/dpfoperatorconfig.yaml" \
+            "<CLUSTER_NAME>" "$CLUSTER_NAME" \
+            "<BASE_DOMAIN>" "$BASE_DOMAIN" \
+            "<SRIOV_DP_RESOURCE_PREFIX>" "$SRIOV_DP_RESOURCE_PREFIX" \
+            "<FLANNEL_CONFIG>" "$flannel_config" \
+            "<NODES_MTU>" "$NODES_MTU"
+    fi
 
     # Final verification: ensure no Helm values files are in the generated directory
     if find "$GENERATED_DIR" -maxdepth 1 -type f -name "*-values.yaml" | grep -q .; then
@@ -350,12 +405,15 @@ function main() {
         prepare-dpf-manifests)
             prepare_manifests "dpf"
             ;;
+        enable-storage)
+            enable_storage
+            ;;
         apply-lso)
             deploy_lso
             ;;
         *)
             log [INFO] "Unknown command: $command"
-            log [INFO] "Available commands: prepare-manifests, prepare-dpf-manifests, apply-lso, deploy-core-operator-sources"
+            log [INFO] "Available commands: prepare-manifests, prepare-dpf-manifests, enable-storage, apply-lso, deploy-core-operator-sources"
             exit 1
             ;;
     esac
