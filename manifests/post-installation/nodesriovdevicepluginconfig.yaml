@@ -17,9 +17,9 @@ spec:
         isRdma: true
       ranges:
         - pfIndex: 0
-          start: 2
-          end: <NUM_VFS_END>
+          start: <PF0_REGULAR_VF_START>
+          end: <PF0_REGULAR_VF_END>
         - pfIndex: 1
-          start: 0
+          start: <PF1_REGULAR_VF_START>
           end: <PF1_REGULAR_VF_END>
     <KATA_SRIOV_POOL>

@@ -1,6 +1,6 @@
 # Kata DPU cold-plug: setup, debug, and runbook
 
-Notes from bringing up `kata-dpu-test` on a DPU worker (`worker-303ea712f378` / nvd-srv-45). Host-side pieces come from [jensfr/rhcos-layer-kata-dpu](https://github.com/jensfr/rhcos-layer-kata-dpu/tree/dpu-coldplug-nvidia-ref). DPF-side pieces (PF1 kata VF pool, OVN injector mapping) live in this repo.
+Notes from bringing up `kata-dpu-test` on a DPU worker (`worker-303ea712f378` / nvd-srv-45). Host-side pieces come from [jensfr/rhcos-layer-kata-dpu](https://github.com/jensfr/rhcos-layer-kata-dpu/tree/dpu-coldplug-nvidia-ref). DPF-side pieces (kata VF pool, OVN injector mapping) live in this repo.
 
 **Do not use `ovs-ctl` to restart OVS on DPUs.** It wipes the database. Use:
 
@@ -16,7 +16,7 @@ kd debug node/<dpu-node> -- chroot /host systemctl restart ovs-vswitchd
 ## How it is supposed to work
 
 1. DPF creates SR-IOV VFs on BlueField. `mlx5_core` binds and each VF gets a netdev.
-2. Device plugin advertises regular RDMA VFs (`openshift.io/bf3_vfs`) and, when `KATA_ENABLED=true`, a non-RDMA PF1 kata pool (`openshift.io/bf3-p1-vfs-kata`).
+2. Device plugin advertises regular RDMA VFs (`openshift.io/bf3_vfs`) and, when `KATA_ENABLED=true`, a non-RDMA kata pool on `KATA_SRIOV_PF_INDEX` (default PF1: `openshift.io/bf3-p1-vfs-kata`). PF0 is required for Argus introspection.
 3. Pod uses `runtimeClassName: kata-coldplug`. The OVN injector adds **one** VF from the kata pool and sets the kata NAD.
 4. OVN injector webhook sets `v1.multus-cni.io/default-network` to the kata NAD.
 5. CNI moves the VF **as a netdev** into the sandbox netns (VF must still be on `mlx5_core`).
@@ -34,6 +34,7 @@ The kata pool omits `isRdma` so host uverbs are not mounted into the VM. Regular
 ```bash
 KATA_ENABLED=true
 KATA_RUNTIME_CLASS=kata-coldplug
+KATA_SRIOV_PF_INDEX=1          # 0 for Argus (kata pool on PF0); 1 = default (kata pool on PF1)
 KATA_SRIOV_DP_CONFIG_NAME=bf3-p1-vfs-kata
 KATA_NUM_VFS=24
 KATA_INJECTOR_RESOURCE_NAME=openshift.io/bf3-p1-vfs-kata
@@ -42,7 +43,7 @@ KATA_RHCOS_LAYER_IMAGE=quay.io/jensfr/rhcos-kata-dpu@sha256:ce05dea3e0214c7bf786
 KATA_SKIP_RHCOS_LAYER=false
 ```
 
-`make all` with `KATA_ENABLED=false` does not split PF1. With `KATA_ENABLED=true`, `make all` splits PF1, creates the kata NAD, and runs `enable-kata` last.
+`make all` with `KATA_ENABLED=false` does not split a kata pool. With `KATA_ENABLED=true`, `make all` splits `KATA_SRIOV_PF_INDEX`, creates the kata NAD, and runs `enable-kata` last. On the selected PF the kata pool is the **high-index** range `(NUM_VFS - KATA_NUM_VFS)..(NUM_VFS - 1)`; the regular pool on that PF gets the lower indices (PF0 regular starts at 2 after mgmt VF1).
 
 The kata NAD `resourceName` must be the kata pool. Regular pods keep `dpf-ovn-kubernetes` / `openshift.io/bf3_vfs`.
 
