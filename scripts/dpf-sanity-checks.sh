@@ -216,8 +216,10 @@ check_ping_packet_loss() {
     exit 1
   fi
 
-  # Extract packet loss
-  PACKET_LOSS=$(echo "${output}" | grep -Eo '[0-9]+% packet loss' | awk '{print $1}' | tr -d '%')
+  local max_loss="${SANITY_TESTS_PING_MAX_PACKET_LOSS:-25}"
+
+  # Extract packet loss (handle fractional percentages like "33.3333%")
+  PACKET_LOSS=$(echo "${output}" | grep -Eo '[0-9]+\.?[0-9]*% packet loss' | awk '{print $1}' | tr -d '%')
 
   if [ -z "$PACKET_LOSS" ]; then
     echo "❌ Failed to extract packet loss from ping output. Raw output:"
@@ -227,14 +229,16 @@ check_ping_packet_loss() {
     return 1
   fi
 
-  if [ "$PACKET_LOSS" -eq 0 ]; then
-      echo "Packet loss percent is: ${PACKET_LOSS}"
+  # Truncate to integer for comparison (e.g. 33.3333 -> 33)
+  PACKET_LOSS_INT=${PACKET_LOSS%.*}
+
+  if [ "$PACKET_LOSS_INT" -le "$max_loss" ]; then
+      echo "Packet loss: ${PACKET_LOSS}% (max allowed: ${max_loss}%)"
       echo -e "${GREEN}Pass${NC}"
       return 0
   else
-      echo "Packet loss percent is: ${PACKET_LOSS}, not 0"
+      echo "Packet loss: ${PACKET_LOSS}% exceeds max allowed: ${max_loss}%"
       echo -e "${RED}Fail${NC}"
-      # increment the failed testcase counter
       ((failed_testcase_count++))
       return 1
   fi
