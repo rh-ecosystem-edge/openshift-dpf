@@ -184,24 +184,11 @@ function update_nodesriov_device_plugin_config() {
         return 1
     fi
     local dst_dp_config="${GENERATED_POST_INSTALL_DIR}/nodesriovdevicepluginconfig.yaml"
-    if ! [[ "${NUM_VFS}" =~ ^[1-9][0-9]*$ ]]; then
-        log "ERROR" "NUM_VFS must be a positive integer"
-        return 1
-    fi
-    if [ "${NUM_VFS}" -lt 3 ]; then
-        log "ERROR" "NUM_VFS must be at least 3 to reserve PF0 VF1 for management and keep PF0 VF2 for regular DPU services"
-        return 1
-    fi
-    if [ "${KATA_SRIOV_PF_INDEX}" != "0" ] && [ "${KATA_SRIOV_PF_INDEX}" != "1" ]; then
-        log "ERROR" "KATA_SRIOV_PF_INDEX must resolve to 0 or 1"
-        return 1
-    fi
     local vf_range_end=$((NUM_VFS - 1))
     local pf0_regular_end="${vf_range_end}"
     local pf1_regular_end="${vf_range_end}"
     local kata_sriov_pool=""
     if [ "${KATA_ENABLED}" = "true" ]; then
-        calculate_kata_vf_range || return 1
         if [ "${KATA_SRIOV_PF_INDEX}" = "0" ]; then
             pf0_regular_end=$((KATA_VF_START - 1))
         else
@@ -229,41 +216,12 @@ function update_nodesriov_device_plugin_config() {
         "<KATA_SRIOV_POOL>" "${kata_sriov_pool}"
 }
 
-function calculate_kata_vf_range() {
-    if ! [[ "${NUM_VFS}" =~ ^[1-9][0-9]*$ ]]; then
-        log "ERROR" "NUM_VFS must be a positive integer"
-        return 1
-    fi
-    if [ "${NUM_VFS}" -lt 3 ]; then
-        log "ERROR" "NUM_VFS must be at least 3 to reserve PF0 VF1 for management and keep PF0 VF2 for regular DPU services"
-        return 1
-    fi
-    if ! [[ "${KATA_NUM_VFS}" =~ ^[1-9][0-9]*$ ]]; then
-        log "ERROR" "KATA_NUM_VFS must be a positive integer when KATA_ENABLED=true"
-        return 1
-    fi
-    if [ "${KATA_NUM_VFS}" -ge "${NUM_VFS}" ]; then
-        log "ERROR" "KATA_NUM_VFS (${KATA_NUM_VFS}) must be less than NUM_VFS (${NUM_VFS})"
-        return 1
-    fi
-    KATA_VF_START=$((NUM_VFS - KATA_NUM_VFS))
-    KATA_VF_END=$((NUM_VFS - 1))
-    # PF0 VF1 is reserved for DPF management and regular PF0 resources start
-    # at VF2, so the Kata range must leave at least one regular PF0 VF.
-    if [ "${KATA_SRIOV_PF_INDEX}" = "0" ] && [ "${KATA_VF_START}" -lt 3 ]; then
-        log "ERROR" "PF0 Kata allocation leaves no regular VF after reserving management VF1; require NUM_VFS - KATA_NUM_VFS >= 3"
-        return 1
-    fi
-    return 0
-}
-
 # Set KATA_POOL_STATE to missing or matching. Any existing Kata-like pool with
 # a different name, PF, or VF range is rejected; this PR does not migrate it.
 function inspect_existing_kata_sriov_pool() {
     KATA_POOL_STATE="not-required"
     [ "${KATA_ENABLED}" = "true" ] || return 0
 
-    calculate_kata_vf_range || return 1
     KATA_POOL_STATE="missing"
 
     local config_json
@@ -395,11 +353,6 @@ function prepare_post_installation() {
         log [ERROR] "Post-installation directory not found: ${POST_INSTALL_DIR}"
         exit 1
     fi
-    if ! [[ "${NUM_VFS}" =~ ^[1-9][0-9]*$ ]]; then
-        log [ERROR] "NUM_VFS must be a positive integer"
-        return 1
-    fi
-
     # Update manifests with custom values
     update_bfb_manifest
     update_hbn_ovn_manifests

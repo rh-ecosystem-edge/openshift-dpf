@@ -279,15 +279,30 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
         unset _ocp_base_version
     fi
 
-    # Optional Argus and Kata defaults. Kata defaults to PF0 independently of
-    # Argus; PF1 remains available for Kata-only deployments.
-    # The scheduler resource name is independent of its physical PF.
+    # Optional Argus and Kata defaults. Validate local feature and VF settings
+    # while loading env.sh so invalid configuration fails before deployment
+    # work starts. Kata defaults to PF0 independently of Argus; PF1 remains
+    # available for Kata-only deployments. The scheduler resource name is
+    # independent of its physical PF.
     ARGUS_ENABLED=${ARGUS_ENABLED:-false}
     if [ "${ARGUS_ENABLED}" != "true" ] && [ "${ARGUS_ENABLED}" != "false" ]; then
         echo "Error: ARGUS_ENABLED must be true or false (got '${ARGUS_ENABLED}')" >&2
         return 1
     fi
     KATA_ENABLED=${KATA_ENABLED:-false}
+    if [ "${KATA_ENABLED}" != "true" ] && [ "${KATA_ENABLED}" != "false" ]; then
+        echo "Error: KATA_ENABLED must be true or false (got '${KATA_ENABLED}')" >&2
+        return 1
+    fi
+    NUM_VFS=${NUM_VFS:-46}
+    if ! [[ "${NUM_VFS}" =~ ^[1-9][0-9]*$ ]]; then
+        echo "Error: NUM_VFS must be a positive integer (got '${NUM_VFS}')" >&2
+        return 1
+    fi
+    if [ "${NUM_VFS}" -lt 3 ]; then
+        echo "Error: NUM_VFS must be at least 3 to reserve PF0 VF1 for management and keep PF0 VF2 for regular DPU services" >&2
+        return 1
+    fi
     KATA_RUNTIME_CLASS=${KATA_RUNTIME_CLASS:-kata-coldplug}
     KATA_SRIOV_PF_INDEX=${KATA_SRIOV_PF_INDEX:-0}
     if [ "${KATA_SRIOV_PF_INDEX}" != "0" ] && [ "${KATA_SRIOV_PF_INDEX}" != "1" ]; then
@@ -301,6 +316,24 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     fi
     KATA_SRIOV_DP_CONFIG_NAME=${KATA_SRIOV_DP_CONFIG_NAME:-bf3-vfs-kata}
     KATA_NUM_VFS=${KATA_NUM_VFS:-8}
+    if [ "${KATA_ENABLED}" = "true" ]; then
+        if ! [[ "${KATA_NUM_VFS}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "Error: KATA_NUM_VFS must be a positive integer when KATA_ENABLED=true (got '${KATA_NUM_VFS}')" >&2
+            return 1
+        fi
+        if [ "${KATA_NUM_VFS}" -ge "${NUM_VFS}" ]; then
+            echo "Error: KATA_NUM_VFS (${KATA_NUM_VFS}) must be less than NUM_VFS (${NUM_VFS})" >&2
+            return 1
+        fi
+        KATA_VF_START=$((NUM_VFS - KATA_NUM_VFS))
+        KATA_VF_END=$((NUM_VFS - 1))
+        # PF0 VF1 is reserved for DPF management and regular PF0 resources
+        # start at VF2, so Kata must leave at least one regular PF0 VF.
+        if [ "${KATA_SRIOV_PF_INDEX}" = "0" ] && [ "${KATA_VF_START}" -lt 3 ]; then
+            echo "Error: PF0 Kata allocation leaves no regular VF after reserving management VF1; require NUM_VFS - KATA_NUM_VFS >= 3" >&2
+            return 1
+        fi
+    fi
     KATA_NAD_NAME=${KATA_NAD_NAME:-dpf-ovn-kubernetes-${KATA_RUNTIME_CLASS}}
     KATA_INJECTOR_RESOURCE_NAME=${KATA_INJECTOR_RESOURCE_NAME:-${SRIOV_DP_RESOURCE_PREFIX}/${KATA_SRIOV_DP_CONFIG_NAME}}
     KATA_TEST_REPLICAS=${KATA_TEST_REPLICAS:-1}
