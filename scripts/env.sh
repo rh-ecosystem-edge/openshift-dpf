@@ -279,16 +279,40 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
         unset _ocp_base_version
     fi
 
-    # Kata defaults for .env files generated before these variables existed.
+    # Optional Argus and Kata defaults. The PF assignment is automatic, while
+    # the scheduler resource name is independent of its physical PF.
+    ARGUS_ENABLED=${ARGUS_ENABLED:-false}
+    if [ "${ARGUS_ENABLED}" != "true" ] && [ "${ARGUS_ENABLED}" != "false" ]; then
+        echo "Error: ARGUS_ENABLED must be true or false (got '${ARGUS_ENABLED}')" >&2
+        return 1
+    fi
     KATA_ENABLED=${KATA_ENABLED:-false}
     KATA_RUNTIME_CLASS=${KATA_RUNTIME_CLASS:-kata-coldplug}
-    KATA_SRIOV_DP_CONFIG_NAME=${KATA_SRIOV_DP_CONFIG_NAME:-bf3-p1-vfs-kata}
-    KATA_SRIOV_PF_INDEX=${KATA_SRIOV_PF_INDEX:-1}
+    KATA_SRIOV_PF_INDEX=${KATA_SRIOV_PF_INDEX:-auto}
+    if [ "${KATA_SRIOV_PF_INDEX}" = "auto" ]; then
+        if [ "${ARGUS_ENABLED}" = "true" ] && [ "${KATA_ENABLED}" = "true" ]; then
+            KATA_SRIOV_PF_INDEX=0
+        else
+            KATA_SRIOV_PF_INDEX=1
+        fi
+    elif [ "${KATA_SRIOV_PF_INDEX}" != "0" ] && [ "${KATA_SRIOV_PF_INDEX}" != "1" ]; then
+        echo "Error: KATA_SRIOV_PF_INDEX must be auto, 0, or 1 (got '${KATA_SRIOV_PF_INDEX}')" >&2
+        return 1
+    fi
+    if [ "${ARGUS_ENABLED}" = "true" ] && [ "${KATA_ENABLED}" = "true" ] \
+        && [ "${KATA_SRIOV_PF_INDEX}" != "0" ]; then
+        echo "Error: Argus cannot inspect Kata VFs on PF1. Set KATA_SRIOV_PF_INDEX=auto or 0 when ARGUS_ENABLED=true and KATA_ENABLED=true." >&2
+        return 1
+    fi
+    KATA_SRIOV_DP_CONFIG_NAME=${KATA_SRIOV_DP_CONFIG_NAME:-bf3-vfs-kata}
     KATA_NUM_VFS=${KATA_NUM_VFS:-24}
     KATA_NAD_NAME=${KATA_NAD_NAME:-dpf-ovn-kubernetes-${KATA_RUNTIME_CLASS}}
     KATA_INJECTOR_RESOURCE_NAME=${KATA_INJECTOR_RESOURCE_NAME:-${SRIOV_DP_RESOURCE_PREFIX}/${KATA_SRIOV_DP_CONFIG_NAME}}
     KATA_TEST_REPLICAS=${KATA_TEST_REPLICAS:-1}
     KATA_SKIP_RHCOS_LAYER=${KATA_SKIP_RHCOS_LAYER:-false}
+    ARGUS_CHART_VERSION=${ARGUS_CHART_VERSION:-1.5.0}
+    ARGUS_HELM_REPO_URL=${ARGUS_HELM_REPO_URL:-${DPF_HELM_REPO_URL}}
+    ARGUS_IMAGE=${ARGUS_IMAGE:-nvcr.io/nvidia/doca/doca_argus:1.5.0-doca3.5.0}
 
     resolve_dpf_storage_class
 fi

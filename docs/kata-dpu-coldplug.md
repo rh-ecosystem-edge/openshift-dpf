@@ -1,6 +1,6 @@
 # Kata DPU cold-plug: setup, debug, and runbook
 
-Notes from bringing up `kata-dpu-test` on a DPU worker (`worker-303ea712f378` / nvd-srv-45). Host-side pieces come from [jensfr/rhcos-layer-kata-dpu](https://github.com/jensfr/rhcos-layer-kata-dpu/tree/dpu-coldplug-nvidia-ref). DPF-side pieces (PF1 kata VF pool, OVN injector mapping) live in this repo.
+Notes from bringing up `kata-dpu-test` on a DPU worker (`worker-303ea712f378` / nvd-srv-45). Host-side pieces come from [jensfr/rhcos-layer-kata-dpu](https://github.com/jensfr/rhcos-layer-kata-dpu/tree/dpu-coldplug-nvidia-ref). DPF-side pieces (Kata VF pool, OVN injector mapping) live in this repo.
 
 **Do not use `ovs-ctl` to restart OVS on DPUs.** It wipes the database. Use:
 
@@ -16,7 +16,7 @@ kd debug node/<dpu-node> -- chroot /host systemctl restart ovs-vswitchd
 ## How it is supposed to work
 
 1. DPF creates SR-IOV VFs on BlueField. `mlx5_core` binds and each VF gets a netdev.
-2. Device plugin advertises regular RDMA VFs (`openshift.io/bf3_vfs`) and, when `KATA_ENABLED=true`, a non-RDMA PF1 kata pool (`openshift.io/bf3-p1-vfs-kata`).
+2. Device plugin advertises regular RDMA VFs (`openshift.io/bf3_vfs`) and, when `KATA_ENABLED=true`, a non-RDMA Kata pool (`openshift.io/bf3-vfs-kata`).
 3. Pod uses `runtimeClassName: kata-coldplug`. The OVN injector adds **one** VF from the kata pool and sets the kata NAD.
 4. OVN injector webhook sets `v1.multus-cni.io/default-network` to the kata NAD.
 5. CNI moves the VF **as a netdev** into the sandbox netns (VF must still be on `mlx5_core`).
@@ -34,15 +34,18 @@ The kata pool omits `isRdma` so host uverbs are not mounted into the VM. Regular
 ```bash
 KATA_ENABLED=true
 KATA_RUNTIME_CLASS=kata-coldplug
-KATA_SRIOV_DP_CONFIG_NAME=bf3-p1-vfs-kata
+KATA_SRIOV_PF_INDEX=auto
+KATA_SRIOV_DP_CONFIG_NAME=bf3-vfs-kata
 KATA_NUM_VFS=24
-KATA_INJECTOR_RESOURCE_NAME=openshift.io/bf3-p1-vfs-kata
+KATA_INJECTOR_RESOURCE_NAME=openshift.io/bf3-vfs-kata
 KATA_NAD_NAME=dpf-ovn-kubernetes-kata-coldplug
 KATA_RHCOS_LAYER_IMAGE=quay.io/jensfr/rhcos-kata-dpu@sha256:ce05dea3e0214c7bf7864cef1110e414a6419430fe2f55b5e9c848b71b799a8f
 KATA_SKIP_RHCOS_LAYER=false
 ```
 
-`make all` with `KATA_ENABLED=false` does not split PF1. With `KATA_ENABLED=true`, `make all` splits PF1, creates the kata NAD, and runs `enable-kata` last.
+The Kata pool name does not encode its PF. With `ARGUS_ENABLED=true` and `KATA_ENABLED=true`, `KATA_SRIOV_PF_INDEX=auto` selects PF0; the pool takes the highest indices (`NUM_VFS-KATA_NUM_VFS` through `NUM_VFS-1`). With defaults, Kata uses PF0 VFs 22–45, regular PF0 services use VFs 2–21, and management VF1 stays reserved. Otherwise, `auto` selects PF1.
+
+`make all` with `KATA_ENABLED=false` does not add a Kata pool. With `KATA_ENABLED=true`, `make all` splits the selected PF, creates the Kata NAD, and runs `enable-kata` last. An existing Kata pool on a different PF or range is rejected; active pools are not migrated by this workflow.
 
 The kata NAD `resourceName` must be the kata pool. Regular pods keep `dpf-ovn-kubernetes` / `openshift.io/bf3_vfs`.
 
@@ -61,7 +64,7 @@ On an already-installed cluster:
 ```bash
 KATA_ENABLED=true
 make enable-ovn-injector   # webhook + kata NAD
-make enable-kata           # PF1 kata VF pool (if missing), OSC, inert KataConfig, worker-dpu MCs, RuntimeClass
+make enable-kata           # selected-PF Kata VF pool (if missing), OSC, inert KataConfig, worker-dpu MCs, RuntimeClass
 ```
 
 `enable-kata` updates `NodeSRIOVDevicePluginConfig` when the kata VF pool is missing (for example after an install with `KATA_ENABLED=false`). You can still run `make prepare-dpu-files` alone to regenerate manifests without applying.
@@ -184,7 +187,7 @@ Injector mapping (`scripts/enable-ovn-injector.sh`, when `KATA_ENABLED=true`):
 ```text
 runtimeClass  = ${KATA_RUNTIME_CLASS}              # kata-coldplug
 nadName       = ${KATA_NAD_NAME}
-resourceName  = ${KATA_INJECTOR_RESOURCE_NAME}     # openshift.io/bf3-p1-vfs-kata
+resourceName  = ${KATA_INJECTOR_RESOURCE_NAME}     # openshift.io/bf3-vfs-kata
 ```
 
 Pod after admit should have:
