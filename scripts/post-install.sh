@@ -319,31 +319,6 @@ function render_dpudeployment() {
         "<ARGUS_SERVICE_ENTRY>" "${argus_service_entry}"
 }
 
-function preserve_installed_argus_service() {
-    [ "${ARGUS_ENABLED}" = "true" ] && return 0
-    local deployment_file="${GENERATED_POST_INSTALL_DIR}/dpudeployment.yaml"
-    [ -f "${deployment_file}" ] || return 0
-
-    local argus_template argus_configuration
-    if ! argus_template=$(oc get dpudeployment dpudeployment -n dpf-operator-system \
-        -o jsonpath='{.spec.services.argus.serviceTemplate}' 2>&1); then
-        if grep -qiE 'notfound|not found' <<< "${argus_template}"; then
-            return 0
-        fi
-        log "ERROR" "Unable to inspect existing DPUDeployment to preserve its Argus service entry: ${argus_template}"
-        return 1
-    fi
-    [ -n "${argus_template}" ] || return 0
-    argus_configuration=$(oc get dpudeployment dpudeployment -n dpf-operator-system \
-        -o jsonpath='{.spec.services.argus.serviceConfiguration}' 2>/dev/null || true)
-    if [ -z "${argus_configuration}" ]; then
-        log "ERROR" "The installed Argus DPUDeployment entry has no serviceConfiguration; refusing to drop it"
-        return 1
-    fi
-    render_dpudeployment "${argus_template}" "${argus_configuration}"
-    log "INFO" "Preserving the installed Argus DPUDeployment service entry while ARGUS_ENABLED=false"
-}
-
 # Function to prepare post-installation manifests
 function prepare_post_installation() {
     log [INFO] "Starting post-installation manifest preparation..."
@@ -403,7 +378,6 @@ function apply_post_installation() {
     # valid for a fresh install; a present pool must already use the desired
     # PF-independent name and exact PF/VF range.
     inspect_existing_kata_sriov_pool || return 1
-    preserve_installed_argus_service || return 1
 
     # Wait for DPF provisioning webhook to be ready before applying manifests
     log [INFO] "Waiting for DPF provisioning webhook service to be ready..."
@@ -543,7 +517,6 @@ function redeploy() {
 
     get_kubeconfig
     inspect_existing_kata_sriov_pool || return 1
-    preserve_installed_argus_service || return 1
 
     log [INFO] "Deleting existing manifests..."
     oc delete -f "${GENERATED_POST_INSTALL_DIR}/dpudeployment.yaml" || true
