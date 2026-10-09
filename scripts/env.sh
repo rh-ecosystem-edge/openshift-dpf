@@ -279,8 +279,8 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
         unset _ocp_base_version
     fi
 
-    # Optional Argus and Kata defaults. Argus selects PF0 even when Kata is
-    # disabled, so a later Kata enablement uses an inspectable PF by default.
+    # Optional Argus and Kata defaults. Kata defaults to PF0 independently of
+    # Argus; PF1 remains available for Kata-only deployments.
     # The scheduler resource name is independent of its physical PF.
     ARGUS_ENABLED=${ARGUS_ENABLED:-false}
     if [ "${ARGUS_ENABLED}" != "true" ] && [ "${ARGUS_ENABLED}" != "false" ]; then
@@ -289,24 +289,18 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     fi
     KATA_ENABLED=${KATA_ENABLED:-false}
     KATA_RUNTIME_CLASS=${KATA_RUNTIME_CLASS:-kata-coldplug}
-    KATA_SRIOV_PF_INDEX=${KATA_SRIOV_PF_INDEX:-auto}
-    if [ "${KATA_SRIOV_PF_INDEX}" = "auto" ]; then
-        if [ "${ARGUS_ENABLED}" = "true" ]; then
-            KATA_SRIOV_PF_INDEX=0
-        else
-            KATA_SRIOV_PF_INDEX=1
-        fi
-    elif [ "${KATA_SRIOV_PF_INDEX}" != "0" ] && [ "${KATA_SRIOV_PF_INDEX}" != "1" ]; then
-        echo "Error: KATA_SRIOV_PF_INDEX must be auto, 0, or 1 (got '${KATA_SRIOV_PF_INDEX}')" >&2
+    KATA_SRIOV_PF_INDEX=${KATA_SRIOV_PF_INDEX:-0}
+    if [ "${KATA_SRIOV_PF_INDEX}" != "0" ] && [ "${KATA_SRIOV_PF_INDEX}" != "1" ]; then
+        echo "Error: KATA_SRIOV_PF_INDEX must be 0 or 1 (got '${KATA_SRIOV_PF_INDEX}')" >&2
         return 1
     fi
     if [ "${ARGUS_ENABLED}" = "true" ] && [ "${KATA_ENABLED}" = "true" ] \
         && [ "${KATA_SRIOV_PF_INDEX}" != "0" ]; then
-        echo "Error: Argus cannot inspect Kata VFs on PF1. Set KATA_SRIOV_PF_INDEX=auto or 0 when ARGUS_ENABLED=true and KATA_ENABLED=true." >&2
+        echo "Error: Argus cannot inspect Kata VFs on PF1. Set KATA_SRIOV_PF_INDEX=0 when ARGUS_ENABLED=true and KATA_ENABLED=true." >&2
         return 1
     fi
     KATA_SRIOV_DP_CONFIG_NAME=${KATA_SRIOV_DP_CONFIG_NAME:-bf3-vfs-kata}
-    KATA_NUM_VFS=${KATA_NUM_VFS:-24}
+    KATA_NUM_VFS=${KATA_NUM_VFS:-8}
     KATA_NAD_NAME=${KATA_NAD_NAME:-dpf-ovn-kubernetes-${KATA_RUNTIME_CLASS}}
     KATA_INJECTOR_RESOURCE_NAME=${KATA_INJECTOR_RESOURCE_NAME:-${SRIOV_DP_RESOURCE_PREFIX}/${KATA_SRIOV_DP_CONFIG_NAME}}
     KATA_TEST_REPLICAS=${KATA_TEST_REPLICAS:-1}

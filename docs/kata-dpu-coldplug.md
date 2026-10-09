@@ -34,16 +34,16 @@ The kata pool omits `isRdma` so host uverbs are not mounted into the VM. Regular
 ```bash
 KATA_ENABLED=true
 KATA_RUNTIME_CLASS=kata-coldplug
-KATA_SRIOV_PF_INDEX=auto
+KATA_SRIOV_PF_INDEX=0
 KATA_SRIOV_DP_CONFIG_NAME=bf3-vfs-kata
-KATA_NUM_VFS=24
+KATA_NUM_VFS=8
 KATA_INJECTOR_RESOURCE_NAME=openshift.io/bf3-vfs-kata
 KATA_NAD_NAME=dpf-ovn-kubernetes-kata-coldplug
 KATA_RHCOS_LAYER_IMAGE=quay.io/jensfr/rhcos-kata-dpu@sha256:ce05dea3e0214c7bf7864cef1110e414a6419430fe2f55b5e9c848b71b799a8f
 KATA_SKIP_RHCOS_LAYER=false
 ```
 
-The Kata pool name does not encode its PF. `KATA_SRIOV_PF_INDEX=auto` selects PF0 whenever `ARGUS_ENABLED=true`, even if Kata is currently disabled; otherwise, `auto` selects PF1. When both features are enabled, the pool takes the highest indices (`NUM_VFS-KATA_NUM_VFS` through `NUM_VFS-1`) on PF0 so Argus can inspect those VFs. With defaults, Kata uses PF0 VFs 22–45, regular PF0 services use VFs 2–21, and management VF1 stays reserved.
+The Kata pool name does not encode its PF. Kata uses PF0 by default, independently of Argus. Kata-only deployments may set `KATA_SRIOV_PF_INDEX=1`; PF1 is rejected when Argus and Kata are both enabled. The pool takes the highest indices (`NUM_VFS-KATA_NUM_VFS` through `NUM_VFS-1`). With defaults, Kata uses PF0 VFs 38–45, regular PF0 services use VFs 2–37, and management VF1 stays reserved.
 
 `make all` with `KATA_ENABLED=false` does not add a Kata pool. With `KATA_ENABLED=true`, `make all` splits the selected PF, creates the Kata NAD, and runs `enable-kata` last. An existing Kata pool on a different PF or range is rejected; active pools are not migrated by this workflow.
 
