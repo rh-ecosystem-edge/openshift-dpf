@@ -49,8 +49,10 @@ _delete_vms_by_prefix() {
     fi
     log "INFO" "Deleting VMs matching prefix ${prefix}..."
     local vms
+    local vms_raw
     # Use exact pattern matching to avoid deleting VMs with similar prefixes
-    vms=$(lvirsh list --all | awk '{print $2}' | grep "^${prefix}" || true)
+    vms_raw=$(lvirsh list --all || true)
+    vms=$(echo "${vms_raw}" | awk '{print $2}' | grep "^${prefix}" || true)
     
     local failed=0
     for vm in ${vms}; do
