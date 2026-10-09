@@ -25,6 +25,7 @@ kubeconfig*
 *.log
 *.tmp
 test-charts/
+__pycache__/
 
 # Repos
 cluster-nfd-operator
@@ -60,8 +61,10 @@ DPF-V25.7-CHANGES-SUMMARY.md
 V25.7-FINAL-SUMMARY.md
 
 
-# Claude directory
+# Local tool state
 .claude/
+.cursor/
+.history/
 
 # Verification scripts
 verify-v25.7.sh
