@@ -28,7 +28,6 @@ spec:
     doca-telemetry-service:
       serviceTemplate: doca-telemetry-service
       serviceConfiguration: doca-telemetry-service
-<ARGUS_SERVICE_ENTRY>
   serviceChains:
     switches:
       - ports:

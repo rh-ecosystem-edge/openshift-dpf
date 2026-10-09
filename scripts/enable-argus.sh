@@ -31,8 +31,7 @@ function enable_argus() {
     apply_manifest "${GENERATED_POST_INSTALL_DIR}/argus-02-configuration.yaml" "true"
 
     log "INFO" "Adding Argus to DPUDeployment dpudeployment..."
-    oc patch dpudeployment dpudeployment -n dpf-operator-system --type=merge \
-        -p '{"spec":{"services":{"argus":{"serviceTemplate":"argus","serviceConfiguration":"argus"}}}}'
+    patch_argus_service
     log "INFO" "Argus service enabled"
 }
 

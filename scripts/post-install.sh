@@ -302,21 +302,9 @@ function render_argus_manifests() {
         "<ARGUS_IMAGE>" "${ARGUS_IMAGE}"
 }
 
-function render_dpudeployment() {
-    local argus_template="${1:-}"
-    local argus_configuration="${2:-}"
-    local argus_service_entry=""
-    local deployment_file="${GENERATED_POST_INSTALL_DIR}/dpudeployment.yaml"
-    if [ -n "${argus_template}" ] && [ -n "${argus_configuration}" ]; then
-        argus_service_entry="    argus:
-      serviceTemplate: ${argus_template}
-      serviceConfiguration: ${argus_configuration}"
-    fi
-    update_file_multi_replace \
-        "${POST_INSTALL_DIR}/dpudeployment.yaml" \
-        "${deployment_file}" \
-        "<SRIOV_DP_CONFIG_CR_NAME>" "${SRIOV_DP_CONFIG_CR_NAME}" \
-        "<ARGUS_SERVICE_ENTRY>" "${argus_service_entry}"
+function patch_argus_service() {
+    oc patch dpudeployment dpudeployment -n dpf-operator-system --type=merge \
+        -p '{"spec":{"services":{"argus":{"serviceTemplate":"argus","serviceConfiguration":"argus"}}}}'
 }
 
 # Function to prepare post-installation manifests
@@ -344,11 +332,10 @@ function prepare_post_installation() {
 
     # Process DPUDeployment template
     if [ -f "${POST_INSTALL_DIR}/dpudeployment.yaml" ]; then
-        if [ "${ARGUS_ENABLED}" = "true" ]; then
-            render_dpudeployment "argus" "argus"
-        else
-            render_dpudeployment
-        fi
+        update_file_multi_replace \
+            "${POST_INSTALL_DIR}/dpudeployment.yaml" \
+            "${GENERATED_POST_INSTALL_DIR}/dpudeployment.yaml" \
+            "<SRIOV_DP_CONFIG_CR_NAME>" "${SRIOV_DP_CONFIG_CR_NAME}"
     fi
 
     # Process NodeSRIOVDevicePluginConfig template
@@ -448,6 +435,10 @@ function apply_post_installation() {
     if [ -f "${GENERATED_POST_INSTALL_DIR}/dpudeployment.yaml" ]; then
         log [INFO] "Applying dpudeployment.yaml (last manifest)..."
         apply_manifest "${GENERATED_POST_INSTALL_DIR}/dpudeployment.yaml" "true"
+        if [ "${ARGUS_ENABLED}" = "true" ]; then
+            log [INFO] "Adding Argus to DPUDeployment..."
+            patch_argus_service
+        fi
     else
         log [WARN] "dpudeployment.yaml not found in ${GENERATED_POST_INSTALL_DIR}"
     fi
