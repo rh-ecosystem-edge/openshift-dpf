@@ -279,8 +279,9 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
         unset _ocp_base_version
     fi
 
-    # Optional Argus and Kata defaults. The PF assignment is automatic, while
-    # the scheduler resource name is independent of its physical PF.
+    # Optional Argus and Kata defaults. Argus selects PF0 even when Kata is
+    # disabled, so a later Kata enablement uses an inspectable PF by default.
+    # The scheduler resource name is independent of its physical PF.
     ARGUS_ENABLED=${ARGUS_ENABLED:-false}
     if [ "${ARGUS_ENABLED}" != "true" ] && [ "${ARGUS_ENABLED}" != "false" ]; then
         echo "Error: ARGUS_ENABLED must be true or false (got '${ARGUS_ENABLED}')" >&2
@@ -290,7 +291,7 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     KATA_RUNTIME_CLASS=${KATA_RUNTIME_CLASS:-kata-coldplug}
     KATA_SRIOV_PF_INDEX=${KATA_SRIOV_PF_INDEX:-auto}
     if [ "${KATA_SRIOV_PF_INDEX}" = "auto" ]; then
-        if [ "${ARGUS_ENABLED}" = "true" ] && [ "${KATA_ENABLED}" = "true" ]; then
+        if [ "${ARGUS_ENABLED}" = "true" ]; then
             KATA_SRIOV_PF_INDEX=0
         else
             KATA_SRIOV_PF_INDEX=1

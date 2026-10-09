@@ -43,7 +43,7 @@ KATA_RHCOS_LAYER_IMAGE=quay.io/jensfr/rhcos-kata-dpu@sha256:ce05dea3e0214c7bf786
 KATA_SKIP_RHCOS_LAYER=false
 ```
 
-The Kata pool name does not encode its PF. With `ARGUS_ENABLED=true` and `KATA_ENABLED=true`, `KATA_SRIOV_PF_INDEX=auto` selects PF0; the pool takes the highest indices (`NUM_VFS-KATA_NUM_VFS` through `NUM_VFS-1`). With defaults, Kata uses PF0 VFs 22–45, regular PF0 services use VFs 2–21, and management VF1 stays reserved. Otherwise, `auto` selects PF1.
+The Kata pool name does not encode its PF. `KATA_SRIOV_PF_INDEX=auto` selects PF0 whenever `ARGUS_ENABLED=true`, even if Kata is currently disabled; otherwise, `auto` selects PF1. When both features are enabled, the pool takes the highest indices (`NUM_VFS-KATA_NUM_VFS` through `NUM_VFS-1`) on PF0 so Argus can inspect those VFs. With defaults, Kata uses PF0 VFs 22–45, regular PF0 services use VFs 2–21, and management VF1 stays reserved.
 
 `make all` with `KATA_ENABLED=false` does not add a Kata pool. With `KATA_ENABLED=true`, `make all` splits the selected PF, creates the Kata NAD, and runs `enable-kata` last. An existing Kata pool on a different PF or range is rejected; active pools are not migrated by this workflow.
 
