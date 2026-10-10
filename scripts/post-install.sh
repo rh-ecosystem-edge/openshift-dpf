@@ -17,6 +17,8 @@ GENERATED_DIR=${GENERATED_DIR:-"$MANIFESTS_DIR/generated"}
 GENERATED_POST_INSTALL_DIR="${GENERATED_DIR}/post-install"
 OBSERVABILITY_DIR="${MANIFESTS_DIR}/observability"
 
+source "$(dirname "${BASH_SOURCE[0]}")/enable-argus.sh"
+
 # BFB Configuration with defaults
 BFB_URL=${BFB_URL:-"http://10.8.2.236/bfb/rhcos_4.19.0-ec.4_installer_2025-04-23_07-48-42.bfb"}
 
@@ -222,33 +224,6 @@ function update_nodesriov_device_plugin_config() {
         "<KATA_SRIOV_POOL>" "${kata_sriov_pool}"
 }
 
-function render_argus_manifests() {
-    local template_src="${MANIFESTS_DIR}/argus/01-servicetemplate.yaml"
-    local config_src="${MANIFESTS_DIR}/argus/02-configuration.yaml"
-    local template_dst="${GENERATED_POST_INSTALL_DIR}/argus-01-servicetemplate.yaml"
-    local config_dst="${GENERATED_POST_INSTALL_DIR}/argus-02-configuration.yaml"
-
-    # Remove output produced by the former standalone Argus flow (including
-    # its demo/log-cleaner manifests) before generating the opt-in service.
-    rm -rf "${GENERATED_DIR}/argus"
-    rm -f "${GENERATED_POST_INSTALL_DIR}"/argus-*.yaml
-    if [ "${ARGUS_ENABLED}" != "true" ]; then
-        log "INFO" "ARGUS_ENABLED=false: removing generated Argus manifests and skipping Argus"
-        return 0
-    fi
-
-    update_file_multi_replace "${template_src}" "${template_dst}" \
-        "<ARGUS_HELM_REPO_URL>" "${ARGUS_HELM_REPO_URL}" \
-        "<ARGUS_CHART_VERSION>" "${ARGUS_CHART_VERSION}"
-    update_file_multi_replace "${config_src}" "${config_dst}" \
-        "<ARGUS_IMAGE>" "${ARGUS_IMAGE}"
-}
-
-function patch_argus_service() {
-    oc patch dpudeployment dpudeployment -n dpf-operator-system --type=merge \
-        -p '{"spec":{"services":{"argus":{"serviceTemplate":"argus","serviceConfiguration":"argus"}}}}'
-}
-
 # Function to prepare post-installation manifests
 function prepare_post_installation() {
     log [INFO] "Starting post-installation manifest preparation..."
@@ -354,6 +329,10 @@ function apply_post_installation() {
             local filename=$(basename "$file")
             # Skip dpudeployment.yaml as it will be applied last
             if [[ "${filename}" != "dpudeployment.yaml" ]]; then
+                # Argus manifests are applied through enable-argus.sh below.
+                if [[ "${filename}" == argus-*.yaml ]]; then
+                    continue
+                fi
                 # Special handling for SCC - must be applied to hosted cluster
                 if [[ "${filename}" == "dpu-services-scc.yaml" ]]; then
                     if ! ensure_hosted_kubeconfig; then
@@ -372,6 +351,8 @@ function apply_post_installation() {
             fi
         fi
     done
+
+    apply_argus_manifests
 
     # Apply dpudeployment.yaml last if it exists, with apply_always=true
     if [ -f "${GENERATED_POST_INSTALL_DIR}/dpudeployment.yaml" ]; then

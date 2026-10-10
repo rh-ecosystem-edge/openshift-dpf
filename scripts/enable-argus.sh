@@ -4,7 +4,49 @@
 set -e
 set -o pipefail
 
-source "$(dirname "${BASH_SOURCE[0]}")/post-install.sh"
+if ! declare -F get_kubeconfig >/dev/null; then
+    source "$(dirname "${BASH_SOURCE[0]}")/cluster.sh"
+fi
+
+MANIFESTS_DIR=${MANIFESTS_DIR:-"manifests"}
+GENERATED_DIR=${GENERATED_DIR:-"${MANIFESTS_DIR}/generated"}
+GENERATED_POST_INSTALL_DIR=${GENERATED_POST_INSTALL_DIR:-"${GENERATED_DIR}/post-install"}
+
+function render_argus_manifests() {
+    local template_src="${MANIFESTS_DIR}/argus/01-servicetemplate.yaml"
+    local config_src="${MANIFESTS_DIR}/argus/02-configuration.yaml"
+    local template_dst="${GENERATED_POST_INSTALL_DIR}/argus-01-servicetemplate.yaml"
+    local config_dst="${GENERATED_POST_INSTALL_DIR}/argus-02-configuration.yaml"
+
+    mkdir -p "${GENERATED_POST_INSTALL_DIR}"
+    # Remove output produced by the former standalone Argus flow (including
+    # its demo/log-cleaner manifests) before generating the opt-in service.
+    rm -rf "${GENERATED_DIR}/argus"
+    rm -f "${GENERATED_POST_INSTALL_DIR}"/argus-*.yaml
+    if [ "${ARGUS_ENABLED}" != "true" ]; then
+        log "INFO" "ARGUS_ENABLED=false: removing generated Argus manifests and skipping Argus"
+        return 0
+    fi
+
+    update_file_multi_replace "${template_src}" "${template_dst}" \
+        "<ARGUS_HELM_REPO_URL>" "${ARGUS_HELM_REPO_URL}" \
+        "<ARGUS_CHART_VERSION>" "${ARGUS_CHART_VERSION}"
+    update_file_multi_replace "${config_src}" "${config_dst}" \
+        "<ARGUS_IMAGE>" "${ARGUS_IMAGE}"
+}
+
+function apply_argus_manifests() {
+    [ "${ARGUS_ENABLED}" = "true" ] || return 0
+
+    log "INFO" "Applying Argus DPUServiceTemplate and DPUServiceConfiguration..."
+    retry 5 30 apply_manifest "${GENERATED_POST_INSTALL_DIR}/argus-01-servicetemplate.yaml" "true"
+    retry 5 30 apply_manifest "${GENERATED_POST_INSTALL_DIR}/argus-02-configuration.yaml" "true"
+}
+
+function patch_argus_service() {
+    oc patch dpudeployment dpudeployment -n dpf-operator-system --type=merge \
+        -p '{"spec":{"services":{"argus":{"serviceTemplate":"argus","serviceConfiguration":"argus"}}}}'
+}
 
 function enable_argus() {
     if [ "${ARGUS_ENABLED}" != "true" ]; then
@@ -19,9 +61,7 @@ function enable_argus() {
     fi
 
     render_argus_manifests
-    log "INFO" "Applying Argus DPUServiceTemplate and DPUServiceConfiguration..."
-    apply_manifest "${GENERATED_POST_INSTALL_DIR}/argus-01-servicetemplate.yaml" "true"
-    apply_manifest "${GENERATED_POST_INSTALL_DIR}/argus-02-configuration.yaml" "true"
+    apply_argus_manifests
 
     log "INFO" "Adding Argus to DPUDeployment dpudeployment..."
     patch_argus_service
