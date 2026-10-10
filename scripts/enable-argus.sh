@@ -12,11 +12,6 @@ MANIFESTS_DIR=${MANIFESTS_DIR:-"manifests"}
 GENERATED_DIR=${GENERATED_DIR:-"${MANIFESTS_DIR}/generated"}
 GENERATED_POST_INSTALL_DIR=${GENERATED_POST_INSTALL_DIR:-"${GENERATED_DIR}/post-install"}
 
-function clean_argus_manifests() {
-    rm -rf "${GENERATED_DIR}/argus"
-    rm -f "${GENERATED_POST_INSTALL_DIR}"/argus-*.yaml
-}
-
 function render_argus_manifests() {
     local template_src="${MANIFESTS_DIR}/argus/01-servicetemplate.yaml"
     local config_src="${MANIFESTS_DIR}/argus/02-configuration.yaml"
@@ -24,10 +19,6 @@ function render_argus_manifests() {
     local config_dst="${GENERATED_POST_INSTALL_DIR}/argus-02-configuration.yaml"
 
     mkdir -p "${GENERATED_POST_INSTALL_DIR}"
-    # Remove output produced by the former standalone Argus flow (including
-    # its demo/log-cleaner manifests) before generating the opt-in service.
-    clean_argus_manifests
-
     update_file_multi_replace "${template_src}" "${template_dst}" \
         "<ARGUS_HELM_REPO_URL>" "${ARGUS_HELM_REPO_URL}" \
         "<ARGUS_CHART_VERSION>" "${ARGUS_CHART_VERSION}"

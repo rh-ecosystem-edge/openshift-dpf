@@ -252,8 +252,6 @@ function prepare_post_installation() {
 
     if [ "${ARGUS_ENABLED}" = "true" ]; then
         render_argus_manifests
-    else
-        clean_argus_manifests
     fi
 
     # Process DPUDeployment template
