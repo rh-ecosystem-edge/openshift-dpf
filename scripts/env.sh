@@ -120,6 +120,13 @@ validate_env_test_files() {
     _do_validate_env_files "$ci_dir/env.test.defaults" "$ci_dir/env.test.template" "$ci_dir/env.test.required" ".env.test"
 }
 
+require_argus_enabled() {
+    if [ "${ARGUS_ENABLED:-false}" != "true" ]; then
+        echo "Error: ARGUS_ENABLED must be true to run make enable-argus. Set it and regenerate .env." >&2
+        return 1
+    fi
+}
+
 # _do_generate_env <defaults_file> <required_file> <template_file> <output_file> <force>
 _do_generate_env() {
     local defaults_file="$1" required_file="$2" template_file="$3"
@@ -289,6 +296,14 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     KATA_INJECTOR_RESOURCE_NAME=${KATA_INJECTOR_RESOURCE_NAME:-${SRIOV_DP_RESOURCE_PREFIX}/${KATA_SRIOV_DP_CONFIG_NAME}}
     KATA_TEST_REPLICAS=${KATA_TEST_REPLICAS:-1}
     KATA_SKIP_RHCOS_LAYER=${KATA_SKIP_RHCOS_LAYER:-false}
+    ARGUS_ENABLED=${ARGUS_ENABLED:-false}
+    if [ "${ARGUS_ENABLED}" != "true" ] && [ "${ARGUS_ENABLED}" != "false" ]; then
+        echo "Error: ARGUS_ENABLED must be true or false (got '${ARGUS_ENABLED}')" >&2
+        return 1
+    fi
+    ARGUS_CHART_VERSION=${ARGUS_CHART_VERSION:-1.5.0}
+    ARGUS_HELM_REPO_URL=${ARGUS_HELM_REPO_URL:-${DPF_HELM_REPO_URL}}
+    ARGUS_IMAGE=${ARGUS_IMAGE:-nvcr.io/nvidia/doca/doca_argus:1.5.0-doca3.5.0}
 
     resolve_dpf_storage_class
 fi

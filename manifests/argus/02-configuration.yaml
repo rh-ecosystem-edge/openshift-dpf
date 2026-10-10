@@ -1,0 +1,16 @@
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceConfiguration
+metadata:
+  name: argus
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: argus
+  serviceConfiguration:
+    helmChart:
+      values:
+        containerImage: <ARGUS_IMAGE>
+        config:
+          isLocalPath: false
+          content:
+            apsh_config:
+              auto_scan: true

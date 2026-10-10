@@ -17,6 +17,8 @@ GENERATED_DIR=${GENERATED_DIR:-"$MANIFESTS_DIR/generated"}
 GENERATED_POST_INSTALL_DIR="${GENERATED_DIR}/post-install"
 OBSERVABILITY_DIR="${MANIFESTS_DIR}/observability"
 
+source "$(dirname "${BASH_SOURCE[0]}")/enable-argus.sh"
+
 # BFB Configuration with defaults
 BFB_URL=${BFB_URL:-"http://10.8.2.236/bfb/rhcos_4.19.0-ec.4_installer_2025-04-23_07-48-42.bfb"}
 
@@ -248,6 +250,10 @@ function prepare_post_installation() {
         log [INFO] "Skipping DPUServiceTemplate overrides (GENERATE_DPUSERVICETEMPLATE_OVERRIDES=${GENERATE_DPUSERVICETEMPLATE_OVERRIDES:-false})"
     fi
 
+    if [ "${ARGUS_ENABLED}" = "true" ]; then
+        render_argus_manifests
+    fi
+
     # Process DPUDeployment template
     if [ -f "${POST_INSTALL_DIR}/dpudeployment.yaml" ]; then
         update_file_multi_replace \
@@ -325,6 +331,10 @@ function apply_post_installation() {
             local filename=$(basename "$file")
             # Skip dpudeployment.yaml as it will be applied last
             if [[ "${filename}" != "dpudeployment.yaml" ]]; then
+                # Argus manifests are applied through enable-argus.sh below.
+                if [[ "${filename}" == argus-*.yaml ]]; then
+                    continue
+                fi
                 # Special handling for SCC - must be applied to hosted cluster
                 if [[ "${filename}" == "dpu-services-scc.yaml" ]]; then
                     if ! ensure_hosted_kubeconfig; then
@@ -344,10 +354,18 @@ function apply_post_installation() {
         fi
     done
 
+    if [ "${ARGUS_ENABLED}" = "true" ]; then
+        apply_argus_manifests
+    fi
+
     # Apply dpudeployment.yaml last if it exists, with apply_always=true
     if [ -f "${GENERATED_POST_INSTALL_DIR}/dpudeployment.yaml" ]; then
         log [INFO] "Applying dpudeployment.yaml (last manifest)..."
         apply_manifest "${GENERATED_POST_INSTALL_DIR}/dpudeployment.yaml" "true"
+        if [ "${ARGUS_ENABLED}" = "true" ]; then
+            log [INFO] "Adding Argus to DPUDeployment..."
+            patch_argus_service
+        fi
     else
         log [WARN] "dpudeployment.yaml not found in ${GENERATED_POST_INSTALL_DIR}"
     fi
@@ -414,6 +432,8 @@ function apply_observability() {
 function redeploy() {
     log [INFO] "Redeploying DPU..."
     prepare_post_installation
+
+    get_kubeconfig
 
     log [INFO] "Deleting existing manifests..."
     oc delete -f "${GENERATED_POST_INSTALL_DIR}/dpudeployment.yaml" || true
