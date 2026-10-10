@@ -9,9 +9,6 @@ endif
 KATA_ENABLED := $(patsubst "%",%,$(KATA_ENABLED))
 KATA_ENABLED := $(patsubst '%',%,$(KATA_ENABLED))
 export KATA_ENABLED
-ARGUS_ENABLED := $(patsubst "%",%,$(ARGUS_ENABLED))
-ARGUS_ENABLED := $(patsubst '%',%,$(ARGUS_ENABLED))
-export ARGUS_ENABLED
 
 # Script paths
 CLUSTER_SCRIPT := scripts/cluster.sh

@@ -8,4 +8,4 @@ The service uses the `doca-argus` Helm chart, version `1.5.0` by default, with i
 
 The chart requests and limits 4 CPU and 10Gi memory per DPU. Include that capacity in each DPU's resource planning. Argus does not require Kata.
 
-When `ARGUS_ENABLED=false`, subsequent `DPUDeployment` applies omit the Argus service entry and skip its manifests. Previously applied Argus service template and configuration objects are not explicitly deleted. A default-off fresh deployment removes stale generated Argus manifests and does not install the service.
+When `ARGUS_ENABLED=false`, subsequent `DPUDeployment` applies omit the Argus service entry and the post-install flow skips Argus manifests. Previously applied Argus service template and configuration objects are not explicitly deleted. A default-off fresh deployment does not generate or apply Argus manifests.
