@@ -18,13 +18,6 @@ function enable_argus() {
         return 1
     fi
 
-    # This service-only target cannot move or recreate an active Kata pool.
-    # Require the existing pool to match the PF0 allocation when both services
-    # are enabled; the full deploy-dpu-services path can create a missing pool.
-    if [ "${KATA_ENABLED}" = "true" ]; then
-        require_existing_kata_sriov_pool || return 1
-    fi
-
     render_argus_manifests
     log "INFO" "Applying Argus DPUServiceTemplate and DPUServiceConfiguration..."
     apply_manifest "${GENERATED_POST_INSTALL_DIR}/argus-01-servicetemplate.yaml" "true"

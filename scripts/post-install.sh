@@ -186,20 +186,15 @@ function update_nodesriov_device_plugin_config() {
     local dst_dp_config="${GENERATED_POST_INSTALL_DIR}/nodesriovdevicepluginconfig.yaml"
     local vf_range_end=$((NUM_VFS - 1))
     local pf0_regular_end="${vf_range_end}"
-    local pf1_regular_end="${vf_range_end}"
     local kata_sriov_pool=""
     if [ "${KATA_ENABLED}" = "true" ]; then
-        if [ "${KATA_SRIOV_PF_INDEX}" = "0" ]; then
-            pf0_regular_end=$((KATA_VF_START - 1))
-        else
-            pf1_regular_end=$((KATA_VF_START - 1))
-        fi
-        log "INFO" "KATA_ENABLED=true: Kata pool ${KATA_SRIOV_DP_CONFIG_NAME} uses PF${KATA_SRIOV_PF_INDEX} VFs ${KATA_VF_START}-${KATA_VF_END}; regular PF0 VFs 2-${pf0_regular_end}, PF1 VFs 0-${pf1_regular_end}"
+        pf0_regular_end=$((KATA_VF_START - 1))
+        log "INFO" "KATA_ENABLED=true: Kata pool ${KATA_SRIOV_DP_CONFIG_NAME} uses PF0 VFs ${KATA_VF_START}-${KATA_VF_END}; regular PF0 VFs 2-${pf0_regular_end}"
         # Template already has the list-item indent before <KATA_SRIOV_POOL>.
         kata_sriov_pool="- name: ${KATA_SRIOV_DP_CONFIG_NAME}
       type: vf
       ranges:
-        - pfIndex: ${KATA_SRIOV_PF_INDEX}
+        - pfIndex: 0
           start: ${KATA_VF_START}
           end: ${KATA_VF_END}"
     else
@@ -212,72 +207,8 @@ function update_nodesriov_device_plugin_config() {
         "<SRIOV_DP_CONFIG_CR_NAME>" "${SRIOV_DP_CONFIG_CR_NAME}" \
         "<SRIOV_DP_MGMT_POOL_NAME>" "${SRIOV_DP_MGMT_POOL_NAME}" \
         "<PF0_REGULAR_VF_END>" "${pf0_regular_end}" \
-        "<PF1_REGULAR_VF_END>" "${pf1_regular_end}" \
+        "<PF1_REGULAR_VF_END>" "${vf_range_end}" \
         "<KATA_SRIOV_POOL>" "${kata_sriov_pool}"
-}
-
-# Set KATA_POOL_STATE to missing or matching. Any existing Kata-like pool with
-# a different name, PF, or VF range is rejected; this PR does not migrate it.
-function inspect_existing_kata_sriov_pool() {
-    KATA_POOL_STATE="not-required"
-    [ "${KATA_ENABLED}" = "true" ] || return 0
-
-    KATA_POOL_STATE="missing"
-
-    local config_json
-    if ! config_json=$(oc get nodesriovdevicepluginconfig "${SRIOV_DP_CONFIG_CR_NAME}" \
-        -n dpf-operator-system -o json 2>&1); then
-        if grep -qiE 'notfound|not found' <<< "${config_json}"; then
-            return 0
-        fi
-        log "ERROR" "Unable to inspect NodeSRIOVDevicePluginConfig ${SRIOV_DP_CONFIG_CR_NAME}: ${config_json}"
-        return 1
-    fi
-
-    local pools_json pool_count existing_pool existing_name existing_ranges
-    pools_json=$(jq -c --arg name "${KATA_SRIOV_DP_CONFIG_NAME}" \
-        '[.spec.devicePluginResources[]? | select(.name == $name or (((.name // "") | ascii_downcase) | contains("kata")))]' \
-        <<< "${config_json}") || {
-        log "ERROR" "Unable to parse Kata device plugin resources from NodeSRIOVDevicePluginConfig"
-        return 1
-    }
-    pool_count=$(jq 'length' <<< "${pools_json}")
-    [ "${pool_count}" -gt 0 ] || return 0
-    if [ "${pool_count}" -ne 1 ]; then
-        log "ERROR" "Found ${pool_count} Kata-like resources in NodeSRIOVDevicePluginConfig; refusing to change an ambiguous active pool configuration"
-        KATA_POOL_STATE="mismatch"
-        return 1
-    fi
-
-    existing_pool=$(jq -c '.[0]' <<< "${pools_json}")
-    existing_name=$(jq -r '.name // "<unnamed>"' <<< "${existing_pool}")
-    existing_ranges=$(jq -c '.ranges // []' <<< "${existing_pool}")
-    if jq -e --arg name "${KATA_SRIOV_DP_CONFIG_NAME}" \
-        --argjson pf "${KATA_SRIOV_PF_INDEX}" \
-        --argjson start "${KATA_VF_START}" \
-        --argjson end "${KATA_VF_END}" \
-        '.[0] as $pool |
-         ($pool.name == $name) and
-         ((($pool.ranges // []) | length) == 1) and
-         ((try ($pool.ranges[0].pfIndex | tonumber) catch -1) == $pf) and
-         ((try ($pool.ranges[0].start | tonumber) catch -1) == $start) and
-         ((try ($pool.ranges[0].end | tonumber) catch -1) == $end)' \
-        <<< "${pools_json}" >/dev/null; then
-        KATA_POOL_STATE="matching"
-        return 0
-    fi
-
-    KATA_POOL_STATE="mismatch"
-    log "ERROR" "Existing Kata pool '${existing_name}' has ranges ${existing_ranges}; expected '${KATA_SRIOV_DP_CONFIG_NAME}' on PF${KATA_SRIOV_PF_INDEX} VFs ${KATA_VF_START}-${KATA_VF_END}. This PR does not migrate active Kata pools."
-    return 1
-}
-
-function require_existing_kata_sriov_pool() {
-    inspect_existing_kata_sriov_pool || return 1
-    if [ "${KATA_POOL_STATE}" != "matching" ]; then
-        log "ERROR" "KATA_ENABLED=true but the expected Kata pool is not installed; run make deploy-dpu-services to prepare it before enabling Argus"
-        return 1
-    fi
 }
 
 function render_argus_manifests() {
@@ -360,11 +291,6 @@ function apply_post_installation() {
 
     # Get kubeconfig
     get_kubeconfig
-
-    # Refuse pool changes before any manifest is applied. A missing pool is
-    # valid for a fresh install; a present pool must already use the desired
-    # PF-independent name and exact PF/VF range.
-    inspect_existing_kata_sriov_pool || return 1
 
     # Wait for DPF provisioning webhook to be ready before applying manifests
     log [INFO] "Waiting for DPF provisioning webhook service to be ready..."
@@ -507,7 +433,6 @@ function redeploy() {
     prepare_post_installation
 
     get_kubeconfig
-    inspect_existing_kata_sriov_pool || return 1
 
     log [INFO] "Deleting existing manifests..."
     oc delete -f "${GENERATED_POST_INSTALL_DIR}/dpudeployment.yaml" || true

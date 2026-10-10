@@ -281,9 +281,7 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
 
     # Optional Argus and Kata defaults. Validate local feature and VF settings
     # while loading env.sh so invalid configuration fails before deployment
-    # work starts. Kata defaults to PF0 independently of Argus; PF1 remains
-    # available for Kata-only deployments. The scheduler resource name is
-    # independent of its physical PF.
+    # work starts. Kata always uses PF0, independently of Argus.
     ARGUS_ENABLED=${ARGUS_ENABLED:-false}
     if [ "${ARGUS_ENABLED}" != "true" ] && [ "${ARGUS_ENABLED}" != "false" ]; then
         echo "Error: ARGUS_ENABLED must be true or false (got '${ARGUS_ENABLED}')" >&2
@@ -304,16 +302,6 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
         return 1
     fi
     KATA_RUNTIME_CLASS=${KATA_RUNTIME_CLASS:-kata-coldplug}
-    KATA_SRIOV_PF_INDEX=${KATA_SRIOV_PF_INDEX:-0}
-    if [ "${KATA_SRIOV_PF_INDEX}" != "0" ] && [ "${KATA_SRIOV_PF_INDEX}" != "1" ]; then
-        echo "Error: KATA_SRIOV_PF_INDEX must be 0 or 1 (got '${KATA_SRIOV_PF_INDEX}')" >&2
-        return 1
-    fi
-    if [ "${ARGUS_ENABLED}" = "true" ] && [ "${KATA_ENABLED}" = "true" ] \
-        && [ "${KATA_SRIOV_PF_INDEX}" != "0" ]; then
-        echo "Error: Argus cannot inspect Kata VFs on PF1. Set KATA_SRIOV_PF_INDEX=0 when ARGUS_ENABLED=true and KATA_ENABLED=true." >&2
-        return 1
-    fi
     KATA_SRIOV_DP_CONFIG_NAME=${KATA_SRIOV_DP_CONFIG_NAME:-bf3-vfs-kata}
     KATA_NUM_VFS=${KATA_NUM_VFS:-8}
     if [ "${KATA_ENABLED}" = "true" ]; then
@@ -329,7 +317,7 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
         KATA_VF_END=$((NUM_VFS - 1))
         # PF0 VF1 is reserved for DPF management and regular PF0 resources
         # start at VF2, so Kata must leave at least one regular PF0 VF.
-        if [ "${KATA_SRIOV_PF_INDEX}" = "0" ] && [ "${KATA_VF_START}" -lt 3 ]; then
+        if [ "${KATA_VF_START}" -lt 3 ]; then
             echo "Error: PF0 Kata allocation leaves no regular VF after reserving management VF1; require NUM_VFS - KATA_NUM_VFS >= 3" >&2
             return 1
         fi

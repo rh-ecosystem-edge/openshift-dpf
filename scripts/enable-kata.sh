@@ -7,7 +7,7 @@
 # (that plus worker-dpu is "belongs to 2 custom roles").
 # Creates RuntimeClass kata-coldplug when missing.
 #
-# Run after enable-ovn-injector with KATA_ENABLED=true so the kata NAD exists.
+# Run after DPU services and the Kata NAD are deployed.
 # make all runs this last when KATA_ENABLED=true.
 
 set -e
@@ -97,20 +97,6 @@ function ensure_kataconfig() {
     wait_for_kataconfig_crd
     log [INFO] "Applying KataConfig example-kataconfig (selector matches no nodes; DPU hosts stay on worker-dpu)"
     apply_manifest "${KATA_MANIFESTS_DIR}/02-kataconfig.yaml" "true"
-}
-
-function ensure_kata_sriov_pool() {
-    inspect_existing_kata_sriov_pool || return 1
-    if [ "${KATA_POOL_STATE}" = "matching" ]; then
-        log "INFO" "NodeSRIOVDevicePluginConfig already has ${KATA_SRIOV_DP_CONFIG_NAME} on PF${KATA_SRIOV_PF_INDEX} VFs ${KATA_VF_START}-${KATA_VF_END}"
-        return 0
-    fi
-    [ "${KATA_POOL_STATE}" = "missing" ] || return 1
-    log "INFO" "Kata VF pool missing from NodeSRIOVDevicePluginConfig; regenerating and applying"
-    mkdir -p "${GENERATED_POST_INSTALL_DIR}"
-    update_nodesriov_device_plugin_config
-    apply_manifest "${GENERATED_POST_INSTALL_DIR}/nodesriovdevicepluginconfig.yaml" "true"
-    log [INFO] "NodeSRIOVDevicePluginConfig applied"
 }
 
 function warn_if_dpu_nodes_have_kata_oc_role() {
@@ -360,11 +346,9 @@ function enable_kata() {
     fi
 
     if [ "${KATA_ENABLED}" != "true" ]; then
-        log [ERROR] "KATA_ENABLED is not true. Set KATA_ENABLED=true and re-run make enable-ovn-injector, then make enable-kata."
+        log [ERROR] "KATA_ENABLED is not true. Set it to true, then run make deploy-dpu-services, make enable-ovn-injector, and make enable-kata."
         exit 1
     fi
-
-    ensure_kata_sriov_pool
 
     if ! oc get net-attach-def -n "${OVNK_NAMESPACE}" "${KATA_NAD_NAME}" &>/dev/null; then
         log [ERROR] "NetworkAttachmentDefinition '${KATA_NAD_NAME}' not found in ${OVNK_NAMESPACE}."

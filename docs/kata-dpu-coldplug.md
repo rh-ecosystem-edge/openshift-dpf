@@ -34,7 +34,6 @@ The kata pool omits `isRdma` so host uverbs are not mounted into the VM. Regular
 ```bash
 KATA_ENABLED=true
 KATA_RUNTIME_CLASS=kata-coldplug
-KATA_SRIOV_PF_INDEX=0
 KATA_SRIOV_DP_CONFIG_NAME=bf3-vfs-kata
 KATA_NUM_VFS=8
 KATA_INJECTOR_RESOURCE_NAME=openshift.io/bf3-vfs-kata
@@ -43,9 +42,9 @@ KATA_RHCOS_LAYER_IMAGE=quay.io/jensfr/rhcos-kata-dpu@sha256:ce05dea3e0214c7bf786
 KATA_SKIP_RHCOS_LAYER=false
 ```
 
-The Kata pool name does not encode its PF. Kata uses PF0 by default, independently of Argus. Kata-only deployments may set `KATA_SRIOV_PF_INDEX=1`; PF1 is rejected when Argus and Kata are both enabled. The pool takes the highest indices (`NUM_VFS-KATA_NUM_VFS` through `NUM_VFS-1`). With defaults, Kata uses PF0 VFs 38–45, regular PF0 services use VFs 2–37, and management VF1 stays reserved.
+Kata always uses PF0. The pool takes the highest indices (`NUM_VFS-KATA_NUM_VFS` through `NUM_VFS-1`). With defaults, Kata uses PF0 VFs 38–45, regular PF0 services use VFs 2–37, and management VF1 stays reserved.
 
-`make all` with `KATA_ENABLED=false` does not add a Kata pool. With `KATA_ENABLED=true`, `make all` splits the selected PF, creates the Kata NAD, and runs `enable-kata` last. An existing Kata pool on a different PF or range is rejected; active pools are not migrated by this workflow.
+`make all` with `KATA_ENABLED=false` does not add a Kata pool. With `KATA_ENABLED=true`, `make all` splits PF0, creates the Kata NAD, and runs `enable-kata` last. These defaults target new clusters; existing pools are not inspected or migrated. Reconcile an existing cluster's pool before deploying this configuration.
 
 The kata NAD `resourceName` must be the kata pool. Regular pods keep `dpf-ovn-kubernetes` / `openshift.io/bf3_vfs`.
 
@@ -63,11 +62,12 @@ On an already-installed cluster:
 
 ```bash
 KATA_ENABLED=true
+make deploy-dpu-services   # installs the PF0 Kata VF pool
 make enable-ovn-injector   # webhook + kata NAD
-make enable-kata           # selected-PF Kata VF pool (if missing), OSC, inert KataConfig, worker-dpu MCs, RuntimeClass
+make enable-kata           # OSC, inert KataConfig, worker-dpu MCs, RuntimeClass
 ```
 
-`enable-kata` updates `NodeSRIOVDevicePluginConfig` when the kata VF pool is missing (for example after an install with `KATA_ENABLED=false`). You can still run `make prepare-dpu-files` alone to regenerate manifests without applying.
+`make enable-kata` configures worker support after the Kata VF pool and NAD are deployed. You can still run `make prepare-dpu-files` alone to regenerate manifests without applying.
 
 ### OSC stays idle on DPU hosts
 
