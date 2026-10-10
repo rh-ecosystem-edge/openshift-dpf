@@ -120,6 +120,13 @@ validate_env_test_files() {
     _do_validate_env_files "$ci_dir/env.test.defaults" "$ci_dir/env.test.template" "$ci_dir/env.test.required" ".env.test"
 }
 
+require_argus_enabled() {
+    if [ "${ARGUS_ENABLED:-false}" != "true" ]; then
+        echo "Error: ARGUS_ENABLED must be true to run make enable-argus. Set it and regenerate .env." >&2
+        return 1
+    fi
+}
+
 # _do_generate_env <defaults_file> <required_file> <template_file> <output_file> <force>
 _do_generate_env() {
     local defaults_file="$1" required_file="$2" template_file="$3"

@@ -250,7 +250,11 @@ function prepare_post_installation() {
         log [INFO] "Skipping DPUServiceTemplate overrides (GENERATE_DPUSERVICETEMPLATE_OVERRIDES=${GENERATE_DPUSERVICETEMPLATE_OVERRIDES:-false})"
     fi
 
-    render_argus_manifests
+    if [ "${ARGUS_ENABLED}" = "true" ]; then
+        render_argus_manifests
+    else
+        clean_argus_manifests
+    fi
 
     # Process DPUDeployment template
     if [ -f "${POST_INSTALL_DIR}/dpudeployment.yaml" ]; then
@@ -352,7 +356,9 @@ function apply_post_installation() {
         fi
     done
 
-    apply_argus_manifests
+    if [ "${ARGUS_ENABLED}" = "true" ]; then
+        apply_argus_manifests
+    fi
 
     # Apply dpudeployment.yaml last if it exists, with apply_always=true
     if [ -f "${GENERATED_POST_INSTALL_DIR}/dpudeployment.yaml" ]; then

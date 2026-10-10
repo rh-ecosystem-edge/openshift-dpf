@@ -12,6 +12,11 @@ MANIFESTS_DIR=${MANIFESTS_DIR:-"manifests"}
 GENERATED_DIR=${GENERATED_DIR:-"${MANIFESTS_DIR}/generated"}
 GENERATED_POST_INSTALL_DIR=${GENERATED_POST_INSTALL_DIR:-"${GENERATED_DIR}/post-install"}
 
+function clean_argus_manifests() {
+    rm -rf "${GENERATED_DIR}/argus"
+    rm -f "${GENERATED_POST_INSTALL_DIR}"/argus-*.yaml
+}
+
 function render_argus_manifests() {
     local template_src="${MANIFESTS_DIR}/argus/01-servicetemplate.yaml"
     local config_src="${MANIFESTS_DIR}/argus/02-configuration.yaml"
@@ -21,12 +26,7 @@ function render_argus_manifests() {
     mkdir -p "${GENERATED_POST_INSTALL_DIR}"
     # Remove output produced by the former standalone Argus flow (including
     # its demo/log-cleaner manifests) before generating the opt-in service.
-    rm -rf "${GENERATED_DIR}/argus"
-    rm -f "${GENERATED_POST_INSTALL_DIR}"/argus-*.yaml
-    if [ "${ARGUS_ENABLED}" != "true" ]; then
-        log "INFO" "ARGUS_ENABLED=false: removing generated Argus manifests and skipping Argus"
-        return 0
-    fi
+    clean_argus_manifests
 
     update_file_multi_replace "${template_src}" "${template_dst}" \
         "<ARGUS_HELM_REPO_URL>" "${ARGUS_HELM_REPO_URL}" \
@@ -36,8 +36,6 @@ function render_argus_manifests() {
 }
 
 function apply_argus_manifests() {
-    [ "${ARGUS_ENABLED}" = "true" ] || return 0
-
     log "INFO" "Applying Argus DPUServiceTemplate and DPUServiceConfiguration..."
     retry 5 30 apply_manifest "${GENERATED_POST_INSTALL_DIR}/argus-01-servicetemplate.yaml" "true"
     retry 5 30 apply_manifest "${GENERATED_POST_INSTALL_DIR}/argus-02-configuration.yaml" "true"
@@ -49,11 +47,6 @@ function patch_argus_service() {
 }
 
 function enable_argus() {
-    if [ "${ARGUS_ENABLED}" != "true" ]; then
-        log "ERROR" "ARGUS_ENABLED is not true. Set ARGUS_ENABLED=true and regenerate .env before running make enable-argus."
-        return 1
-    fi
-
     get_kubeconfig
     if ! oc get dpudeployment dpudeployment -n dpf-operator-system >/dev/null 2>&1; then
         log "ERROR" "DPUDeployment dpudeployment was not found. Deploy DPU services before running make enable-argus."
@@ -71,6 +64,7 @@ function enable_argus() {
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     case "${1:-enable}" in
         enable)
+            require_argus_enabled
             enable_argus
             ;;
         *)
