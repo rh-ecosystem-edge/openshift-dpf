@@ -8,10 +8,6 @@ if ! declare -F get_kubeconfig >/dev/null; then
     source "$(dirname "${BASH_SOURCE[0]}")/cluster.sh"
 fi
 
-MANIFESTS_DIR=${MANIFESTS_DIR:-"manifests"}
-GENERATED_DIR=${GENERATED_DIR:-"${MANIFESTS_DIR}/generated"}
-GENERATED_POST_INSTALL_DIR=${GENERATED_POST_INSTALL_DIR:-"${GENERATED_DIR}/post-install"}
-
 function render_argus_manifests() {
     local template_src="${MANIFESTS_DIR}/argus/01-servicetemplate.yaml"
     local config_src="${MANIFESTS_DIR}/argus/02-configuration.yaml"
