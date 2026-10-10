@@ -185,20 +185,31 @@ function update_nodesriov_device_plugin_config() {
     fi
     local dst_dp_config="${GENERATED_POST_INSTALL_DIR}/nodesriovdevicepluginconfig.yaml"
     local vf_range_end=$((NUM_VFS - 1))
-    local pf0_regular_end="${vf_range_end}"
+    local pf1_regular_end="${vf_range_end}"
     local kata_sriov_pool=""
     if [ "${KATA_ENABLED}" = "true" ]; then
-        pf0_regular_end=$((KATA_VF_START - 1))
-        log "INFO" "KATA_ENABLED=true: Kata pool ${KATA_SRIOV_DP_CONFIG_NAME} uses PF0 VFs ${KATA_VF_START}-${KATA_VF_END}; regular PF0 VFs 2-${pf0_regular_end}"
+        if ! [[ "${KATA_NUM_VFS}" =~ ^[1-9][0-9]*$ ]]; then
+            log [ERROR] "KATA_NUM_VFS must be a positive integer when KATA_ENABLED=true"
+            return 1
+        fi
+        if [ "${KATA_NUM_VFS}" -ge "${NUM_VFS}" ]; then
+            log [ERROR] "KATA_NUM_VFS (${KATA_NUM_VFS}) must be less than NUM_VFS (${NUM_VFS})"
+            return 1
+        fi
+        local pf1_regular_count=$((NUM_VFS - KATA_NUM_VFS))
+        pf1_regular_end=$((pf1_regular_count - 1))
+        local kata_vf_start=${pf1_regular_count}
+        local kata_vf_end=$((NUM_VFS - 1))
+        log [INFO] "KATA_ENABLED=true: PF1 regular VFs 0-${pf1_regular_end}, kata pool ${KATA_SRIOV_DP_CONFIG_NAME} VFs ${kata_vf_start}-${kata_vf_end}"
         # Template already has the list-item indent before <KATA_SRIOV_POOL>.
         kata_sriov_pool="- name: ${KATA_SRIOV_DP_CONFIG_NAME}
       type: vf
       ranges:
-        - pfIndex: 0
-          start: ${KATA_VF_START}
-          end: ${KATA_VF_END}"
+        - pfIndex: ${KATA_SRIOV_PF_INDEX}
+          start: ${kata_vf_start}
+          end: ${kata_vf_end}"
     else
-        log "INFO" "KATA_ENABLED=${KATA_ENABLED:-false}: skipping Kata VF pool"
+        log [INFO] "KATA_ENABLED=${KATA_ENABLED:-false}: skipping kata VF pool (PF1 uses full 0-${vf_range_end})"
     fi
     update_file_multi_replace \
         "${src_dp_config}" \
@@ -206,8 +217,8 @@ function update_nodesriov_device_plugin_config() {
         "<SRIOV_DP_CONFIG_NAME>" "${SRIOV_DP_CONFIG_NAME}" \
         "<SRIOV_DP_CONFIG_CR_NAME>" "${SRIOV_DP_CONFIG_CR_NAME}" \
         "<SRIOV_DP_MGMT_POOL_NAME>" "${SRIOV_DP_MGMT_POOL_NAME}" \
-        "<PF0_REGULAR_VF_END>" "${pf0_regular_end}" \
-        "<PF1_REGULAR_VF_END>" "${vf_range_end}" \
+        "<NUM_VFS_END>" "${vf_range_end}" \
+        "<PF1_REGULAR_VF_END>" "${pf1_regular_end}" \
         "<KATA_SRIOV_POOL>" "${kata_sriov_pool}"
 }
 
@@ -247,6 +258,11 @@ function prepare_post_installation() {
         log [ERROR] "Post-installation directory not found: ${POST_INSTALL_DIR}"
         exit 1
     fi
+    if ! [[ "${NUM_VFS}" =~ ^[1-9][0-9]*$ ]]; then
+        log [ERROR] "NUM_VFS must be a positive integer"
+        return 1
+    fi
+
     # Update manifests with custom values
     update_bfb_manifest
     update_hbn_ovn_manifests

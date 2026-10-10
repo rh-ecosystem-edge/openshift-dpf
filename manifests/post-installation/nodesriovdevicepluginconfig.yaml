@@ -18,7 +18,7 @@ spec:
       ranges:
         - pfIndex: 0
           start: 2
-          end: <PF0_REGULAR_VF_END>
+          end: <NUM_VFS_END>
         - pfIndex: 1
           start: 0
           end: <PF1_REGULAR_VF_END>
