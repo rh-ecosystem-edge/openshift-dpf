@@ -256,6 +256,10 @@ enable-ovn-injector:
 enable-kata:
 	@scripts/enable-kata.sh enable
 
+.PHONY: enable-argus
+enable-argus:
+	@scripts/enable-argus.sh enable
+
 .PHONY: deploy-kata-test
 deploy-kata-test:
 	@scripts/enable-kata.sh deploy-test
@@ -550,6 +554,7 @@ help:
 	@echo "  deploy-dpu-services - Deploy DPU services to the cluster"
 	@echo "  run-custom-postinstall-script - Run CUSTOM_POSTINSTALL_SCRIPT (file or http(s) URL, with args); also last make all step"
 	@echo "  enable-kata       - OSC (inert KataConfig) + kata-coldplug on worker-dpu (also last make all step when KATA_ENABLED=true)"
+	@echo "  enable-argus      - Install the DOCA Argus DPU service (requires ARGUS_ENABLED=true)"
 	@echo "  deploy-kata-test  - Deploy kata-dpu-test Deployment (KATA_TEST_REPLICAS, default 1)"
 	@echo "  cleanup-kata-vfs  - Rebind stale vfio-pci VFs to mlx5_core on worker-dpu (FORCE=true to skip running-pod check)"
 	@echo "  configure-flannel - Deploy flannel IPAM controller for automatic podCIDR assignment"
@@ -632,6 +637,7 @@ help:
 	@echo "DPF Configuration:"
 	@echo "  DPF_VERSION      - DPF operator version (default: $(DPF_VERSION))"
 	@echo "  KATA_ENABLED     - If true, make all runs enable-kata last (default: false)"
+	@echo "  ARGUS_ENABLED    - If true, deploy DOCA Argus with DPU services (default: false)"
 	@echo "  SKIP_DEPLOY_STORAGE - If true, skip LSO/LVM/ODF deployment; ETCD_STORAGE_CLASS must point to existing StorageClass (default: false)"
 	@echo "  ETCD_STORAGE_CLASS - StorageClass for hosted cluster etcd (default: $(ETCD_STORAGE_CLASS)); required when SKIP_DEPLOY_STORAGE=true"
 	@echo ""
