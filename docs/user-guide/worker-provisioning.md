@@ -302,8 +302,11 @@ make worker-status
 # Delete worker VMs only
 make delete-worker-vms
 
-# Or delete everything (includes worker VMs)
+# Or delete everything (includes worker VMs and powers off physical workers)
 make clean-all
+
+# Keep physical workers powered on while deleting the cluster and VMs
+make clean-all POWER_OFF_WORKERS=false
 ```
 
 ## Next Steps

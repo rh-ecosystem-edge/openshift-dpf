@@ -253,7 +253,8 @@ make add-worker-nodes       # Add worker nodes
 ```bash
 make worker-status          # Check worker status
 make run-dpf-sanity        # Health checks
-make clean-all             # Complete cleanup
+make clean-all                           # Complete cleanup, including physical worker power off
+make clean-all POWER_OFF_WORKERS=false   # Complete cleanup, leave physical workers powered on
 ```
 
 ## 🎯 Supported Versions
