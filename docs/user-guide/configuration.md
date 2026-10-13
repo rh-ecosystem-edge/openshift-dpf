@@ -92,8 +92,8 @@ SERVICE_CIDR=172.30.0.0/16   # Service network range
 DPF_VERSION=v25.7.1                    # DPF version
 DPF_HELM_REPO_URL=https://helm.ngc.nvidia.com/nvidia/doca/dpf-operator
 
-# OVN Chart (auto-configured)
-OVN_CHART_VERSION=v25.7.1-f073927     # Matches DPF version
+# OVN Chart (oci://ghcr.io/mellanox/charts/ovn-kubernetes-chart)
+OVN_CHART_VERSION=v26.4.1-ocp-release-v4.22   # Align with DPF 26.4.x on OCP 4.22
 ```
 
 ### DPU Network Configuration
