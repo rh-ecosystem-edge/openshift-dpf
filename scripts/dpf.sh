@@ -187,6 +187,14 @@ function deploy_dpf_hcp_provisioner_operator() {
         log [INFO] "Zero Trust mode: using the local HBN DPUServiceTemplate"
     fi
 
+    local -a helm_extra_sets=(
+        --set "provisionerConfig.manageDPUServiceTemplates=${manage_dpu_service_templates}"
+    )
+    if [[ -n "${BLUEFIELD_OCP_LAYER_REPO}" ]]; then
+        helm_extra_sets+=(--set "provisionerConfig.blueFieldOCPLayerRepo=${BLUEFIELD_OCP_LAYER_REPO}")
+        log [INFO] "Configuring DPFHCPProvisionerConfig blueFieldOCPLayerRepo: ${BLUEFIELD_OCP_LAYER_REPO}"
+    fi
+
     if helm upgrade --install dpf-hcp-provisioner-operator \
         "${DPF_HCP_PROVISIONER_OPERATOR_CHART_URL}" \
         --namespace ${DPF_HCP_PROVISIONER_OPERATOR_NAMESPACE} \
@@ -197,7 +205,7 @@ function deploy_dpf_hcp_provisioner_operator() {
         --set image.repository=${DPF_HCP_PROVISIONER_OPERATOR_IMAGE_REPO} \
         --set image.pullPolicy=Always \
         --set image.tag=${DPF_HCP_PROVISIONER_OPERATOR_IMAGE_TAG} \
-        --set provisionerConfig.manageDPUServiceTemplates=${manage_dpu_service_templates}; then
+        "${helm_extra_sets[@]}"; then
 
         log [INFO] "Helm release 'dpf-hcp-provisioner-operator' deployed successfully"
         log [INFO] "DPF HCP Provisioner Operator deployment initiated. Use 'oc get pods -n ${DPF_HCP_PROVISIONER_OPERATOR_NAMESPACE}' to monitor progress."
@@ -286,8 +294,17 @@ function create_dpfhcpprovisioner_cr() {
 
     # Process template to generate DPFHCPProvisioner CR
     local cr_file="${GENERATED_DIR}/dpfhcpprovisioner-${HOSTED_CLUSTER_NAME}.yaml"
+    local machine_os_block=""
+    if [ -n "${BLUEFIELD_OCP_IMAGE}" ]; then
+        # Template placeholder is on its own line; block includes spec-level indent.
+        machine_os_block="  # BlueField ocp image layer
+  machineOSURL: ${BLUEFIELD_OCP_IMAGE}"
+        log [INFO] "Including machineOSURL in DPFHCPProvisioner CR: ${BLUEFIELD_OCP_IMAGE}"
+    else
+        log [INFO] "BLUEFIELD_OCP_IMAGE not set; omitting machineOSURL from DPFHCPProvisioner CR"
+    fi
 
-    process_template \
+    update_file_multi_replace \
         "${MANIFESTS_DIR}/dpf-hcp-provisioner-operator/dpfhcpprovisioner-cr-template.yaml" \
         "${cr_file}" \
         "<HOSTED_CLUSTER_NAME>" "${HOSTED_CLUSTER_NAME}" \
@@ -298,7 +315,7 @@ function create_dpfhcpprovisioner_cr() {
         "<DPFHCPPROVISIONER_PULL_SECRET_NAME>" "${DPFHCPPROVISIONER_PULL_SECRET_NAME}" \
         "<DPFHCPPROVISIONER_SSH_SECRET_NAME>" "${DPFHCPPROVISIONER_SSH_SECRET_NAME}" \
         "<CONTROL_PLANE_POLICY>" "${control_plane_policy}" \
-        "<BLUEFIELD_OCP_IMAGE>" "${BLUEFIELD_OCP_IMAGE}"
+        "<BLUEFIELD_OCP_MACHINE_OS_BLOCK>" "${machine_os_block}"
 
     # Add virtualIP if HYPERSHIFT_API_IP is set
     if [ -n "${HYPERSHIFT_API_IP}" ]; then
