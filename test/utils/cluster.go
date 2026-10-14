@@ -3,6 +3,7 @@ package utils
 import (
 	"context"
 	"fmt"
+	"os"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	operatorv1 "github.com/nvidia/doca-platform/api/operator/v1alpha1"
@@ -75,4 +76,23 @@ func ExtractHostedKubeconfig(ctx context.Context, mgmtClient client.Client, name
 		return nil, fmt.Errorf("secret %s/%s does not contain 'kubeconfig' key", namespace, secretName)
 	}
 	return kubeconfig, nil
+}
+
+func WriteTempKubeconfig(contents []byte) (string, func(), error) {
+	file, err := os.CreateTemp("", "openshift-dpf-hosted-kubeconfig-")
+	if err != nil {
+		return "", nil, err
+	}
+	path := file.Name()
+	remove := func() { _ = os.Remove(path) }
+	if _, err := file.Write(contents); err != nil {
+		_ = file.Close()
+		remove()
+		return "", nil, err
+	}
+	if err := file.Close(); err != nil {
+		remove()
+		return "", nil, err
+	}
+	return path, remove, nil
 }

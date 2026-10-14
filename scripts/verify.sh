@@ -31,8 +31,9 @@ VERIFY_DEPLOYMENT_STEPS=(
     verify_hosted_cluster_stable
 )
 VERIFY_FAILED_STEPS=()
+VERIFY_PASSED_STEPS=()
 
-# Defer status dumps to verify_deployment (one dump at end); per-step retries stay quiet.
+# Per-step failure dump is done in verify_invoke; avoid duplicate dumps from retry().
 _verify_retry() {
     retry "$1" "$2" --no-dump-on-failure "${@:3}"
 }
@@ -46,13 +47,24 @@ _verify_step_failed() {
     return 1
 }
 
+_verify_step_passed() {
+    local step="$1"
+    local passed
+    for passed in "${VERIFY_PASSED_STEPS[@]}"; do
+        [[ "$passed" == "$step" ]] && return 0
+    done
+    return 1
+}
+
 _verify_print_summary() {
     local step
     for step in "${VERIFY_DEPLOYMENT_STEPS[@]}"; do
         if _verify_step_failed "$step"; then
             log "ERROR" "  FAILED: ${step}"
-        else
+        elif _verify_step_passed "$step"; then
             log "INFO" "  PASSED: ${step}"
+        else
+            log "INFO" "  SKIPPED: ${step}"
         fi
     done
 }
@@ -138,18 +150,20 @@ check_dpudeployment_ready() {
     [[ "$ready_status" == "True" ]]
 }
 
-# Run one verification function; record failure but do not abort the pipeline.
+# Run one verification function; dump cluster state and stop the pipeline on failure.
 verify_invoke() {
     local step_fn="$1"
 
     echo ""
     if "$step_fn"; then
         log "INFO" "CHECK PASSED: ${step_fn}"
+        VERIFY_PASSED_STEPS+=("$step_fn")
         return 0
     fi
 
     log "ERROR" "CHECK FAILED: ${step_fn}"
     VERIFY_FAILED_STEPS+=("$step_fn")
+    dump_system_status "verification check failed: ${step_fn}"
     return 1
 }
 
@@ -318,19 +332,17 @@ verify_deployment() {
     fi
 
     VERIFY_FAILED_STEPS=()
+    VERIFY_PASSED_STEPS=()
 
     log "INFO" "================================================================================"
     log "INFO" "Starting deployment verification..."
-    log "INFO" "(Checks run in order; a failure in an early step does not skip later steps.)"
+    log "INFO" "(Checks run in order; the first failure stops verification and dumps cluster state.)"
     log "INFO" "================================================================================"
 
-    verify_invoke verify_worker_nodes_joined || true
-    verify_invoke verify_dpu_objects || true
-    verify_invoke verify_dpu_nodes || true
-    verify_invoke verify_worker_nodes || true
-    verify_invoke verify_dpudeployment || true
-    verify_invoke verify_management_cluster_stable || true
-    verify_invoke verify_hosted_cluster_stable || true
+    local step
+    for step in "${VERIFY_DEPLOYMENT_STEPS[@]}"; do
+        verify_invoke "$step" || break
+    done
 
     log "INFO" "================================================================================"
     log "INFO" "Verification summary:"
@@ -342,7 +354,6 @@ verify_deployment() {
 
     log "ERROR" "${#VERIFY_FAILED_STEPS[@]} verification check(s) FAILED"
     log "INFO" "================================================================================"
-    dump_system_status "deployment verification failed: ${VERIFY_FAILED_STEPS[*]}"
     return 1
 }
 

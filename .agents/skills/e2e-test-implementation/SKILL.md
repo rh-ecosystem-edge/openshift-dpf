@@ -5,7 +5,27 @@ description: Implement or update a DPF Go/Ginkgo end-to-end test under test/e2e 
 
 # E2E test implementation
 
-Use this workflow when adding or changing a DPF E2E test under `test/e2e/`. It is repository-local and tool-neutral so coding agents and human contributors can use the same guidance. Do not apply it to shell deployment changes or unit-only changes unless the request also changes the E2E suite.
+Use this workflow when adding or changing a DPF E2E test under `test/e2e/`. It is repository-local and tool-neutral so coding agents and human contributors can use the same guidance. It includes a Codex-specific Plan-mode requirement because this workflow has required user-decision checkpoints. Do not apply it to shell deployment changes or unit-only changes unless the request also changes the E2E suite.
+
+## Required planning gate
+
+This workflow requires user-decision checkpoints before implementation.
+
+- In Codex, begin in Plan mode. This enables `request_user_input` for unresolved assumptions and destructive-operation decisions.
+- In other agent environments, use the platform's equivalent planning and user-question mechanism before continuing.
+- Do not begin scenario-specific discovery, editing, or validation until target environment, reuse, assertions, timeouts, cleanup, and destructive-operation decisions are resolved.
+
+Treat user-supplied manual steps as acceptance criteria and a coverage baseline, not as an inflexible script. Map every applicable manual step to an automated action or assertion, but validate the sequence against the target environment and existing test behavior. Add missing preconditions, readiness checks, cleanup, safety gates, and assertions when needed. If a manual step is inaccurate, unsafe, ambiguous, or not applicable, explain the deviation and ask the user before proceeding.
+
+For the documented scenario:
+
+1. Search the entire Go test codebase under `test/` for equivalent behavior before adding code.
+2. Decide whether the operation is generic and useful to later tests. Reuse an existing utility, improve an existing generic utility without specializing it, or introduce a new generic utility only when justified.
+3. Validate the documented order and complete the flow where necessary; do not blindly reproduce incomplete or incorrect instructions. Review timeouts, expected output, assertions, readiness checks, and cleanup. Consult the user if the sequence or expected result is unclear or appears wrong.
+4. Record an explicit target map: management control plane, management DPU host, hosted DPU worker, or external power-management endpoint. Do not infer that similarly named resources belong to the same cluster.
+5. Ask the user about every unresolved assumption or decision point. In Claude use `AskUserQuestion`; in Codex use `request_user_input` in Plan mode.
+
+Use environment-neutral discovery, idempotent cleanup, and secret-safe diagnostics. Do not hardcode node, namespace, BareMetalHost, DPU, VM, or credential values, and do not expose secrets in commands or logs. For destructive work, define the opt-in gate, pre-mutation safety checks, recovery mapping, and interruption cleanup before writing the mutation.
 
 ## Discover the local contract
 
@@ -29,6 +49,8 @@ Before adding a precondition or skip, inspect the helpers already called by the 
 
 Map the requested scenario to explicit preconditions, mutation, rollout verification, and cleanup. If the requested steps are ambiguous in a way that changes what should be asserted, ask for clarification rather than silently substituting a different check.
 
+Make the Ginkgo narrative self-explanatory. Every `Describe`, `Context`, `It`, and `By` must state the action being performed and the behavior being proven, so a reviewer or new contributor can follow the scenario without reverse-engineering the implementation.
+
 For a test that changes shared cluster configuration, use an ordered Ginkgo container with this lifecycle:
 
 1. In `BeforeAll`, use the existing topology/preflight helper when it covers the required DPU topology; add a direct topology skip only when no called helper covers that condition. Run independent, test-specific configuration skips first.
@@ -51,6 +73,7 @@ Make `AfterAll` idempotent: return if the original state was never captured or t
 - Use resource labels and UIDs to identify generated DPUService revisions; object names alone do not prove a rollout.
 - For pod restarts, capture UIDs per node before mutation and require a new Ready pod on every expected DPU worker afterward.
 - Use `By(...)` for meaningful scenario steps and `Eventually` for asynchronous controller convergence. Avoid fixed sleeps unless an existing helper requires one.
+- Give every new scenario a unique Ginkgo label. When adding a label, document it in `test/e2e/README.md`; if that README has no label list, add a concise list documenting all suite labels so users can discover available selections.
 
 ## Validate the change
 

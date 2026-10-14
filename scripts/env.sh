@@ -120,6 +120,13 @@ validate_env_test_files() {
     _do_validate_env_files "$ci_dir/env.test.defaults" "$ci_dir/env.test.template" "$ci_dir/env.test.required" ".env.test"
 }
 
+require_argus_enabled() {
+    if [ "${ARGUS_ENABLED:-false}" != "true" ]; then
+        echo "Error: ARGUS_ENABLED must be true to run make enable-argus. Set it and regenerate .env." >&2
+        return 1
+    fi
+}
+
 # _do_generate_env <defaults_file> <required_file> <template_file> <output_file> <force>
 _do_generate_env() {
     local defaults_file="$1" required_file="$2" template_file="$3"
@@ -136,7 +143,28 @@ _do_generate_env() {
         source "$defaults_file"
         set +a
         source "$required_file"
+        if [ "$(basename "${required_file}")" = "env.required" ] &&
+           [ "${DPF_DEPLOYMENT_MODE:-}" = "zero-trust" ]; then
+            validate_zero_trust_mode
+        fi
         envsubst < "$template_file" > "$output_file"
+
+        if [ "${DPF_DEPLOYMENT_MODE:-}" = "zero-trust" ]; then
+            # DPU1 and DPU2 are rendered by env.template; append higher-numbered DPUs.
+            local serial_variable bmc_ip_variable
+            while IFS= read -r serial_variable; do
+                if ! grep -q "^${serial_variable}=" "$output_file"; then
+                    printf '%s=%s\n' "${serial_variable}" "${!serial_variable}" >> "$output_file"
+                fi
+                if [ "${ZT_DPU_DISCOVERY_MODE}" = "static" ]; then
+                    bmc_ip_variable="${serial_variable%_SERIAL}_BMC_IP"
+                    if declare -p "${bmc_ip_variable}" &>/dev/null &&
+                       ! grep -q "^${bmc_ip_variable}=" "$output_file"; then
+                        printf '%s=%s\n' "${bmc_ip_variable}" "${!bmc_ip_variable}" >> "$output_file"
+                    fi
+                fi
+            done < <(list_dpu_serial_variables)
+        fi
     )
 }
 
@@ -220,6 +248,196 @@ resolve_dpf_storage_class() {
     fi
 }
 
+# Print DPU1_SERIAL, DPU2_SERIAL, DPU3_SERIAL, ... in numeric order. Additional
+# numbered variables can be supplied through .env, the process environment, or
+# the make command line without changing the deployment scripts.
+list_dpu_serial_variables() {
+    compgen -A variable | grep -E '^DPU[1-9][0-9]*_SERIAL$' | sort -V || true
+}
+
+list_dpu_bmc_ip_variables() {
+    compgen -A variable | grep -E '^DPU[1-9][0-9]*_BMC_IP$' | sort -V || true
+}
+
+validate_zero_trust_dpu_serials() {
+    local invalid=0
+    local variable serial
+    local -A seen_serials=()
+
+    if [ -z "${DPU1_SERIAL:-}" ]; then
+        echo "ERROR: Zero Trust installation requires DPU1_SERIAL" >&2
+        invalid=1
+    fi
+
+    while IFS= read -r variable; do
+        serial="${!variable:-}"
+        [ -n "${serial}" ] || continue
+
+        if [[ "${serial}" =~ [[:upper:]] ]]; then
+            echo "ERROR: ${variable} must be lowercase" >&2
+            invalid=1
+        fi
+        if [ -n "${seen_serials[${serial}]+x}" ]; then
+            echo "ERROR: ${variable} duplicates another DPU serial: ${serial}" >&2
+            invalid=1
+        else
+            seen_serials["${serial}"]=1
+        fi
+    done < <(list_dpu_serial_variables)
+
+    [ "${invalid}" -eq 0 ]
+}
+
+validate_zero_trust_static_inventory() {
+    local invalid=0
+    local serial_variable serial bmc_ip_variable bmc_ip
+    local -A seen_bmc_ips=()
+
+    while IFS= read -r serial_variable; do
+        serial="${!serial_variable:-}"
+        [ -n "${serial}" ] || continue
+
+        bmc_ip_variable="${serial_variable%_SERIAL}_BMC_IP"
+        bmc_ip="${!bmc_ip_variable:-}"
+        if [ -z "${bmc_ip}" ]; then
+            echo "ERROR: Static Zero Trust inventory requires ${bmc_ip_variable} for ${serial_variable}" >&2
+            invalid=1
+            continue
+        fi
+        if ! _ipv4_to_integer "${bmc_ip}" >/dev/null; then
+            echo "ERROR: ${bmc_ip_variable} must be a valid IPv4 address" >&2
+            invalid=1
+        elif [ -n "${seen_bmc_ips[${bmc_ip}]+x}" ]; then
+            echo "ERROR: ${bmc_ip_variable} duplicates another DPU BMC IP: ${bmc_ip}" >&2
+            invalid=1
+        else
+            seen_bmc_ips["${bmc_ip}"]=1
+        fi
+    done < <(list_dpu_serial_variables)
+
+    while IFS= read -r bmc_ip_variable; do
+        bmc_ip="${!bmc_ip_variable:-}"
+        [ -n "${bmc_ip}" ] || continue
+        serial_variable="${bmc_ip_variable%_BMC_IP}_SERIAL"
+        if [ -z "${!serial_variable:-}" ]; then
+            echo "ERROR: ${bmc_ip_variable} requires ${serial_variable}" >&2
+            invalid=1
+        fi
+    done < <(list_dpu_bmc_ip_variables)
+
+    [ "${invalid}" -eq 0 ]
+}
+
+_ipv4_to_integer() {
+    local ip="$1"
+    local first second third fourth extra
+    IFS=. read -r first second third fourth extra <<< "${ip}"
+
+    if [ -n "${extra}" ] ||
+       ! [[ "${first}" =~ ^[0-9]+$ && "${second}" =~ ^[0-9]+$ &&
+            "${third}" =~ ^[0-9]+$ && "${fourth}" =~ ^[0-9]+$ ]] ||
+       [ "$((10#${first}))" -gt 255 ] || [ "$((10#${second}))" -gt 255 ] ||
+       [ "$((10#${third}))" -gt 255 ] || [ "$((10#${fourth}))" -gt 255 ]; then
+        return 1
+    fi
+
+    printf '%u\n' "$(( (10#${first} << 24) + (10#${second} << 16) + (10#${third} << 8) + 10#${fourth} ))"
+}
+
+validate_worker_power_on_delay() {
+    if ! [[ "${WORKER_POWER_ON_DELAY}" =~ ^[0-9]+$ ]]; then
+        echo "ERROR: WORKER_POWER_ON_DELAY must be a non-negative integer" >&2
+        return 1
+    fi
+}
+
+validate_zero_trust_redfish_configuration() {
+    [ "${DPF_DEPLOYMENT_MODE:-host-trusted}" = "zero-trust" ] || return 0
+
+    case "${ZT_DPU_DISCOVERY_MODE}" in
+        scanning|static)
+            ;;
+        *)
+            echo "ERROR: ZT_DPU_DISCOVERY_MODE must be 'scanning' or 'static'" >&2
+            return 1
+            ;;
+    esac
+
+    if [ -z "${ZT_DPU_BMC_ROOT_PASSWORD:-}" ]; then
+        echo "ERROR: Zero Trust installation requires ZT_DPU_BMC_ROOT_PASSWORD" >&2
+        return 1
+    fi
+
+    validate_worker_power_on_delay || return 1
+    validate_zero_trust_dpu_serials || return 1
+
+    if [ "${ZT_DPU_DISCOVERY_MODE}" = "static" ]; then
+        validate_zero_trust_static_inventory || return 1
+        return 0
+    fi
+
+    if [ -z "${ZT_DPU_BMC_IP_RANGE_START:-}" ] ||
+       [ -z "${ZT_DPU_BMC_IP_RANGE_END:-}" ]; then
+        echo "ERROR: Scanning Zero Trust inventory requires ZT_DPU_BMC_IP_RANGE_START and ZT_DPU_BMC_IP_RANGE_END" >&2
+        return 1
+    fi
+
+    local start_value end_value
+    if ! start_value=$(_ipv4_to_integer "${ZT_DPU_BMC_IP_RANGE_START}") ||
+       ! end_value=$(_ipv4_to_integer "${ZT_DPU_BMC_IP_RANGE_END}") ||
+       [ "${start_value}" -gt "${end_value}" ]; then
+        echo "ERROR: Invalid Zero Trust DPU BMC IP range: ${ZT_DPU_BMC_IP_RANGE_START}-${ZT_DPU_BMC_IP_RANGE_END}" >&2
+        return 1
+    fi
+}
+
+validate_zero_trust_mode() {
+    local variable
+
+    if [ "${DPF_DEPLOYMENT_MODE:-}" != "zero-trust" ]; then
+        echo "ERROR: Zero Trust validation requires DPF_DEPLOYMENT_MODE=zero-trust" >&2
+        return 1
+    fi
+    if [ "${NODES_MTU:-}" != "9000" ]; then
+        echo "ERROR: all-zt requires NODES_MTU=9000" >&2
+        return 1
+    fi
+    if [ "${HYPERSHIFT_INSTALL_METHOD:-}" != "binary" ]; then
+        echo "ERROR: Zero Trust installation requires HYPERSHIFT_INSTALL_METHOD=binary" >&2
+        return 1
+    fi
+    validate_zero_trust_redfish_configuration || return 1
+
+    for variable in \
+        BFB_URL \
+        ZT_BFB_REGISTRY_PORT; do
+        if [ -z "${!variable:-}" ]; then
+            echo "ERROR: Zero Trust installation requires ${variable}" >&2
+            return 1
+        fi
+    done
+    if [ "${ZT_DPU_DISCOVERY_MODE}" = "scanning" ] &&
+       [ -z "${ZT_DPU_DISCOVERY_NAME:-}" ]; then
+        echo "ERROR: Scanning Zero Trust inventory requires ZT_DPU_DISCOVERY_NAME" >&2
+        return 1
+    fi
+    if [ "${VM_COUNT}" -gt 1 ] && [ -z "${HYPERSHIFT_API_IP:-}" ]; then
+        echo "ERROR: Multi-node Zero Trust installation requires HYPERSHIFT_API_IP" >&2
+        return 1
+    fi
+
+    echo "OK  Zero Trust mode validation passed"
+}
+
+validate_host_trusted_mode() {
+    if [ "${DPF_DEPLOYMENT_MODE:-}" != "host-trusted" ]; then
+        echo "ERROR: make all requires DPF_DEPLOYMENT_MODE=host-trusted; use make all-zt for Zero Trust" >&2
+        return 1
+    fi
+
+    echo "OK  Host-trusted mode validation passed"
+}
+
 # Load environment variables from .env file and validate aicli connectivity
 # (skip load/validate if already in Make context — the Makefile does
 # `include .env` + `export`). Still strip quotes Make left on values;
@@ -250,9 +468,36 @@ validate_deployment_profile
 # Only evaluate when sourced by other scripts (not when executed directly for
 # standalone commands like validate-env-files / generate-env).
 if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
+    # Compatibility default for .env files generated before deployment profiles
+    # were introduced.
+    DPF_DEPLOYMENT_MODE=${DPF_DEPLOYMENT_MODE:-host-trusted}
+    case "${DPF_DEPLOYMENT_MODE}" in
+        host-trusted|zero-trust)
+            ;;
+        *)
+            echo "Error: DPF_DEPLOYMENT_MODE must be 'host-trusted' or 'zero-trust'. Current value: ${DPF_DEPLOYMENT_MODE}" >&2
+            exit 1
+            ;;
+    esac
+
+    if [ "${DPF_DEPLOYMENT_MODE}" = "zero-trust" ]; then
+        if [ "${VM_COUNT}" -eq 1 ]; then
+            HYPERSHIFT_API_IP=""
+            export HYPERSHIFT_API_IP
+        fi
+
+        validate_zero_trust_mode || exit 1
+    fi
+
     HELM_CHARTS_DIR=${HELM_CHARTS_DIR:-"$MANIFESTS_DIR/helm-charts-values"}
     HOST_CLUSTER_API=${HOST_CLUSTER_API:-"api.$CLUSTER_NAME.$BASE_DOMAIN"}
     HOSTED_CONTROL_PLANE_NAMESPACE=${HOSTED_CONTROL_PLANE_NAMESPACE:-"${CLUSTERS_NAMESPACE}-${HOSTED_CLUSTER_NAME}"}
+    HOSTED_KUBECONFIG="${HOSTED_CLUSTER_NAME}.kubeconfig"
+
+    if [ "$(readlink -m "${KUBECONFIG}")" = "$(readlink -m "${HOSTED_KUBECONFIG}")" ]; then
+        echo "Error: Management KUBECONFIG '${KUBECONFIG}' must differ from hosted-cluster kubeconfig '${HOSTED_KUBECONFIG}'" >&2
+        exit 1
+    fi
 
     # OLM Catalog Source — when OLM_WORKAROUND=true, use the previous OCP
     # minor version's catalog (e.g. 4.20→4.19, 4.22→4.21).
@@ -282,13 +527,21 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     # Kata defaults for .env files generated before these variables existed.
     KATA_ENABLED=${KATA_ENABLED:-false}
     KATA_RUNTIME_CLASS=${KATA_RUNTIME_CLASS:-kata-coldplug}
-    KATA_SRIOV_DP_CONFIG_NAME=${KATA_SRIOV_DP_CONFIG_NAME:-bf3-p1-vfs-kata}
-    KATA_SRIOV_PF_INDEX=${KATA_SRIOV_PF_INDEX:-1}
+    KATA_SRIOV_DP_CONFIG_NAME=${KATA_SRIOV_DP_CONFIG_NAME:-bf3-p0-vfs-kata}
     KATA_NUM_VFS=${KATA_NUM_VFS:-24}
     KATA_NAD_NAME=${KATA_NAD_NAME:-dpf-ovn-kubernetes-${KATA_RUNTIME_CLASS}}
     KATA_INJECTOR_RESOURCE_NAME=${KATA_INJECTOR_RESOURCE_NAME:-${SRIOV_DP_RESOURCE_PREFIX}/${KATA_SRIOV_DP_CONFIG_NAME}}
     KATA_TEST_REPLICAS=${KATA_TEST_REPLICAS:-1}
     KATA_SKIP_RHCOS_LAYER=${KATA_SKIP_RHCOS_LAYER:-false}
+    ARGUS_ENABLED=${ARGUS_ENABLED:-false}
+    if [ "${ARGUS_ENABLED}" != "true" ] && [ "${ARGUS_ENABLED}" != "false" ]; then
+        echo "Error: ARGUS_ENABLED must be true or false (got '${ARGUS_ENABLED}')" >&2
+        return 1
+    fi
+    ARGUS_CHART_VERSION=${ARGUS_CHART_VERSION:-1.5.0}
+    ARGUS_HELM_REPO_URL=${ARGUS_HELM_REPO_URL:-${DPF_HELM_REPO_URL}}
+    ARGUS_IMAGE=${ARGUS_IMAGE:-nvcr.io/nvidia/doca/doca_argus:1.5.0-doca3.5.0}
+    ARGUS_IMAGE_PULL_SECRET=${ARGUS_IMAGE_PULL_SECRET:-dpf-pull-secret}
 
     resolve_dpf_storage_class
 fi
@@ -309,9 +562,18 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         generate-env-test)
             generate_env_test "${2:-false}"
             ;;
+        validate-zt-serials)
+            validate_zero_trust_dpu_serials
+            ;;
+        validate-zt-mode)
+            validate_zero_trust_mode
+            ;;
+        validate-host-trusted-mode)
+            validate_host_trusted_mode
+            ;;
         *)
             echo "ERROR: Unknown command: $command"
-            echo "Available commands: validate-env-files, generate-env, validate-env-test-files, generate-env-test"
+            echo "Available commands: validate-env-files, generate-env, validate-env-test-files, generate-env-test, validate-zt-serials, validate-zt-mode, validate-host-trusted-mode"
             exit 1
             ;;
     esac

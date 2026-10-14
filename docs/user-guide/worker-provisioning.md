@@ -296,14 +296,19 @@ make worker-status
 | `VM_WORKER_DISK_SIZE1` | Primary disk size in GB | Same as `DISK_SIZE1` |
 | `VM_WORKER_DISK_SIZE2` | Secondary disk size in GB | Same as `DISK_SIZE2` |
 
+After completing the provisioning steps above, your workers are ready for DPU-accelerated workloads on OpenShift.
+
 ### Cleanup
 
 ```bash
 # Delete worker VMs only
 make delete-worker-vms
 
-# Or delete everything (includes worker VMs)
+# Or delete everything (includes worker VMs and powers off physical workers)
 make clean-all
+
+# Keep physical workers powered on while deleting the cluster and VMs
+make clean-all POWER_OFF_WORKERS=false
 ```
 
 ## Next Steps
@@ -311,5 +316,3 @@ make clean-all
 - **Complete Deployment**: See [Getting Started](getting-started.md) for full cluster setup
 - **DPU Services**: Configure accelerated networking with DPU features
 - **Troubleshooting**: See [Troubleshooting Guide](troubleshooting.md) for additional issues
-
-Your workers are now ready for DPU-accelerated workloads on OpenShift.

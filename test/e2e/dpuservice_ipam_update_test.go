@@ -1,10 +1,10 @@
 package e2e
 
 import (
+	"encoding/binary"
 	"fmt"
 	"net"
 	"reflect"
-	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -14,46 +14,73 @@ import (
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	dpfe2e "github.com/nvidia/doca-platform/test/e2e"
 	nvipamv1 "github.com/nvidia/doca-platform/third_party/api/nvipam/api/v1alpha1"
-
-	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	"github.com/openshift-dpf/test/utils"
 )
 
-const loopbackDPUServiceIPAMName = "loopback"
+const (
+	tcSvc004DPUServiceIPAMName = "pool1"
+)
 
-type loopbackPodInfo struct {
-	PodName        string
-	PodUID         types.UID
-	HostedNodeName string
-	DPUNodeName    string
-	IP             string
+func expectedCIDRPoolGateway(prefix string, gatewayIndex int32) (string, error) {
+	if gatewayIndex < 0 {
+		return "", fmt.Errorf("gateway index must not be negative: %d", gatewayIndex)
+	}
+
+	_, subnet, err := net.ParseCIDR(prefix)
+	if err != nil {
+		return "", fmt.Errorf("parsing allocation prefix %q: %w", prefix, err)
+	}
+	networkIP := subnet.IP.To4()
+	if networkIP == nil {
+		return "", fmt.Errorf("allocation prefix %q is not IPv4", prefix)
+	}
+
+	base := binary.BigEndian.Uint32(networkIP)
+	offset := uint32(gatewayIndex)
+	if offset > ^uint32(0)-base {
+		return "", fmt.Errorf("gateway index %d overflows allocation prefix %q", gatewayIndex, prefix)
+	}
+
+	gatewayIP := make(net.IP, net.IPv4len)
+	binary.BigEndian.PutUint32(gatewayIP, base+offset)
+	if !subnet.Contains(gatewayIP) {
+		return "", fmt.Errorf("gateway index %d falls outside allocation prefix %q", gatewayIndex, prefix)
+	}
+	return gatewayIP.String(), nil
+}
+
+func validateCIDRPoolGateways(pool *nvipamv1.CIDRPool, gatewayIndex int32) error {
+	for _, allocation := range pool.Status.Allocations {
+		expectedGateway, err := expectedCIDRPoolGateway(allocation.Prefix, gatewayIndex)
+		if err != nil {
+			return fmt.Errorf("computing gateway for node %s: %w", allocation.NodeName, err)
+		}
+		if allocation.Gateway != expectedGateway {
+			return fmt.Errorf("node %s with prefix %s has gateway %s, want %s for gatewayIndex %d",
+				allocation.NodeName, allocation.Prefix, allocation.Gateway, expectedGateway, gatewayIndex)
+		}
+	}
+	return nil
 }
 
 // TC-SVC-004: Edit DPUServiceIPAM Object
 //
-// Verifies that editing a DPUServiceIPAM updates the network used for future
-// allocations without changing addresses already assigned to existing HBN
-// pods. The loopback DPUServiceIPAM is only the example object used here; the
-// behavior under test is modifying the IPAM object and checking its effect.
-// One DPU is sufficient: its HBN pod is checked before reprovisioning, then
-// the replacement pod is checked against the updated network. Cleanup restores
-// the original IPAM configuration.
+// Updates pool1's gatewayIndex and verifies that hbn gateway addresses change.
+// Existing HBN pods keep their current IPs after the IPAM edit;
+// after reprovisioning one DPU, its new HBN pod must use the updated gateway.
+// Cleanup restores the original IPAM configuration, reprovisions the target DPU
+// so its routes use the original gateway, and recreates any HBN pod whose address changed.
 var _ = Describe("TC-SVC-004: Edit DPUServiceIPAM Object",
 	Label("dpuservice", "update-dpuserviceipam"), Ordered, func() {
 		var (
-			originalIPAMSpec     dpuservicev1.DPUServiceIPAMSpec
-			originalSpecCaptured bool
-			originalNetwork      string
-			updatedNetwork       string
-			baselinePods         map[string]loopbackPodInfo
-			baselineCIDRPool     *nvipamv1.CIDRPool
-			targetDPU            provisioningv1.DPU
-			targetDPUDeleted     bool
+			originalIPAMSpec      dpuservicev1.DPUServiceIPAMSpec
+			originalCIDRPool      *nvipamv1.CIDRPool
+			originalHBNPods       map[string]HBNPodInfo
+			targetDPU             provisioningv1.DPU
+			updatedGatewayIndex   int32
+			updatedTargetIP       string
+			originalStateCaptured bool
+			targetDPUDeleted      bool
 		)
 
 		BeforeAll(func() {
@@ -61,193 +88,241 @@ var _ = Describe("TC-SVC-004: Edit DPUServiceIPAM Object",
 		})
 
 		AfterAll(func() {
-			if !originalSpecCaptured {
+			if !originalStateCaptured {
 				return
 			}
-			var podUIDBeforeRestore types.UID
-			if targetDPUDeleted {
-				podUIDBeforeRestore = baselinePods[targetDPU.Spec.DPUNodeName].PodUID
+
+			current := &dpuservicev1.DPUServiceIPAM{}
+			Expect(mgmtClient.Get(ctx, client.ObjectKey{
+				Namespace: cfg.DPFNamespace,
+				Name:      tcSvc004DPUServiceIPAMName,
+			}, current)).To(Succeed(), "AfterAll: failed to get pool1 DPUServiceIPAM")
+
+			if !reflect.DeepEqual(current.Spec, originalIPAMSpec) {
+				By("AfterAll: restoring the original pool1 DPUServiceIPAM spec")
+				patch := client.MergeFrom(current.DeepCopy())
+				current.Spec = *originalIPAMSpec.DeepCopy()
+				Expect(mgmtClient.Patch(ctx, current, patch)).To(Succeed(),
+					"AfterAll: failed to restore pool1 DPUServiceIPAM")
 			}
 
-			// Register restoration before discovery and pod deletion: either can fail,
-			// but neither should leave the shared cluster on the expanded IPAM network.
-			defer func() {
-				current := &dpuservicev1.DPUServiceIPAM{}
+			By("AfterAll: waiting for the original pool1 CIDRPool configuration")
+			Eventually(func(g Gomega) {
+				ipam := &dpuservicev1.DPUServiceIPAM{}
+				g.Expect(mgmtClient.Get(ctx, client.ObjectKey{
+					Namespace: cfg.DPFNamespace,
+					Name:      tcSvc004DPUServiceIPAMName,
+				}, ipam)).To(Succeed())
+				g.Expect(ipam.Spec).To(Equal(originalIPAMSpec))
+				g.Expect(ipam.Status.ObservedGeneration).To(BeNumerically(">=", ipam.Generation))
+				g.Expect(isReady(ipam.Status.Conditions)).To(BeTrue())
+
+				pool := &nvipamv1.CIDRPool{}
+				g.Expect(hostedClient.Get(ctx, client.ObjectKey{
+					Namespace: cfg.DPFNamespace,
+					Name:      tcSvc004DPUServiceIPAMName,
+				}, pool)).To(Succeed())
+				g.Expect(pool.Spec).To(Equal(originalCIDRPool.Spec))
+				g.Expect(pool.Status.Allocations).To(Equal(originalCIDRPool.Status.Allocations))
+			}).WithTimeout(5 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
+
+			if targetDPUDeleted {
+				By("AfterAll: deleting the DPU again so it provisions with the original pool1 gateway")
+				dpuToDelete := &provisioningv1.DPU{}
 				err := mgmtClient.Get(ctx, client.ObjectKey{
 					Namespace: cfg.DPFNamespace,
-					Name:      loopbackDPUServiceIPAMName,
-				}, current)
-				if apierrors.IsNotFound(err) {
-					Fail("AfterAll: loopback DPUServiceIPAM was deleted")
-				}
-				Expect(err).NotTo(HaveOccurred(), "AfterAll: failed to get loopback DPUServiceIPAM")
-
-				if !reflect.DeepEqual(current.Spec, originalIPAMSpec) {
-					By("AfterAll: restoring the original loopback DPUServiceIPAM")
-					patch := client.MergeFrom(current.DeepCopy())
-					current.Spec = *originalIPAMSpec.DeepCopy()
-					Expect(mgmtClient.Patch(ctx, current, patch)).To(Succeed(),
-						"AfterAll: failed to restore loopback DPUServiceIPAM")
+					Name:      targetDPU.Name,
+				}, dpuToDelete)
+				dpuUIDToReplace := targetDPU.UID
+				if err == nil {
+					dpuUIDToReplace = dpuToDelete.UID
+					Expect(mgmtClient.Delete(ctx, dpuToDelete)).To(Succeed(),
+						"AfterAll: failed to delete DPU %s for reprovisioning with the original gateway", targetDPU.Name)
+				} else {
+					Expect(client.IgnoreNotFound(err)).To(Succeed(),
+						"AfterAll: failed to get DPU %s before reprovisioning", targetDPU.Name)
 				}
 
-				By("AfterAll: waiting for the original loopback CIDRPool configuration")
+				By("AfterAll: waiting for the DPU to be recreated and Ready with the original pool1 gateway")
 				Eventually(func(g Gomega) {
-					ipam := &dpuservicev1.DPUServiceIPAM{}
+					recreatedDPU := &provisioningv1.DPU{}
 					g.Expect(mgmtClient.Get(ctx, client.ObjectKey{
 						Namespace: cfg.DPFNamespace,
-						Name:      loopbackDPUServiceIPAMName,
-					}, ipam)).To(Succeed())
-					g.Expect(ipam.Spec).To(Equal(originalIPAMSpec))
-					g.Expect(ipam.Status.ObservedGeneration).To(BeNumerically(">=", ipam.Generation))
-					g.Expect(isReady(ipam.Status.Conditions)).To(BeTrue())
+						Name:      targetDPU.Name,
+					}, recreatedDPU)).To(Succeed())
+					g.Expect(recreatedDPU.UID).NotTo(Equal(dpuUIDToReplace),
+						"DPU must be recreated with a new UID after cleanup deletes it")
+					g.Expect(recreatedDPU.Status.Phase).To(Equal(provisioningv1.DPUReady),
+						"recreated DPU must be Ready after restoring the original gateway")
+				}).WithTimeout(dpfe2e.DPUDeploymentReadyTimeout).WithPolling(30 * time.Second).Should(Succeed())
 
-					pool := &nvipamv1.CIDRPool{}
-					g.Expect(hostedClient.Get(ctx, client.ObjectKey{
-						Namespace: cfg.DPFNamespace,
-						Name:      loopbackDPUServiceIPAMName,
-					}, pool)).To(Succeed())
-					g.Expect(pool.Spec.CIDR).To(Equal(originalNetwork))
-				}).WithTimeout(5 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
-
-				if targetDPUDeleted {
-					waitForClusterHealthAfterDPUReprovisioning()
-					waitForLoopbackPodInNetwork(targetDPU.Spec.DPUNodeName, podUIDBeforeRestore, originalNetwork)
-					return
-				}
+				waitForClusterHealthAfterDPUReprovisioning()
+			} else {
 				waitForClusterHealth()
-			}()
-
-			if targetDPUDeleted {
-				var currentPods map[string]loopbackPodInfo
-				By("AfterAll: discovering replacement HBN pods before restoring loopback IPAM")
-				Eventually(func(g Gomega) {
-					var err error
-					currentPods, err = discoverLoopbackPods()
-					g.Expect(err).NotTo(HaveOccurred())
-				}).WithTimeout(5*time.Minute).WithPolling(15*time.Second).Should(Succeed(),
-					"AfterAll: failed to discover replacement HBN pods")
-				if replacementPod, ok := currentPods[targetDPU.Spec.DPUNodeName]; ok {
-					podUIDBeforeRestore = replacementPod.PodUID
-					By(fmt.Sprintf("AfterAll: deleting replacement HBN pod %s to release its ip_lo allocation",
-						replacementPod.PodName))
-					deleteLoopbackPodAndWait(replacementPod)
-				}
 			}
+
+			for dpuNodeName, originalPod := range originalHBNPods {
+				var currentPod HBNPodInfo
+				Eventually(func(g Gomega) {
+					currentPods, err := discoverHBNPodsByDPUNode(ctx, hostedClient, hostedConfig, hostedClientset, cfg.DPFNamespace)
+					g.Expect(err).NotTo(HaveOccurred())
+					var exists bool
+					currentPod, exists = currentPods[dpuNodeName]
+					g.Expect(exists).To(BeTrue(), "HBN pod for DPU node %s must exist during cleanup", dpuNodeName)
+				}).WithTimeout(5 * time.Minute).WithPolling(15 * time.Second).Should(Succeed())
+
+				if currentPod.IP == originalPod.IP {
+					continue
+				}
+
+				By(fmt.Sprintf("AfterAll: recreating HBN pod on DPU node %s to restore its original pool1 address %s",
+					dpuNodeName, originalPod.IP))
+				deletePodAndWait(ctx, hostedClient, currentPod.Namespace, currentPod.Name, currentPod.UID)
+				waitForHBNPodByDPUNode(ctx, hostedClient, hostedConfig, hostedClientset,
+					cfg.DPFNamespace, dpuNodeName, currentPod.UID, originalPod.IP)
+			}
+
+			waitForClusterHealth()
 		})
 
-		It("pre-condition: should have the loopback IPAM ready", func() {
+		It("pre-condition: should have ready pool1 allocations on HBN pods", func() {
+			waitForClusterHealth()
+
 			ipam := &dpuservicev1.DPUServiceIPAM{}
 			Expect(mgmtClient.Get(ctx, client.ObjectKey{
 				Namespace: cfg.DPFNamespace,
-				Name:      loopbackDPUServiceIPAMName,
-			}, ipam)).To(Succeed(), "loopback DPUServiceIPAM must exist")
+				Name:      tcSvc004DPUServiceIPAMName,
+			}, ipam)).To(Succeed(), "pool1 DPUServiceIPAM must exist")
 			Expect(ipam.Spec.IPV4Network).NotTo(BeNil(),
-				"loopback DPUServiceIPAM must use ipv4Network")
+				"pool1 DPUServiceIPAM must use ipv4Network")
 			Expect(ipam.Spec.IPV4Network.Network).NotTo(BeEmpty(),
-				"loopback DPUServiceIPAM network must be set")
+				"pool1 DPUServiceIPAM network must be set")
+			Expect(ipam.Spec.IPV4Network.GatewayIndex).NotTo(BeNil(),
+				"pool1 DPUServiceIPAM must configure a gateway for HBN")
+			Expect(ipam.Spec.IPV4Network.PrefixSize).To(Equal(int32(29)),
+				"TC-SVC-004 gateway-index update expects pool1 /29 allocations")
 			Expect(isReady(ipam.Status.Conditions)).To(BeTrue(),
-				"loopback DPUServiceIPAM must be Ready before update")
+				"pool1 DPUServiceIPAM must be Ready before update")
 
-			originalIPAMSpec = *ipam.Spec.DeepCopy()
-			originalSpecCaptured = true
-			originalNetwork = ipam.Spec.IPV4Network.Network
-			updatedNetwork = expandedIPv4Network(originalNetwork)
-			GinkgoWriter.Printf("Loopback IPAM network: %s -> %s\n", originalNetwork, updatedNetwork)
-		})
-
-		It("pre-condition: should have existing HBN loopback allocations", func() {
-			var err error
-			baselinePods, err = discoverLoopbackPods()
-			Expect(err).NotTo(HaveOccurred())
-			Expect(baselinePods).NotTo(BeEmpty(), "no HBN loopback pods found")
-
-			baselineCIDRPool = &nvipamv1.CIDRPool{}
+			pool := &nvipamv1.CIDRPool{}
 			Eventually(func(g Gomega) {
 				g.Expect(hostedClient.Get(ctx, client.ObjectKey{
 					Namespace: cfg.DPFNamespace,
-					Name:      loopbackDPUServiceIPAMName,
-				}, baselineCIDRPool)).To(Succeed())
-				g.Expect(baselineCIDRPool.Spec.CIDR).To(Equal(originalNetwork))
-				g.Expect(baselineCIDRPool.Status.Allocations).NotTo(BeEmpty(),
-					"loopback CIDRPool must have an existing allocation")
+					Name:      tcSvc004DPUServiceIPAMName,
+				}, pool)).To(Succeed())
+				g.Expect(pool.Spec.CIDR).To(Equal(ipam.Spec.IPV4Network.Network))
+				g.Expect(pool.Spec.GatewayIndex).NotTo(BeNil())
+				g.Expect(*pool.Spec.GatewayIndex).To(Equal(*ipam.Spec.IPV4Network.GatewayIndex))
+				g.Expect(pool.Status.Allocations).NotTo(BeEmpty(),
+					"pool1 CIDRPool must have existing allocations")
 			}).WithTimeout(5 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
 
-			for _, pod := range baselinePods {
-				Expect(cidrPoolContainsIP(baselineCIDRPool, pod.IP)).To(BeTrue(),
-					"CIDRPool must contain the existing IP %s", pod.IP)
-				GinkgoWriter.Printf("Existing DPU node %s: HBN pod %s, ip_lo=%s, podUID=%s\n",
-					pod.DPUNodeName, pod.PodName, pod.IP, pod.PodUID)
+			pods, err := discoverHBNPodsByDPUNode(ctx, hostedClient, hostedConfig, hostedClientset, cfg.DPFNamespace)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(pods).NotTo(BeEmpty(), "no HBN pods found on DPU nodes")
+			for dpuNodeName, pod := range pods {
+				allocation, found := cidrPoolAllocationForNode(pool, pod.NodeName)
+				Expect(found).To(BeTrue(), "pool1 must have an allocation for hosted node %s (DPU node %s)",
+					pod.NodeName, dpuNodeName)
+				Expect(pod.IP).To(Equal(allocation.Gateway),
+					"HBN on DPU node %s must use its pool1 gateway address", dpuNodeName)
+				Expect(cidrPoolContainsIP(pool, pod.IP)).To(BeTrue(),
+					"pool1 CIDRPool must contain HBN IP %s on DPU node %s", pod.IP, dpuNodeName)
 			}
 
-			targetDPU = chooseTargetDPU(baselinePods)
+			originalIPAMSpec = *ipam.Spec.DeepCopy()
+			originalCIDRPool = pool.DeepCopy()
+			originalHBNPods = pods
+			targetDPU, err = findReadyDPUWithHBNPod(ctx, mgmtClient, cfg.DPFNamespace, pods)
+			Expect(err).NotTo(HaveOccurred())
+			originalGatewayIndex := *ipam.Spec.IPV4Network.GatewayIndex
+			updatedGatewayIndex = originalGatewayIndex + 1
+			addressesPerPrefix := int32(1) << uint32(32-ipam.Spec.IPV4Network.PrefixSize)
+			lastUsableGatewayIndex := addressesPerPrefix - 2
+			Expect(updatedGatewayIndex).To(BeNumerically("<=", lastUsableGatewayIndex),
+				"incremented pool1 gatewayIndex must remain before the /29 broadcast address")
+			Expect(updatedGatewayIndex).To(BeNumerically(">", 1),
+				"updated pool1 gatewayIndex must not overlap OVN's configured IP indexes 0 and 1")
+			GinkgoWriter.Printf("pool1 gatewayIndex: %d -> %d\n",
+				originalGatewayIndex, updatedGatewayIndex)
+			originalStateCaptured = true
 		})
 
-		It("should edit the loopback DPUServiceIPAM and preserve existing allocations", func() {
+		It("should update pool1 gatewayIndex without changing existing HBN pods", func() {
 			ipam := &dpuservicev1.DPUServiceIPAM{}
 			Expect(mgmtClient.Get(ctx, client.ObjectKey{
 				Namespace: cfg.DPFNamespace,
-				Name:      loopbackDPUServiceIPAMName,
+				Name:      tcSvc004DPUServiceIPAMName,
 			}, ipam)).To(Succeed())
-			Expect(ipam.Spec.IPV4Network).NotTo(BeNil())
-			Expect(ipam.Spec.IPV4Network.Network).To(Equal(originalNetwork))
+			Expect(ipam.Spec).To(Equal(originalIPAMSpec))
 
+			expectedIPAMSpec := originalIPAMSpec.DeepCopy()
+			expectedIPAMSpec.IPV4Network.GatewayIndex = &updatedGatewayIndex
+			expectedCIDRPool := originalCIDRPool.DeepCopy()
+			expectedCIDRPool.Spec.GatewayIndex = &updatedGatewayIndex
+
+			By(fmt.Sprintf("Changing pool1 gatewayIndex to %d", updatedGatewayIndex))
 			patch := client.MergeFrom(ipam.DeepCopy())
-			ipam.Spec.IPV4Network.Network = updatedNetwork
-			By(fmt.Sprintf("Patching loopback DPUServiceIPAM network %s -> %s",
-				originalNetwork, updatedNetwork))
+			ipam.Spec.IPV4Network.GatewayIndex = &updatedGatewayIndex
 			Expect(mgmtClient.Patch(ctx, ipam, patch)).To(Succeed())
 
-			By("Waiting for the updated loopback CIDRPool to be reconciled")
+			By("Waiting for gatewayIndex to be reconciled to the DPUCluster CIDRPool")
 			Eventually(func(g Gomega) {
 				currentIPAM := &dpuservicev1.DPUServiceIPAM{}
 				g.Expect(mgmtClient.Get(ctx, client.ObjectKey{
 					Namespace: cfg.DPFNamespace,
-					Name:      loopbackDPUServiceIPAMName,
+					Name:      tcSvc004DPUServiceIPAMName,
 				}, currentIPAM)).To(Succeed())
+				g.Expect(currentIPAM.Spec).To(Equal(*expectedIPAMSpec))
 				g.Expect(currentIPAM.Status.ObservedGeneration).To(BeNumerically(">=", currentIPAM.Generation))
 				g.Expect(isReady(currentIPAM.Status.Conditions)).To(BeTrue())
 
 				pool := &nvipamv1.CIDRPool{}
 				g.Expect(hostedClient.Get(ctx, client.ObjectKey{
 					Namespace: cfg.DPFNamespace,
-					Name:      loopbackDPUServiceIPAMName,
+					Name:      tcSvc004DPUServiceIPAMName,
 				}, pool)).To(Succeed())
-				g.Expect(pool.Spec.CIDR).To(Equal(updatedNetwork))
+				g.Expect(pool.Spec).To(Equal(expectedCIDRPool.Spec))
+				g.Expect(cidrPoolAllocationPrefixes(pool)).To(Equal(cidrPoolAllocationPrefixes(originalCIDRPool)),
+					"changing gatewayIndex must not change per-node CIDR allocations")
+				g.Expect(validateCIDRPoolGateways(pool, updatedGatewayIndex)).To(Succeed())
+
+				targetPod := originalHBNPods[targetDPU.Spec.DPUNodeName]
+				allocation, found := cidrPoolAllocationForNode(pool, targetPod.NodeName)
+				g.Expect(found).To(BeTrue(), "pool1 must retain an allocation for hosted node %s",
+					targetPod.NodeName)
+				expectedTargetIP, err := expectedCIDRPoolGateway(allocation.Prefix, updatedGatewayIndex)
+				g.Expect(err).NotTo(HaveOccurred(), "computing updated gateway for target HBN node %s", targetPod.NodeName)
+				g.Expect(allocation.Gateway).To(Equal(expectedTargetIP),
+					"target allocation must use the address selected by the updated gatewayIndex")
+				g.Expect(expectedTargetIP).NotTo(Equal(originalHBNPods[targetDPU.Spec.DPUNodeName].IP),
+					"updated gateway must differ from the target HBN's original IP")
+				updatedTargetIP = expectedTargetIP
 			}).WithTimeout(5 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
 
-			By("Verifying existing HBN pods retain their loopback addresses")
+			By("Verifying existing HBN pods retain their IPs and identities")
 			Eventually(func(g Gomega) {
-				currentPods, err := discoverLoopbackPods()
+				currentPods, err := discoverHBNPodsByDPUNode(ctx, hostedClient, hostedConfig, hostedClientset, cfg.DPFNamespace)
 				g.Expect(err).NotTo(HaveOccurred())
-				for dpuNodeName, originalPod := range baselinePods {
-					currentPod, ok := currentPods[dpuNodeName]
-					g.Expect(ok).To(BeTrue(), "existing DPU node %s must retain an HBN pod", dpuNodeName)
-					g.Expect(currentPod.PodUID).To(Equal(originalPod.PodUID),
-						"existing DPU node %s HBN pod must not be replaced", dpuNodeName)
+				for dpuNodeName, originalPod := range originalHBNPods {
+					currentPod, exists := currentPods[dpuNodeName]
+					g.Expect(exists).To(BeTrue(), "existing DPU node %s must retain an HBN pod", dpuNodeName)
+					g.Expect(currentPod.UID).To(Equal(originalPod.UID),
+						"existing HBN pod on DPU node %s must not be replaced by an IPAM update", dpuNodeName)
 					g.Expect(currentPod.IP).To(Equal(originalPod.IP),
-						"existing DPU node %s must retain ip_lo", dpuNodeName)
+						"existing HBN pod on DPU node %s must retain its IP", dpuNodeName)
 				}
 			}).WithTimeout(5 * time.Minute).WithPolling(15 * time.Second).Should(Succeed())
-
-			currentPool := &nvipamv1.CIDRPool{}
-			Expect(hostedClient.Get(ctx, client.ObjectKey{
-				Namespace: cfg.DPFNamespace,
-				Name:      loopbackDPUServiceIPAMName,
-			}, currentPool)).To(Succeed())
-			for _, pod := range baselinePods {
-				Expect(cidrPoolContainsIP(currentPool, pod.IP)).To(BeTrue(),
-					"updated CIDRPool must retain the existing allocation for %s", pod.IP)
-			}
 		})
 
-		It("should provision a new DPU with the updated loopback IPAM", func() {
-			oldTargetPod := baselinePods[targetDPU.Spec.DPUNodeName]
+		It("should provision a DPU with the updated pool1 gateway address", func() {
+			oldTargetPod := originalHBNPods[targetDPU.Spec.DPUNodeName]
 			By(fmt.Sprintf("Deleting DPU %s to trigger a new provisioning cycle", targetDPU.Name))
 			Expect(mgmtClient.Delete(ctx, &targetDPU)).To(Succeed())
 			targetDPUDeleted = true
 
-			By("Waiting for a replacement DPU to become Ready")
-			var replacement provisioningv1.DPU
+			By("Waiting for the replacement DPU to become Ready")
+			var replacementDPU provisioningv1.DPU
 			Eventually(func(g Gomega) {
 				current := &provisioningv1.DPU{}
 				err := mgmtClient.Get(ctx, client.ObjectKey{
@@ -255,51 +330,53 @@ var _ = Describe("TC-SVC-004: Edit DPUServiceIPAM Object",
 					Name:      targetDPU.Name,
 				}, current)
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(current.UID).NotTo(Equal(targetDPU.UID),
-					"DPU must be recreated with a new UID")
+				g.Expect(current.UID).NotTo(Equal(targetDPU.UID), "DPU must be recreated with a new UID")
 				g.Expect(current.Status.Phase).To(Equal(provisioningv1.DPUReady),
 					"replacement DPU must be Ready")
-				replacement = *current.DeepCopy()
+				replacementDPU = *current.DeepCopy()
 			}).WithTimeout(dpfe2e.DPUDeploymentReadyTimeout).WithPolling(30 * time.Second).Should(Succeed())
 
 			waitForClusterHealthAfterDPUReprovisioning()
 
-			By("Waiting for the replacement HBN pod and reading its loopback address")
-			var currentPods map[string]loopbackPodInfo
-			Eventually(func(g Gomega) {
-				var err error
-				currentPods, err = discoverLoopbackPods()
-				g.Expect(err).NotTo(HaveOccurred())
-				newTargetPod, ok := currentPods[replacement.Spec.DPUNodeName]
-				g.Expect(ok).To(BeTrue(), "replacement DPU must have an HBN pod")
-				g.Expect(newTargetPod.PodUID).NotTo(Equal(oldTargetPod.PodUID),
-					"replacement DPU must have a new HBN pod")
-			}).WithTimeout(10 * time.Minute).WithPolling(15 * time.Second).Should(Succeed())
+			By("Verifying the replacement HBN pod receives the updated pool1 gateway address")
+			updatedTargetPod := waitForHBNPodByDPUNode(ctx, hostedClient, hostedConfig, hostedClientset,
+				cfg.DPFNamespace, replacementDPU.Spec.DPUNodeName, oldTargetPod.UID, updatedTargetIP)
+			Expect(updatedTargetPod.IP).NotTo(Equal(oldTargetPod.IP),
+				"replacement HBN pod must use the updated pool1 gateway address")
 
-			currentPool := &nvipamv1.CIDRPool{}
+			pool := &nvipamv1.CIDRPool{}
 			Expect(hostedClient.Get(ctx, client.ObjectKey{
 				Namespace: cfg.DPFNamespace,
-				Name:      loopbackDPUServiceIPAMName,
-			}, currentPool)).To(Succeed())
-			Expect(currentPool.Spec.CIDR).To(Equal(updatedNetwork))
+				Name:      tcSvc004DPUServiceIPAMName,
+			}, pool)).To(Succeed())
+			expectedCIDRPool := originalCIDRPool.DeepCopy()
+			expectedCIDRPool.Spec.GatewayIndex = &updatedGatewayIndex
+			Expect(pool.Spec).To(Equal(expectedCIDRPool.Spec))
+			Expect(validateCIDRPoolGateways(pool, updatedGatewayIndex)).To(Succeed())
+			allocation, found := cidrPoolAllocationForNode(pool, updatedTargetPod.NodeName)
+			Expect(found).To(BeTrue(), "pool1 must retain an allocation for hosted node %s",
+				updatedTargetPod.NodeName)
+			expectedTargetIP, err := expectedCIDRPoolGateway(allocation.Prefix, updatedGatewayIndex)
+			Expect(err).NotTo(HaveOccurred(), "computing updated gateway for target HBN node %s", updatedTargetPod.NodeName)
+			Expect(allocation.Gateway).To(Equal(expectedTargetIP),
+				"target allocation must use the address selected by the updated gatewayIndex")
+			Expect(updatedTargetPod.IP).To(Equal(expectedTargetIP),
+				"replacement HBN IP must be the updated pool1 gateway")
+			Expect(cidrPoolAllocationPrefixes(pool)).To(Equal(cidrPoolAllocationPrefixes(originalCIDRPool)),
+				"reprovisioning with a new gatewayIndex must preserve per-node CIDR allocations")
 
-			newTargetPod := currentPods[replacement.Spec.DPUNodeName]
-			Expect(cidrContainsIP(updatedNetwork, newTargetPod.IP)).To(BeTrue(),
-				"replacement DPU ip_lo %s must come from updated network %s",
-				newTargetPod.IP, updatedNetwork)
-			Expect(cidrPoolContainsIP(currentPool, newTargetPod.IP)).To(BeTrue(),
-				"updated CIDRPool must contain replacement DPU ip_lo %s", newTargetPod.IP)
-
-			for dpuNodeName, originalPod := range baselinePods {
+			currentPods, err := discoverHBNPodsByDPUNode(ctx, hostedClient, hostedConfig, hostedClientset, cfg.DPFNamespace)
+			Expect(err).NotTo(HaveOccurred())
+			for dpuNodeName, originalPod := range originalHBNPods {
 				if dpuNodeName == targetDPU.Spec.DPUNodeName {
 					continue
 				}
-				currentPod, ok := currentPods[dpuNodeName]
-				Expect(ok).To(BeTrue(), "existing DPU node %s must retain an HBN pod", dpuNodeName)
-				Expect(currentPod.PodUID).To(Equal(originalPod.PodUID),
-					"existing DPU node %s HBN pod must not be replaced", dpuNodeName)
+				currentPod, exists := currentPods[dpuNodeName]
+				Expect(exists).To(BeTrue(), "existing DPU node %s must retain an HBN pod", dpuNodeName)
+				Expect(currentPod.UID).To(Equal(originalPod.UID),
+					"unreprovisioned HBN pod on DPU node %s must not be replaced", dpuNodeName)
 				Expect(currentPod.IP).To(Equal(originalPod.IP),
-					"existing DPU node %s must retain ip_lo", dpuNodeName)
+					"unreprovisioned HBN pod on DPU node %s must retain its IP", dpuNodeName)
 			}
 		})
 
@@ -307,174 +384,3 @@ var _ = Describe("TC-SVC-004: Edit DPUServiceIPAM Object",
 			waitForClusterHealth()
 		})
 	})
-
-func discoverLoopbackPods() (map[string]loopbackPodInfo, error) {
-	pods, err := utils.GetRunningPods(ctx, hostedClient, cfg.DPFNamespace, nil)
-	if err != nil {
-		return nil, fmt.Errorf("listing hosted DPU service pods: %w", err)
-	}
-
-	result := make(map[string]loopbackPodInfo)
-	for i := range pods {
-		pod := &pods[i]
-		if !strings.Contains(pod.Name, "-hbn-") || pod.DeletionTimestamp != nil {
-			continue
-		}
-
-		node := &corev1.Node{}
-		if err := hostedClient.Get(ctx, client.ObjectKey{Name: pod.Spec.NodeName}, node); err != nil {
-			return nil, fmt.Errorf("getting hosted node %s for HBN pod %s: %w",
-				pod.Spec.NodeName, pod.Name, err)
-		}
-		dpuNodeName := node.Labels[provisioningv1.DPUNodeNameLabel]
-		if dpuNodeName == "" {
-			return nil, fmt.Errorf("hosted node %s has no %s label",
-				pod.Spec.NodeName, provisioningv1.DPUNodeNameLabel)
-		}
-
-		ip, err := getHBNLoopbackIP(pod.Name)
-		if err != nil {
-			return nil, err
-		}
-		if _, exists := result[dpuNodeName]; exists {
-			return nil, fmt.Errorf("multiple HBN pods found for DPU node %s", dpuNodeName)
-		}
-
-		result[dpuNodeName] = loopbackPodInfo{
-			PodName:        pod.Name,
-			PodUID:         pod.UID,
-			HostedNodeName: pod.Spec.NodeName,
-			DPUNodeName:    dpuNodeName,
-			IP:             ip,
-		}
-	}
-
-	return result, nil
-}
-
-func getHBNLoopbackIP(podName string) (string, error) {
-	result, err := utils.ExecInPod(ctx, hostedConfig, hostedClientset,
-		cfg.DPFNamespace, podName, "doca-hbn",
-		[]string{"ip", "-o", "-4", "addr", "show", "dev", "lo", "scope", "global"})
-	if err != nil {
-		return "", fmt.Errorf("getting ip_lo address on lo interface from HBN pod %s: %w", podName, err)
-	}
-
-	for _, line := range strings.Split(result.Stdout, "\n") {
-		fields := strings.Fields(line)
-		if len(fields) < 4 || fields[2] != "inet" {
-			continue
-		}
-		ip := strings.SplitN(fields[3], "/", 2)[0]
-		if parsed := net.ParseIP(ip); parsed != nil && parsed.To4() != nil {
-			return ip, nil
-		}
-	}
-
-	return "", fmt.Errorf("no global IPv4 ip_lo address found on lo interface in HBN pod %s", podName)
-}
-
-func deleteLoopbackPodAndWait(pod loopbackPodInfo) {
-	uid := pod.PodUID
-	resource := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
-		Namespace: cfg.DPFNamespace,
-		Name:      pod.PodName,
-	}}
-	err := hostedClient.Delete(ctx, resource, &client.DeleteOptions{
-		Preconditions: &metav1.Preconditions{UID: &uid},
-	})
-	Expect(err == nil || apierrors.IsNotFound(err)).To(BeTrue(),
-		"failed to delete HBN pod %s to release its ip_lo allocation: %v", pod.PodName, err)
-
-	Eventually(func(g Gomega) {
-		current := &corev1.Pod{}
-		err := hostedClient.Get(ctx, client.ObjectKey{
-			Namespace: cfg.DPFNamespace,
-			Name:      pod.PodName,
-		}, current)
-		g.Expect(apierrors.IsNotFound(err)).To(BeTrue(),
-			"HBN pod %s must be deleted before the IPAM network is restored", pod.PodName)
-	}).WithTimeout(5 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
-}
-
-func waitForLoopbackPodInNetwork(dpuNodeName string, previousPodUID types.UID, network string) loopbackPodInfo {
-	for attempt := 0; attempt < 3; attempt++ {
-		var replacementPod loopbackPodInfo
-		By(fmt.Sprintf("AfterAll: waiting for an HBN pod on DPU node %s with an address in %s",
-			dpuNodeName, network))
-		Eventually(func(g Gomega) {
-			currentPods, err := discoverLoopbackPods()
-			g.Expect(err).NotTo(HaveOccurred())
-			var exists bool
-			replacementPod, exists = currentPods[dpuNodeName]
-			g.Expect(exists).To(BeTrue(), "replacement DPU must have an HBN pod")
-			g.Expect(replacementPod.PodUID).NotTo(Equal(previousPodUID),
-				"replacement HBN pod must have a new UID")
-		}).WithTimeout(10 * time.Minute).WithPolling(15 * time.Second).Should(Succeed())
-
-		if cidrContainsIP(network, replacementPod.IP) {
-			return replacementPod
-		}
-
-		By(fmt.Sprintf("AfterAll: releasing stale ip_lo address %s from HBN pod %s",
-			replacementPod.IP, replacementPod.PodName))
-		deleteLoopbackPodAndWait(replacementPod)
-		previousPodUID = replacementPod.PodUID
-	}
-
-	Fail(fmt.Sprintf("AfterAll: replacement HBN pod on DPU node %s did not receive an ip_lo address in %s",
-		dpuNodeName, network))
-	return loopbackPodInfo{}
-}
-
-func chooseTargetDPU(loopbackPods map[string]loopbackPodInfo) provisioningv1.DPU {
-	dpuList := &provisioningv1.DPUList{}
-	Expect(mgmtClient.List(ctx, dpuList, client.InNamespace(cfg.DPFNamespace))).To(Succeed())
-
-	for _, dpu := range dpuList.Items {
-		if dpu.Status.Phase != provisioningv1.DPUReady {
-			continue
-		}
-		if _, ok := loopbackPods[dpu.Spec.DPUNodeName]; ok {
-			return *dpu.DeepCopy()
-		}
-	}
-
-	Fail("no Ready DPU has a matching HBN loopback pod")
-	return provisioningv1.DPU{}
-}
-
-func expandedIPv4Network(network string) string {
-	ip, cidr, err := net.ParseCIDR(network)
-	Expect(err).NotTo(HaveOccurred(), "IPAM network must be a valid IPv4 CIDR")
-	Expect(ip.To4()).NotTo(BeNil(), "IPAM network must be IPv4")
-	prefixSize, bits := cidr.Mask.Size()
-	Expect(bits).To(Equal(32), "IPAM network must be IPv4")
-	Expect(prefixSize).To(BeNumerically(">", 8),
-		"IPAM network must have room for an expanded test CIDR")
-
-	updatedPrefixSize := prefixSize - 8
-	updatedCIDR := &net.IPNet{
-		IP:   ip.Mask(net.CIDRMask(updatedPrefixSize, 32)),
-		Mask: net.CIDRMask(updatedPrefixSize, 32),
-	}
-	return updatedCIDR.String()
-}
-
-func cidrContainsIP(cidr string, ip string) bool {
-	parsedIP := net.ParseIP(ip)
-	if parsedIP == nil {
-		return false
-	}
-	_, network, err := net.ParseCIDR(cidr)
-	return err == nil && network.Contains(parsedIP)
-}
-
-func cidrPoolContainsIP(pool *nvipamv1.CIDRPool, ip string) bool {
-	for _, allocation := range pool.Status.Allocations {
-		if cidrContainsIP(allocation.Prefix, ip) {
-			return true
-		}
-	}
-	return false
-}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -11,9 +12,12 @@ import (
 	. "github.com/onsi/gomega"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
+	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
+	nvipamv1 "github.com/nvidia/doca-platform/third_party/api/nvipam/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -24,6 +28,7 @@ import (
 const (
 	ovnNodeComponentLabel      = "app.kubernetes.io/component"
 	ovnNodeComponentLabelValue = "ovnkube-node"
+	hbnPodIPInterface          = "pf2dpu2_if"
 )
 
 // isReady reports whether the given conditions slice contains a Ready=True condition.
@@ -36,6 +41,88 @@ func isReady(conditions []metav1.Condition) bool {
 	return false
 }
 
+// listDPUServiceRevisions lists the DPUService revisions generated for a
+// named service in a DPUDeployment.
+func listDPUServiceRevisions(ctx context.Context, c client.Client, namespace, deploymentName, serviceName string) ([]dpuservicev1.DPUService, error) {
+	serviceList := &dpuservicev1.DPUServiceList{}
+	err := c.List(ctx, serviceList,
+		client.InNamespace(namespace),
+		client.MatchingLabels{
+			dpuservicev1.ParentDPUDeploymentNameLabel:            namespace + "_" + deploymentName,
+			dpuservicev1.ServiceReferenceInDPUDeploymentLabelKey: serviceName,
+		})
+	if err != nil {
+		return nil, fmt.Errorf("listing DPUService revisions for %s: %w", serviceName, err)
+	}
+	return serviceList.Items, nil
+}
+
+// dpuServiceUIDs returns the UIDs of the supplied DPUService revisions.
+func dpuServiceUIDs(services []dpuservicev1.DPUService) map[types.UID]bool {
+	uids := make(map[types.UID]bool, len(services))
+	for _, service := range services {
+		uids[service.UID] = true
+	}
+	return uids
+}
+
+// podUIDsByNode groups pod UIDs by the node on which each pod is scheduled.
+func podUIDsByNode(pods []corev1.Pod) map[string]map[types.UID]bool {
+	uids := make(map[string]map[types.UID]bool)
+	for _, pod := range pods {
+		if _, ok := uids[pod.Spec.NodeName]; !ok {
+			uids[pod.Spec.NodeName] = make(map[types.UID]bool)
+		}
+		uids[pod.Spec.NodeName][pod.UID] = true
+	}
+	return uids
+}
+
+// podUIDsAbsentFromBaseline returns current pod UIDs that were not present in the
+// per-node baseline. The result can be passed to a replacement wait to track
+// only pods that appeared during an update rollout.
+func podUIDsAbsentFromBaseline(baseline, current map[string]map[types.UID]bool) map[string]map[types.UID]bool {
+	added := make(map[string]map[types.UID]bool)
+	for nodeName, currentUIDs := range current {
+		for uid := range currentUIDs {
+			if baseline[nodeName][uid] {
+				continue
+			}
+			if added[nodeName] == nil {
+				added[nodeName] = make(map[types.UID]bool)
+			}
+			added[nodeName][uid] = true
+		}
+	}
+	return added
+}
+
+// podIsReady reports whether a pod is Running, not terminating, PodReady, and
+// has no unready containers.
+func podIsReady(pod *corev1.Pod) bool {
+	if pod == nil || pod.DeletionTimestamp != nil || pod.Status.Phase != corev1.PodRunning {
+		return false
+	}
+
+	readyCondition := false
+	for _, condition := range pod.Status.Conditions {
+		if condition.Type == corev1.PodReady && condition.Status == corev1.ConditionTrue {
+			readyCondition = true
+			break
+		}
+	}
+	if !readyCondition || len(pod.Status.ContainerStatuses) == 0 {
+		return false
+	}
+	for _, status := range pod.Status.ContainerStatuses {
+		if !status.Ready {
+			return false
+		}
+	}
+	return true
+}
+
+// PodInfo contains a pod's name, namespace, node, and IP.
 type PodInfo struct {
 	Name      string
 	Namespace string
@@ -43,38 +130,171 @@ type PodInfo struct {
 	IP        string
 }
 
-func discoverHBNPods(ctx context.Context, c client.Client, restCfg *rest.Config, cs *kubernetes.Clientset, namespace string, dpuWorkerNodes []corev1.Node) ([]PodInfo, error) {
+// HBNPodInfo adds HBN and DPU identity to the generic pod information.
+type HBNPodInfo struct {
+	PodInfo
+	DPUNodeName string
+	UID         types.UID
+}
+
+// discoverHBNPodsByDPUNode discovers running HBN pods and indexes them by the
+// DPU node name associated with each hosted-cluster worker.
+func discoverHBNPodsByDPUNode(ctx context.Context, c client.Client, restCfg *rest.Config, cs *kubernetes.Clientset, namespace string) (map[string]HBNPodInfo, error) {
 	pods, err := utils.GetRunningPods(ctx, c, namespace, nil)
 	if err != nil {
-		return nil, fmt.Errorf("listing pods in %s: %w", namespace, err)
+		return nil, fmt.Errorf("listing hosted DPU service pods in %s: %w", namespace, err)
 	}
 
-	var hbnPods []PodInfo
-	for _, worker := range dpuWorkerNodes {
-		var hbnPod *corev1.Pod
-		for i := range pods {
-			if pods[i].Spec.NodeName == worker.Name && strings.Contains(pods[i].Name, "-hbn-") {
-				hbnPod = &pods[i]
-				break
-			}
-		}
-		if hbnPod == nil {
-			return nil, fmt.Errorf("no doca-hbn pod found on DPU worker node %s", worker.Name)
+	hbnPods := make(map[string]HBNPodInfo)
+	for i := range pods {
+		hbnPod := &pods[i]
+		if !strings.Contains(hbnPod.Name, "-hbn-") || hbnPod.DeletionTimestamp != nil {
+			continue
 		}
 
-		ip, err := utils.GetPodIPFromInterface(ctx, restCfg, cs, namespace, hbnPod.Name, "doca-hbn", "pf2dpu2_if")
+		node := &corev1.Node{}
+		if err := c.Get(ctx, client.ObjectKey{Name: hbnPod.Spec.NodeName}, node); err != nil {
+			return nil, fmt.Errorf("getting hosted node %s for HBN pod %s: %w",
+				hbnPod.Spec.NodeName, hbnPod.Name, err)
+		}
+		dpuNodeName := node.Labels[provisioningv1.DPUNodeNameLabel]
+		if dpuNodeName == "" {
+			return nil, fmt.Errorf("hosted node %s has no %s label",
+				hbnPod.Spec.NodeName, provisioningv1.DPUNodeNameLabel)
+		}
+
+		ip, err := utils.GetPodIPFromInterface(ctx, restCfg, cs, namespace, hbnPod.Name, "doca-hbn", hbnPodIPInterface)
 		if err != nil {
-			return nil, fmt.Errorf("getting HBN pod IP on node %s: %w", worker.Name, err)
+			return nil, fmt.Errorf("getting %s IP from HBN pod %s: %w", hbnPodIPInterface, hbnPod.Name, err)
 		}
 
-		hbnPods = append(hbnPods, PodInfo{
-			Name:      hbnPod.Name,
-			Namespace: namespace,
-			NodeName:  worker.Name,
-			IP:        ip,
-		})
+		if _, exists := hbnPods[dpuNodeName]; exists {
+			return nil, fmt.Errorf("multiple HBN pods found for DPU node %s", dpuNodeName)
+		}
+
+		hbnPods[dpuNodeName] = HBNPodInfo{
+			PodInfo: PodInfo{
+				Name:      hbnPod.Name,
+				Namespace: namespace,
+				NodeName:  hbnPod.Spec.NodeName,
+				IP:        ip,
+			},
+			DPUNodeName: dpuNodeName,
+			UID:         hbnPod.UID,
+		}
 	}
 	return hbnPods, nil
+}
+
+// discoverHBNPods returns HBN pods in the same order as dpuWorkerNodes.
+func discoverHBNPods(ctx context.Context, c client.Client, restCfg *rest.Config, cs *kubernetes.Clientset, namespace string, dpuWorkerNodes []corev1.Node) ([]PodInfo, error) {
+	hbnPodsByDPUNode, err := discoverHBNPodsByDPUNode(ctx, c, restCfg, cs, namespace)
+	if err != nil {
+		return nil, err
+	}
+
+	hbnPodsByHostedNode := make(map[string]HBNPodInfo, len(hbnPodsByDPUNode))
+	for _, hbnPod := range hbnPodsByDPUNode {
+		hbnPodsByHostedNode[hbnPod.NodeName] = hbnPod
+	}
+
+	hbnPods := make([]PodInfo, 0, len(dpuWorkerNodes))
+	for _, worker := range dpuWorkerNodes {
+		hbnPod, exists := hbnPodsByHostedNode[worker.Name]
+		if !exists {
+			return nil, fmt.Errorf("no doca-hbn pod found on DPU worker node %s", worker.Name)
+		}
+		hbnPods = append(hbnPods, hbnPod.PodInfo)
+	}
+	return hbnPods, nil
+}
+
+func deletePodAndWait(ctx context.Context, c client.Client, namespace, podName string, podUID types.UID) {
+	uid := podUID
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+		Namespace: namespace,
+		Name:      podName,
+	}}
+	err := c.Delete(ctx, pod, &client.DeleteOptions{
+		Preconditions: &metav1.Preconditions{UID: &uid},
+	})
+	Expect(err == nil || apierrors.IsNotFound(err)).To(BeTrue(),
+		"failed to delete pod %s: %v", podName, err)
+
+	Eventually(func(g Gomega) {
+		current := &corev1.Pod{}
+		err := c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: podName}, current)
+		g.Expect(apierrors.IsNotFound(err)).To(BeTrue(), "pod %s must be deleted", podName)
+	}).WithTimeout(5 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+}
+
+func waitForHBNPodByDPUNode(ctx context.Context, c client.Client, restCfg *rest.Config, cs *kubernetes.Clientset,
+	namespace, dpuNodeName string, previousPodUID types.UID, expectedIP string) HBNPodInfo {
+	var currentPod HBNPodInfo
+	By(fmt.Sprintf("Waiting for replacement HBN pod on DPU node %s to use IP %s", dpuNodeName, expectedIP))
+	Eventually(func(g Gomega) {
+		currentPods, err := discoverHBNPodsByDPUNode(ctx, c, restCfg, cs, namespace)
+		g.Expect(err).NotTo(HaveOccurred())
+		var exists bool
+		currentPod, exists = currentPods[dpuNodeName]
+		g.Expect(exists).To(BeTrue(), "HBN pod on DPU node %s must exist", dpuNodeName)
+		g.Expect(currentPod.UID).NotTo(Equal(previousPodUID),
+			"replacement HBN pod on DPU node %s must have a new UID", dpuNodeName)
+		g.Expect(currentPod.IP).To(Equal(expectedIP),
+			"HBN pod on DPU node %s must use the expected IP", dpuNodeName)
+	}).WithTimeout(10 * time.Minute).WithPolling(15 * time.Second).Should(Succeed())
+	return currentPod
+}
+
+func findReadyDPUWithHBNPod(ctx context.Context, c client.Client, namespace string,
+	hbnPods map[string]HBNPodInfo) (provisioningv1.DPU, error) {
+	dpuList := &provisioningv1.DPUList{}
+	if err := c.List(ctx, dpuList, client.InNamespace(namespace)); err != nil {
+		return provisioningv1.DPU{}, fmt.Errorf("listing DPUs in %s: %w", namespace, err)
+	}
+
+	for i := range dpuList.Items {
+		dpu := &dpuList.Items[i]
+		if dpu.Status.Phase != provisioningv1.DPUReady {
+			continue
+		}
+		if _, ok := hbnPods[dpu.Spec.DPUNodeName]; ok {
+			return *dpu.DeepCopy(), nil
+		}
+	}
+
+	return provisioningv1.DPU{}, fmt.Errorf("no Ready DPU has a matching HBN pod")
+}
+
+func cidrPoolContainsIP(pool *nvipamv1.CIDRPool, ip string) bool {
+	parsedIP := net.ParseIP(ip)
+	if parsedIP == nil {
+		return false
+	}
+	for _, allocation := range pool.Status.Allocations {
+		_, network, err := net.ParseCIDR(allocation.Prefix)
+		if err == nil && network.Contains(parsedIP) {
+			return true
+		}
+	}
+	return false
+}
+
+func cidrPoolAllocationForNode(pool *nvipamv1.CIDRPool, nodeName string) (nvipamv1.CIDRPoolAllocation, bool) {
+	for _, allocation := range pool.Status.Allocations {
+		if allocation.NodeName == nodeName {
+			return allocation, true
+		}
+	}
+	return nvipamv1.CIDRPoolAllocation{}, false
+}
+
+func cidrPoolAllocationPrefixes(pool *nvipamv1.CIDRPool) map[string]string {
+	prefixes := make(map[string]string, len(pool.Status.Allocations))
+	for _, allocation := range pool.Status.Allocations {
+		prefixes[allocation.NodeName] = allocation.Prefix
+	}
+	return prefixes
 }
 
 type WorkloadPods struct {

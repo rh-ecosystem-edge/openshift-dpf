@@ -1,0 +1,134 @@
+IPERF_TCP:
+  - id: POD_TO_POD_SAME_NODE # 1
+    Normal:
+      threshold: 11
+    Reverse:
+      threshold: 11
+  - id: POD_TO_POD_DIFF_NODE # 2
+    Normal:
+      threshold: 1
+    Reverse:
+      threshold: 1
+  - id: POD_TO_HOST_SAME_NODE # 3
+    Normal:
+      threshold: 11
+    Reverse:
+      threshold: 11
+  - id: POD_TO_HOST_DIFF_NODE # 4
+    Normal:
+      threshold: 1
+    Reverse:
+      threshold: 1
+  - id: POD_TO_CLUSTER_IP_TO_POD_SAME_NODE # 5
+    Normal:
+      threshold: 11
+    Reverse:
+      threshold: 11
+  - id: POD_TO_CLUSTER_IP_TO_POD_DIFF_NODE # 6
+    Normal:
+      threshold: 1
+    Reverse:
+      threshold: 1
+  - id: POD_TO_CLUSTER_IP_TO_HOST_SAME_NODE # 7
+    Normal:
+      threshold: 11
+    Reverse:
+      threshold: 11
+  - id: POD_TO_CLUSTER_IP_TO_HOST_DIFF_NODE # 8
+    Normal:
+      threshold: 1
+    Reverse:
+      threshold: 1
+  - id: POD_TO_NODE_PORT_TO_POD_SAME_NODE # 9
+    Normal:
+      threshold: 1
+    Reverse:
+      threshold: 1
+  - id: POD_TO_NODE_PORT_TO_POD_DIFF_NODE # 10
+    Normal:
+      threshold: 1
+    Reverse:
+      threshold: 1
+  - id: POD_TO_NODE_PORT_TO_HOST_SAME_NODE # 11
+    Normal:
+      threshold: 1
+    Reverse:
+      threshold: 1
+  - id: POD_TO_NODE_PORT_TO_HOST_DIFF_NODE # 12
+    Normal:
+      threshold: 1
+    Reverse:
+      threshold: 1
+  - id: HOST_TO_HOST_SAME_NODE # 13
+    Normal:
+      threshold: 11
+    Reverse:
+      threshold: 11
+  - id: HOST_TO_HOST_DIFF_NODE # 14
+    Normal:
+      threshold: 1
+    Reverse:
+      threshold: 1
+  - id: HOST_TO_POD_SAME_NODE # 15
+    Normal:
+      threshold: 11
+    Reverse:
+      threshold: 11
+  - id: HOST_TO_POD_DIFF_NODE # 16
+    Normal:
+      threshold: 1
+    Reverse:
+      threshold: 1
+  - id: HOST_TO_CLUSTER_IP_TO_POD_SAME_NODE # 17
+    Normal:
+      threshold: 11
+    Reverse:
+      threshold: 11
+  - id: HOST_TO_CLUSTER_IP_TO_POD_DIFF_NODE # 18
+    Normal:
+      threshold: 1
+    Reverse:
+      threshold: 1
+  - id: HOST_TO_CLUSTER_IP_TO_HOST_SAME_NODE # 19
+    Normal:
+      threshold: 11
+    Reverse:
+      threshold: 11
+  - id: HOST_TO_CLUSTER_IP_TO_HOST_DIFF_NODE # 20
+    Normal:
+      threshold: 1
+    Reverse:
+      threshold: 1
+  - id: HOST_TO_NODE_PORT_TO_POD_SAME_NODE # 21
+    Normal:
+      threshold: 1
+    Reverse:
+      threshold: 1
+  - id: HOST_TO_NODE_PORT_TO_POD_DIFF_NODE # 22
+    Normal:
+      threshold: 1
+    Reverse:
+      threshold: 1
+  - id: HOST_TO_NODE_PORT_TO_HOST_SAME_NODE # 23
+    Normal:
+      threshold: 1
+    Reverse:
+      threshold: 1
+  - id: HOST_TO_NODE_PORT_TO_HOST_DIFF_NODE # 24
+    Reverse:
+      threshold: 1
+  - id: POD_TO_EXTERNAL # 25
+    Normal:
+      threshold: 11
+    Reverse:
+      threshold: 11
+  - id: POD_TO_POD_ANP_ALLOW # 32
+    Normal:
+      threshold: 1
+    Reverse:
+      threshold: 1
+  - id: HOST_TO_POD_NP_NS_SELECTOR_ALLOW # 69
+    Normal:
+      threshold: 1
+    Reverse:
+      threshold: 1

@@ -1,0 +1,10 @@
+apiVersion: provisioning.dpu.nvidia.com/v1alpha1
+kind: DPUDiscovery
+metadata:
+  name: <ZT_DPU_DISCOVERY_NAME>
+  namespace: dpf-operator-system
+spec:
+  ipRangeSpec:
+    ipRange:
+      startIP: <ZT_DPU_BMC_IP_RANGE_START>
+      endIP: <ZT_DPU_BMC_IP_RANGE_END>

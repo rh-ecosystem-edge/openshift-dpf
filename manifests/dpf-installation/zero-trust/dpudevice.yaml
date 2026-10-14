@@ -1,0 +1,8 @@
+apiVersion: provisioning.dpu.nvidia.com/v1alpha1
+kind: DPUDevice
+metadata:
+  name: <DPU_DEVICE_NAME>
+  namespace: dpf-operator-system
+spec:
+  serialNumber: "<DPU_SERIAL_NUMBER>"
+  bmcIp: "<DPU_BMC_IP>"

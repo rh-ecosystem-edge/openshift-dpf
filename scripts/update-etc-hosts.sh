@@ -36,41 +36,27 @@ get_matching_vms() {
 }
 
 # Get IP address for a specific VM
-# Get IP address for a specific VM
 get_vm_ip() {
     local vm_name=$1
     local vm_mac
     local vm_ip
 
-    # Try to get the IP using virsh domifaddr
-    vm_ip=$(lvirsh domifaddr "$vm_name" 2>/dev/null | grep -v "^$" | tail -n +3 | grep -oE "\b([0-9]{1,3}\.){3}[0-9]{1,3}\b" | head -1)
-
-    if [ -n "$vm_ip" ]; then
-        echo "$vm_ip"
-        return 0
-    fi
-
-    # Fallback: Get the MAC address of the VM
     vm_mac=$(lvirsh domiflist "$vm_name" 2>/dev/null | tail -n +3 | awk '{print $5}' | head -n 1)
+    vm_ip=$(lvirsh domifaddr "$vm_name" --source agent 2>/dev/null | \
+        awk -v mac="$vm_mac" '
+            tolower($2) == tolower(mac) && $3 == "ipv4" {
+                split($4, address, "/")
+                print address[1]
+                exit
+            }
+        ' || true)
 
-    if [ -z "$vm_mac" ]; then
-        echo "Error: Could not retrieve MAC address for VM: $vm_name" >&2
-        return 1
-    fi
-
-    # Use arp or ip neigh to find the IP address based on the MAC address
-    vm_ip=$(libvirt_host_cmd arp -an 2>/dev/null | grep "${vm_mac}" | awk '{print $2}' | tr -d '()')
     if [ -z "$vm_ip" ]; then
-        vm_ip=$(libvirt_host_cmd ip neigh 2>/dev/null | grep "${vm_mac}" | awk '{print $1}')
-    fi
-
-    if [ -n "$vm_ip" ]; then
-        echo "$vm_ip"
-        return 0
-    else
-        echo "Error: Could not find IP address for VM: $vm_name" >&2
+        echo "Error: Could not get the IPv4 address for VM $vm_name from the guest agent" >&2
         return 1
     fi
+
+    echo "$vm_ip"
 }
 
 # Find IP address for any VM matching prefix

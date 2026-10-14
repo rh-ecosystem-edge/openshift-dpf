@@ -34,7 +34,7 @@ _run_ipmitool() {
     # Use a subshell to ensure we capture output and status correctly
     local status=0
     local output
-    output=$(ipmitool -I lanplus -H "${bmc_ip}" -U "${user}" -f "${pw_file}" "$@" 2>/dev/null) || status=$?
+    output=$(ipmitool -I lanplus -H "${bmc_ip}" -U "${user}" -f "${pw_file}" "$@") || status=$?
     
     rm -f "${pw_file}"
     
@@ -196,6 +196,12 @@ _shutoff_worker() {
 }
 
 shutoff_all_workers() {
+    # Existing .env files may predate the flag; keep power-off enabled by default.
+    if [[ "${POWER_OFF_WORKERS:-true}" == "false" ]]; then
+        log "INFO" "POWER_OFF_WORKERS=false, skipping physical worker shutoff"
+        return 0
+    fi
+
     local count="${WORKER_COUNT:-0}"
     if [[ "${count}" -eq 0 ]]; then
         log "INFO" "WORKER_COUNT=0, skipping physical worker shutoff"
@@ -294,7 +300,157 @@ EOF
     retry 5 10 apply_manifest "${WORKER_GENERATED_DIR}/${name}-network-data.yaml" true
 }
 
+_integer_to_ipv4() {
+    local value="$1"
+    printf '%d.%d.%d.%d\n' \
+        "$(( (value >> 24) & 255 ))" \
+        "$(( (value >> 16) & 255 ))" \
+        "$(( (value >> 8) & 255 ))" \
+        "$(( value & 255 ))"
+}
+
+_dpu_redfish_ready() {
+    local ip="$1"
+    local curl_config="$2"
+
+    curl --config "${curl_config}" \
+        --insecure \
+        --silent \
+        --fail \
+        --connect-timeout 5 \
+        --max-time 10 \
+        --output /dev/null \
+        "https://${ip}/redfish/v1/Systems/Bluefield"
+}
+
+wait_for_zero_trust_dpu_redfish() {
+    if [ "${DPF_DEPLOYMENT_MODE}" != "zero-trust" ]; then
+        return 0
+    fi
+
+    local expected=0 serial_variable
+    while IFS= read -r serial_variable; do
+        if [ -n "${!serial_variable:-}" ]; then
+            expected=$((expected + 1))
+        fi
+    done < <(list_dpu_serial_variables)
+    if [ "${expected}" -eq 0 ]; then
+        log "ERROR" "No DPU serials are configured for Zero Trust Redfish readiness"
+        return 1
+    fi
+
+    local curl_config escaped_password
+    curl_config=$(mktemp "${TMPDIR:-/tmp}/dpu-redfish-curl.XXXXXX")
+    chmod 600 "${curl_config}"
+    trap 'rm -f "${curl_config}"' EXIT
+    escaped_password="${ZT_DPU_BMC_ROOT_PASSWORD//\\/\\\\}"
+    escaped_password="${escaped_password//\"/\\\"}"
+    printf 'user = "root:%s"\n' "${escaped_password}" > "${curl_config}"
+
+    local interval=10
+    local started_at current_time elapsed reachable ip bmc_ip_variable
+    started_at=$(date +%s)
+
+    if [ "${ZT_DPU_DISCOVERY_MODE}" = "static" ]; then
+        log "INFO" "Waiting up to ${WORKER_POWER_ON_DELAY}s for ${expected} configured DPU Redfish endpoint(s)..."
+
+        while true; do
+            reachable=0
+            while IFS= read -r variable; do
+                [ -n "${!variable:-}" ] || continue
+                bmc_ip_variable="${variable%_SERIAL}_BMC_IP"
+                ip="${!bmc_ip_variable}"
+                if _dpu_redfish_ready "${ip}" "${curl_config}"; then
+                    reachable=$((reachable + 1))
+                fi
+            done < <(list_dpu_serial_variables)
+
+            if [ "${reachable}" -ge "${expected}" ]; then
+                rm -f "${curl_config}"
+                trap - EXIT
+                log "INFO" "All ${expected} configured DPU Redfish endpoint(s) are ready"
+                return 0
+            fi
+
+            current_time=$(date +%s)
+            elapsed=$((current_time - started_at))
+            if [ "${elapsed}" -ge "${WORKER_POWER_ON_DELAY}" ]; then
+                rm -f "${curl_config}"
+                trap - EXIT
+                log "ERROR" "Only ${reachable}/${expected} configured DPU Redfish endpoint(s) became ready within ${WORKER_POWER_ON_DELAY}s"
+                return 1
+            fi
+
+            log "INFO" "DPU Redfish readiness: ${reachable}/${expected}; retrying in ${interval}s..."
+            sleep "${interval}"
+        done
+    fi
+
+    local start_value end_value
+    start_value=$(_ipv4_to_integer "${ZT_DPU_BMC_IP_RANGE_START}")
+    end_value=$(_ipv4_to_integer "${ZT_DPU_BMC_IP_RANGE_END}")
+
+    log "INFO" "Waiting up to ${WORKER_POWER_ON_DELAY}s for ${expected} DPU Redfish endpoint(s) in ${ZT_DPU_BMC_IP_RANGE_START}-${ZT_DPU_BMC_IP_RANGE_END}..."
+
+    local address_value
+    while true; do
+        reachable=0
+        address_value="${start_value}"
+        while [ "${address_value}" -le "${end_value}" ]; do
+            if [ $(( $(date +%s) - started_at )) -ge "${WORKER_POWER_ON_DELAY}" ]; then
+                break
+            fi
+            ip=$(_integer_to_ipv4 "${address_value}")
+            if _dpu_redfish_ready "${ip}" "${curl_config}"; then
+                reachable=$((reachable + 1))
+                if [ "${reachable}" -ge "${expected}" ]; then
+                    rm -f "${curl_config}"
+                    trap - EXIT
+                    log "INFO" "All ${expected} required DPU Redfish endpoint(s) are ready"
+                    return 0
+                fi
+            fi
+            address_value=$((address_value + 1))
+        done
+
+        current_time=$(date +%s)
+        elapsed=$((current_time - started_at))
+        if [ "${elapsed}" -ge "${WORKER_POWER_ON_DELAY}" ]; then
+            rm -f "${curl_config}"
+            trap - EXIT
+            log "ERROR" "Only ${reachable}/${expected} DPU Redfish endpoint(s) became ready within ${WORKER_POWER_ON_DELAY}s"
+            return 1
+        fi
+
+        log "INFO" "DPU Redfish readiness: ${reachable}/${expected}; retrying in ${interval}s..."
+        sleep "${interval}"
+    done
+}
+
+poweron_workers() {
+    poweron_all_workers || return 1
+
+    if [ "${WORKER_COUNT:-0}" -eq 0 ]; then
+        return 0
+    fi
+
+    if [ "${DPF_DEPLOYMENT_MODE}" = "zero-trust" ]; then
+        wait_for_zero_trust_dpu_redfish
+        return
+    fi
+
+    validate_worker_power_on_delay || return 1
+
+    log "INFO" "Waiting ${WORKER_POWER_ON_DELAY}s for worker hosts/DPUs to settle before provisioning..."
+    sleep "${WORKER_POWER_ON_DELAY}"
+}
+
 provision_all_workers() {
+    if [[ "${DPF_DEPLOYMENT_MODE}" == "zero-trust" ]]; then
+        log "ERROR" "add-worker-nodes is a host-trusted operation; Zero Trust discovers and provisions DPUs through Redfish/OOB during deploy-dpf"
+        return 1
+    fi
+
     local count="${WORKER_COUNT:-0}"
     [[ "$count" -eq 0 ]] && { log "INFO" "WORKER_COUNT=0, skipping"; return 0; }
 
@@ -586,9 +742,11 @@ case "${1:-}" in
     delete-csr-auto-approver) delete_csr_auto_approver ;;
     delete-worker) delete_worker "${2:-}" ;;
     shutoff-all-workers) shutoff_all_workers ;;
+    poweron-workers) poweron_workers ;;
     poweron-all-workers) poweron_all_workers ;;
+    wait-for-dpu-redfish) wait_for_zero_trust_dpu_redfish ;;
     *)
-        echo "Usage: $0 {provision-all-workers|approve-worker-csrs|display-worker-status|display-manual-csr-instructions|apply-short-worker-hostnames|deploy-csr-auto-approver|delete-csr-auto-approver|delete-worker <bmh-name|machine-name|node-name>|shutoff-all-workers|poweron-all-workers}"
+        echo "Usage: $0 {provision-all-workers|approve-worker-csrs|display-worker-status|display-manual-csr-instructions|apply-short-worker-hostnames|deploy-csr-auto-approver|delete-csr-auto-approver|delete-worker <bmh-name|machine-name|node-name>|shutoff-all-workers|poweron-workers|poweron-all-workers|wait-for-dpu-redfish}"
         exit 1
         ;;
 esac

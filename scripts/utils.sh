@@ -110,9 +110,8 @@ function wait_for_secret_with_data() {
 
 # Returns 0 on success, 1 if secret missing (skip hosted checks), 2 on error.
 ensure_hosted_kubeconfig() {
-    HOSTED_KUBECONFIG="${HOSTED_CLUSTER_NAME}.kubeconfig"
-
     if [[ -f "$HOSTED_KUBECONFIG" ]] && [[ -s "$HOSTED_KUBECONFIG" ]]; then
+        chmod 600 "$HOSTED_KUBECONFIG"
         return 0
     fi
 
@@ -129,8 +128,8 @@ ensure_hosted_kubeconfig() {
     fi
 
     local tmpfile="${HOSTED_KUBECONFIG}.tmp"
-    if ! oc get secret -n "${CLUSTERS_NAMESPACE}" "$secret_name" \
-        -o jsonpath='{.data.kubeconfig}' | base64 -d > "$tmpfile"; then
+    if ! (umask 077; oc get secret -n "${CLUSTERS_NAMESPACE}" "$secret_name" \
+        -o jsonpath='{.data.kubeconfig}' | base64 -d > "$tmpfile"); then
         log "ERROR" "Failed to decode kubeconfig from secret ${secret_name}"
         rm -f "$tmpfile"
         return 2
@@ -329,8 +328,8 @@ dump_system_status() {
         _dump_oc_section "Management cluster: pending CSRs" \
             bash -c 'oc get csr 2>/dev/null | grep -i pending || echo "(none pending)"'
 
-        _dump_oc_section "Management cluster: BareMetalHosts" \
-            oc get bmh -n openshift-machine-api
+        _dump_oc_section "Management cluster: BareMetalHosts (all namespaces)" \
+            oc get bmh -A -o wide
 
         _dump_oc_section "Management cluster: machines" \
             oc get machines -n openshift-machine-api
