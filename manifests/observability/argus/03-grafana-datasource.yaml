@@ -1,0 +1,18 @@
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDatasource
+metadata:
+  name: loki-argus
+  namespace: dpf-operator-system
+spec:
+  instanceSelector:
+    matchLabels:
+      dashboards: "dpf-grafana"
+  datasource:
+    name: loki-argus
+    uid: loki-argus
+    type: loki
+    access: proxy
+    url: http://loki.argus-logs.svc:3100
+    isDefault: false
+    jsonData:
+      maxLines: 1000

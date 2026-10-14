@@ -427,7 +427,39 @@ function apply_observability() {
         retry 5 30 apply_manifest "${OBSERVABILITY_DIR}/console-dashboards" "true"
     fi
 
+    if [ "${ARGUS_ENABLED}" = "true" ]; then
+        apply_argus_observability
+    fi
+
     log [INFO] "Observability manifest application completed successfully"
+}
+
+# Loki, Fluent Bit, and the Grafana datasource and dashboard for DOCA Argus
+# alerts. Argus streams to the Fluent Bit NodePort (manifests/argus/02-configuration.yaml).
+function apply_argus_observability() {
+    local src="${OBSERVABILITY_DIR}/argus"
+    local dst="${GENERATED_DIR}/observability/argus"
+    local telemetry_node_port="${ARGUS_TELEMETRY_NODE_PORT:-30224}"
+
+    if [ ! -d "${src}" ]; then
+        log [ERROR] "Argus observability directory not found: ${src}"
+        return 1
+    fi
+    if [ -z "${ETCD_STORAGE_CLASS:-}" ]; then
+        log [ERROR] "ETCD_STORAGE_CLASS must be set for the Argus Loki volume"
+        return 1
+    fi
+    validate_argus_telemetry_node_port "${telemetry_node_port}" || return 1
+
+    log [INFO] "Applying Argus alert pipeline (Loki, Fluent Bit, dashboard)..."
+    rm -rf "${dst}"
+    mkdir -p "${dst}"
+    copy_manifests_with_exclusions "${src}" "${dst}" "01-loki.yaml" "02-fluent-bit.yaml"
+    update_file_multi_replace "${src}/01-loki.yaml" "${dst}/01-loki.yaml" \
+        "<ARGUS_LOGS_STORAGE_CLASS>" "${ETCD_STORAGE_CLASS}"
+    update_file_multi_replace "${src}/02-fluent-bit.yaml" "${dst}/02-fluent-bit.yaml" \
+        "<ARGUS_TELEMETRY_NODE_PORT>" "${telemetry_node_port}"
+    retry 5 30 apply_manifest "${dst}" "true"
 }
 
 function redeploy() {

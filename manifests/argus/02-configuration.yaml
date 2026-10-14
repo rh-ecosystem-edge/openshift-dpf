@@ -13,5 +13,23 @@ spec:
         config:
           isLocalPath: false
           content:
+            # Level 40: at the default level the service log on the DPU disk
+            # grows tens of GB per day.
+            service:
+              service_log_level: 40
             apsh_config:
               auto_scan: true
+              default:
+                service_log_level: 40
+                sdk_log_level: 40
+            # No local event report or event stdout; events stream to the
+            # Fluent Bit forwarder in manifests/observability/argus.
+            output:
+              log_stdout: false
+              log_folder_path: false
+              log_threshold_size: "100M"
+              log_max_files_count: 10
+              telemetry_address: "<ARGUS_TELEMETRY_ADDRESS>"
+              telemetry_tag: fluentbit_forward_input
+              telemetry_format: json
+              telemetry_user_data: NONE
