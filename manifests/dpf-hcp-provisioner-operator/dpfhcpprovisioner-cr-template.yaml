@@ -17,9 +17,7 @@ spec:
     name: dpudeployment
     namespace: dpf-operator-system
 
-  # BlueField ocp image layer
-  machineOSURL: <BLUEFIELD_OCP_IMAGE>
-
+<BLUEFIELD_OCP_MACHINE_OS_BLOCK>
   # Storage class for etcd
   etcdStorageClass: <ETCD_STORAGE_CLASS>
 
