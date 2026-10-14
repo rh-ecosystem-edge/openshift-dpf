@@ -597,6 +597,9 @@ function prepare_post_installation() {
         return 1
     fi
 
+    rm -rf "${GENERATED_POST_INSTALL_DIR}"
+    mkdir -p "${GENERATED_POST_INSTALL_DIR}"
+
     # Update manifests with custom values
     update_bfb_manifest
     update_hbn_ovn_manifests
@@ -703,10 +706,6 @@ function apply_post_installation() {
             local filename=$(basename "$file")
             # Skip dpudeployment.yaml as it will be applied last
             if [[ "${filename}" != "dpudeployment.yaml" ]]; then
-                # Argus manifests are applied through enable-argus.sh below.
-                if [[ "${filename}" == argus-*.yaml ]]; then
-                    continue
-                fi
                 # Special handling for SCC - must be applied to hosted cluster
                 if [[ "${filename}" == "dpu-services-scc.yaml" ]]; then
                     if ! ensure_hosted_kubeconfig; then
@@ -725,10 +724,6 @@ function apply_post_installation() {
             fi
         fi
     done
-
-    if [ "${ARGUS_ENABLED}" = "true" ]; then
-        apply_argus_manifests
-    fi
 
     # Apply dpudeployment.yaml last if it exists, with apply_always=true
     if [ -f "${GENERATED_POST_INSTALL_DIR}/dpudeployment.yaml" ]; then
