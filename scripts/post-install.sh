@@ -321,7 +321,7 @@ function print_zero_trust_dpu_provisioning_instructions() {
     if ! dpu_node_names=$(oc get dpunodes.provisioning.dpu.nvidia.com \
         -n dpf-operator-system \
         -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}'); then
-        log [WARN] "Unable to read DPUNode names for the manual reboot instructions"
+        log [WARN] "Unable to read DPUNode names for the reboot Job instructions"
         dpu_node_names=""
     fi
 
@@ -332,23 +332,20 @@ function print_zero_trust_dpu_provisioning_instructions() {
 
     echo ""
     echo "================================================================================"
-    echo "DPU provisioning is running - manual action required"
+    echo "DPU provisioning is running with scripted DPUNode reboot handling"
     echo "================================================================================"
     echo "Monitor progress:"
     echo "  oc get dpu -A -w"
     echo ""
-    echo "For each DPU that reaches the Rebooting phase:"
-    echo "  1. Manually power-cycle the corresponding bare-metal host."
-    echo "  2. After the DPU is back up, run from the jump node console:"
+    echo "Monitor the reboot Jobs created when a DPU reaches Rebooting:"
     if [ "${#dpu_nodes[@]}" -gt 0 ]; then
         for dpu_node in "${dpu_nodes[@]}"; do
-            printf '     oc -n dpf-operator-system annotate dpunode %s \\\n' "${dpu_node}"
-            echo "       provisioning.dpu.nvidia.com/dpunode-external-reboot-required-"
+            printf '  oc -n dpf-operator-system logs -f job/%s-script-job\n' "${dpu_node}"
         done
     else
-        printf '     oc -n dpf-operator-system annotate dpunode <dpunode-name> \\\n'
-        echo "       provisioning.dpu.nvidia.com/dpunode-external-reboot-required-"
+        echo "  oc -n dpf-operator-system get jobs -w"
     fi
+    echo "The reboot Job resets or power-cycles the matching physical host BMC with ipmitool."
     echo "================================================================================"
 }
 

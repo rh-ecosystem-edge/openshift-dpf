@@ -1,0 +1,90 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: custom-reboot-script
+  namespace: dpf-operator-system
+data:
+  host-bmc-addresses: |
+<DPU_HOST_BMC_ADDRESS_MAP>
+  pod-template: |
+    spec:
+      containers:
+        - name: reboot-container
+          image: <ZT_DPU_REBOOT_IMAGE>
+          volumeMounts:
+            - name: reboot-config
+              mountPath: /etc/dpf-reboot
+              readOnly: true
+            - name: host-bmc-credentials
+              mountPath: /etc/dpf-host-bmc
+              readOnly: true
+          command: ["/bin/bash"]
+          args:
+            - -c
+            - |
+              set -euo pipefail
+
+              echo "Performing custom reboot procedure for DPUNode $DPUNODE_NAME..."
+              echo "Aggregated reboot method: $DPUNODE_REBOOT_METHOD"
+              echo "Per-DPU methods: $DPUNODE_REBOOT_METHODS_PER_DPU"
+
+              case "$DPUNODE_REBOOT_METHOD" in
+                PowerCycle|SystemLevelReset|SystemReboot)
+                  power_action=cycle
+                  ;;
+                FirmwareReset|DPUWarmReboot)
+                  power_action=reset
+                  ;;
+                NoAction)
+                  echo "No reboot action is required for $DPUNODE_NAME"
+                  exit 0
+                  ;;
+                *)
+                  echo "Unsupported reboot method: $DPUNODE_REBOOT_METHOD" >&2
+                  exit 1
+                  ;;
+              esac
+
+              bmc_ip=""
+              while IFS='=' read -r node address; do
+                if [ "$node" = "$DPUNODE_NAME" ]; then
+                  bmc_ip="$address"
+                  break
+                fi
+              done < /etc/dpf-reboot/host-bmc-addresses
+
+              if [ -z "$bmc_ip" ]; then
+                echo "No host BMC IP configured for DPUNode $DPUNODE_NAME" >&2
+                exit 1
+              fi
+
+              username_file="/etc/dpf-host-bmc/$DPUNODE_NAME.username"
+              password_file="/etc/dpf-host-bmc/$DPUNODE_NAME.password"
+              if [ ! -s "$username_file" ] || [ ! -s "$password_file" ]; then
+                echo "Host BMC credentials are missing for DPUNode $DPUNODE_NAME" >&2
+                exit 1
+              fi
+
+              bmc_user=$(<"$username_file")
+              IPMI_PASSWORD=$(<"$password_file")
+              export IPMI_PASSWORD
+
+              echo "Running IPMI chassis power $power_action for $DPUNODE_NAME through BMC $bmc_ip"
+              ipmitool -I lanplus -H "$bmc_ip" -U "$bmc_user" -E chassis power "$power_action"
+      volumes:
+        - name: reboot-config
+          configMap:
+            name: custom-reboot-script
+        - name: host-bmc-credentials
+          secret:
+            secretName: dpunode-reboot-host-bmc-credentials
+      restartPolicy: Never
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: dpunode-reboot-host-bmc-credentials
+  namespace: dpf-operator-system
+type: Opaque
+data:
+<HOST_BMC_CREDENTIALS_SECRET>

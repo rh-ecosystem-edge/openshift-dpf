@@ -9,4 +9,5 @@ spec:
   dpus:
     - name: <DPU_SERIAL>
   nodeRebootMethod:
-    external: {}
+    script:
+      name: custom-reboot-script

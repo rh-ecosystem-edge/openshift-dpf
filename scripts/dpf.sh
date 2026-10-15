@@ -519,7 +519,12 @@ function wait_for_dpf_provisioning_api() {
 
 function configure_zero_trust_dpu_inventory() {
     local inventory_dir="${GENERATED_DIR}/zero-trust-inventory"
-    local serial_variable serial device_manifest node_manifest
+    local reboot_script_manifest="${inventory_dir}/dpunode-reboot-script.yaml"
+    local serial_variable serial device_manifest node_manifest worker_index
+    local bmc_ip_variable bmc_user_variable bmc_password_variable
+    local bmc_ip bmc_user bmc_password current_reboot_script
+    local host_bmc_address_map=""
+    local host_bmc_credentials=""
 
     if [ "${ZT_DPU_DISCOVERY_MODE}" = "scanning" ]; then
         local discovery_manifest="${inventory_dir}/dpudiscovery.yaml"
@@ -569,14 +574,64 @@ function configure_zero_trust_dpu_inventory() {
             return 1
         fi
 
-        # Set the discovered DPUNode label to the empty value selected by DPUDeployment.
-        log [INFO] "Normalizing the discovered DPUNode label for dpu-node-${serial}..."
-        if ! oc label -n dpf-operator-system \
+        worker_index="${serial_variable#DPU}"
+        worker_index="${worker_index%_SERIAL}"
+        bmc_ip_variable="WORKER_${worker_index}_BMC_IP"
+        bmc_user_variable="WORKER_${worker_index}_BMC_USER"
+        bmc_password_variable="WORKER_${worker_index}_BMC_PASSWORD"
+        bmc_ip="${!bmc_ip_variable}"
+        bmc_user="${!bmc_user_variable}"
+        bmc_password="${!bmc_password_variable}"
+
+        host_bmc_address_map+="    dpu-node-${serial}=${bmc_ip}"$'\n'
+        host_bmc_credentials+="  dpu-node-${serial}.username: $(printf '%s' "${bmc_user}" | base64 -w 0)"$'\n'
+        host_bmc_credentials+="  dpu-node-${serial}.password: $(printf '%s' "${bmc_password}" | base64 -w 0)"$'\n'
+    done < <(list_dpu_serial_variables)
+
+    update_file_multi_replace \
+        "${MANIFESTS_DIR}/dpf-installation/zero-trust/dpunode-reboot-script.yaml" \
+        "${reboot_script_manifest}" \
+        "<DPU_HOST_BMC_ADDRESS_MAP>" "${host_bmc_address_map%$'\n'}" \
+        "<HOST_BMC_CREDENTIALS_SECRET>" "${host_bmc_credentials%$'\n'}" \
+        "<ZT_DPU_REBOOT_IMAGE>" "${ZT_DPU_REBOOT_IMAGE}"
+    log [INFO] "Applying the Zero Trust DPUNode IPMI reboot script"
+    apply_manifest "${reboot_script_manifest}" true
+
+    while IFS= read -r serial_variable; do
+        serial="${!serial_variable:-}"
+        [ -n "${serial}" ] || continue
+
+        current_reboot_script=$(oc get -n dpf-operator-system \
             "dpunode.provisioning.dpu.nvidia.com/dpu-node-${serial}" \
-            feature.node.kubernetes.io/dpu-enabled= \
-            --overwrite; then
-            log [ERROR] "Failed to normalize the DPUNode label for dpu-node-${serial}"
-            return 1
+            -o jsonpath='{.spec.nodeRebootMethod.script.name}' 2>/dev/null || true)
+        if [ "${current_reboot_script}" = "custom-reboot-script" ]; then
+            log [INFO] "Scripted reboot is already configured for dpu-node-${serial}"
+        else
+            log [INFO] "Configuring scripted reboot for dpu-node-${serial}..."
+            if ! oc patch -n dpf-operator-system \
+                "dpunode.provisioning.dpu.nvidia.com/dpu-node-${serial}" \
+                --type=json \
+                -p '[{"op":"add","path":"/spec/nodeRebootMethod","value":{"script":{"name":"custom-reboot-script"}}}]'; then
+                log [ERROR] "Failed to configure scripted reboot for dpu-node-${serial}"
+                return 1
+            fi
+        fi
+
+        if oc get -n dpf-operator-system \
+            "dpunode.provisioning.dpu.nvidia.com/dpu-node-${serial}" -o json | \
+            jq -e '.metadata.labels["feature.node.kubernetes.io/dpu-enabled"] == ""' \
+                >/dev/null; then
+            log [INFO] "DPUNode label is already normalized for dpu-node-${serial}"
+        else
+            # Set the discovered DPUNode label to the empty value selected by DPUDeployment.
+            log [INFO] "Normalizing the discovered DPUNode label for dpu-node-${serial}..."
+            if ! oc label -n dpf-operator-system \
+                "dpunode.provisioning.dpu.nvidia.com/dpu-node-${serial}" \
+                feature.node.kubernetes.io/dpu-enabled= \
+                --overwrite; then
+                log [ERROR] "Failed to normalize the DPUNode label for dpu-node-${serial}"
+                return 1
+            fi
         fi
     done < <(list_dpu_serial_variables)
 

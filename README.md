@@ -85,6 +85,16 @@ Complete these manual steps on every DPU BMC before running `make all-zt`:
      to uppercase for `DPUDevice.spec.serialNumber`. The BMC IP range variables
      are not required.
 
+Zero Trust DPU nodes use a `custom-reboot-script` ConfigMap based on NVIDIA's
+example. The controller creates `<dpunode-name>-script-job` when reboot handling
+is needed. The Job uses `ZT_DPU_REBOOT_IMAGE`, a small image containing Bash and
+`ipmitool`, and performs the requested reset or power cycle through the matching
+physical host BMC.
+Numbered DPUs and workers are paired by suffix: `DPU1_SERIAL` uses the
+`WORKER_1_BMC_*` values, `DPU2_SERIAL` uses `WORKER_2_BMC_*`, and so on.
+`PowerCycle` uses `chassis power cycle`; the warm-reset methods use
+`chassis power reset`; and `NoAction` exits without contacting the BMC.
+
 ### Zero Trust Single-Node OpenShift
 
 Set `VM_COUNT=1` to use an SNO management cluster. `API_VIP` and `INGRESS_VIP`
