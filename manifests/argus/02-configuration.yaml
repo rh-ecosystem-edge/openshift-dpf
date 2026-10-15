@@ -23,7 +23,7 @@ spec:
                 service_log_level: 40
                 sdk_log_level: 40
             # No local event report or event stdout; events stream to the
-            # Fluent Bit forwarder in manifests/observability/argus.
+            # Fluent Bit forwarder in 05-fluent-bit.yaml.
             output:
               log_stdout: false
               log_folder_path: false
