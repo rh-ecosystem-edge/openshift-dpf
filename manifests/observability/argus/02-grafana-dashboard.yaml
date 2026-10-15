@@ -1,0 +1,360 @@
+---
+# DOCA Argus — security alert dashboard.
+#
+# Config-only addition to the existing dpf-grafana stack. Fluent Bit stores
+# CRITICAL and HIGH Argus alerts in Loki; the GrafanaDatasource "loki-argus"
+# makes them queryable. The storage gauge uses the existing Prometheus
+# datasource for the Loki PVC usage.
+#
+# This manifest follows the DTS dashboard convention: a ConfigMap holding the
+# dashboard JSON plus a GrafanaDashboard CR that loads it into dpf-grafana.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dpf-argus-grafana-dashboard
+  namespace: dpf-operator-system
+  labels:
+    app.kubernetes.io/part-of: dpf
+data:
+  doca-argus-alerts.json: |
+    {
+      "title": "DOCA Argus Alerts",
+      "uid": "doca-argus-alerts",
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "editable": true,
+      "time": {
+        "from": "now-6h",
+        "to": "now"
+      },
+      "refresh": "30s",
+      "tags": [
+        "argus",
+        "dpf"
+      ],
+      "templating": {
+        "list": [
+          {
+            "name": "host",
+            "label": "Host / workload",
+            "type": "query",
+            "datasource": {
+              "type": "loki",
+              "uid": "loki-argus"
+            },
+            "query": {
+              "label": "host",
+              "stream": "{job=\"argus\"}",
+              "type": 1
+            },
+            "includeAll": true,
+            "allValue": ".*",
+            "multi": true,
+            "current": {
+              "text": "All",
+              "value": "$__all"
+            },
+            "refresh": 2
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "CRITICAL alerts in range",
+          "gridPos": {
+            "x": 0,
+            "y": 0,
+            "w": 8,
+            "h": 5
+          },
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-argus"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "queryType": "instant",
+              "expr": "sum(count_over_time({job=\"argus\", severity=\"CRITICAL\", host=~\"$host\"} [$__range])) or vector(0)"
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "colorMode": "background"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "dark-red",
+                    "value": 1
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "HIGH alerts in range",
+          "gridPos": {
+            "x": 8,
+            "y": 0,
+            "w": 8,
+            "h": 5
+          },
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-argus"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "queryType": "instant",
+              "expr": "sum(count_over_time({job=\"argus\", severity=\"HIGH\", host=~\"$host\"} [$__range])) or vector(0)"
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "colorMode": "background"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 1
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "id": 4,
+          "type": "gauge",
+          "title": "Loki storage used",
+          "gridPos": {
+            "x": 16,
+            "y": 0,
+            "w": 8,
+            "h": 5
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "max(kubelet_volume_stats_used_bytes{namespace=\"argus-logs\"} / kubelet_volume_stats_capacity_bytes{namespace=\"argus-logs\"})"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "min": 0,
+              "max": 1,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 0.7
+                  },
+                  {
+                    "color": "red",
+                    "value": 0.9
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "id": 5,
+          "type": "timeseries",
+          "title": "CRITICAL + HIGH alerts per host / workload",
+          "gridPos": {
+            "x": 0,
+            "y": 5,
+            "w": 16,
+            "h": 8
+          },
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-argus"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "legendFormat": "{{host}}",
+              "expr": "sum by (host) (count_over_time({job=\"argus\", severity=~\"CRITICAL|HIGH\", host=~\"$host\"} [$__interval]))"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "drawStyle": "bars",
+                "fillOpacity": 60
+              }
+            }
+          }
+        },
+        {
+          "id": 3,
+          "type": "table",
+          "title": "Alerts by severity and type",
+          "gridPos": {
+            "x": 16,
+            "y": 5,
+            "w": 8,
+            "h": 8
+          },
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-argus"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "queryType": "instant",
+              "legendFormat": "{{severity}} {{event}}",
+              "expr": "sum by (severity, event) (count_over_time({job=\"argus\", severity=~\"CRITICAL|HIGH\", host=~\"$host\"} [$__range]))"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "labelsToFields",
+              "options": {}
+            },
+            {
+              "id": "merge",
+              "options": {}
+            },
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true
+                },
+                "renameByName": {
+                  "severity": "Severity",
+                  "event": "Event",
+                  "Value": "Alerts"
+                }
+              }
+            },
+            {
+              "id": "sortBy",
+              "options": {
+                "sort": [
+                  {
+                    "field": "Alerts",
+                    "desc": true
+                  }
+                ]
+              }
+            }
+          ],
+          "options": {
+            "showHeader": true,
+            "cellHeight": "sm"
+          }
+        },
+        {
+          "id": 6,
+          "type": "logs",
+          "title": "Latest CRITICAL alerts",
+          "gridPos": {
+            "x": 0,
+            "y": 13,
+            "w": 24,
+            "h": 8
+          },
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-argus"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "{job=\"argus\", severity=\"CRITICAL\", host=~\"$host\"} | line_format \"{{.event}}  host/workload={{.host}}\""
+            }
+          ],
+          "options": {
+            "showTime": true,
+            "wrapLogMessage": true,
+            "sortOrder": "Descending",
+            "enableLogDetails": true
+          }
+        },
+        {
+          "id": 8,
+          "type": "logs",
+          "title": "Latest HIGH alerts",
+          "gridPos": {
+            "x": 0,
+            "y": 21,
+            "w": 24,
+            "h": 12
+          },
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-argus"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "{job=\"argus\", severity=\"HIGH\", host=~\"$host\"} | line_format \"{{.event}}  host/workload={{.host}}\""
+            }
+          ],
+          "options": {
+            "showTime": true,
+            "wrapLogMessage": true,
+            "sortOrder": "Descending",
+            "enableLogDetails": true
+          }
+        }
+      ]
+    }
+---
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  name: doca-argus-alerts
+  namespace: dpf-operator-system
+spec:
+  instanceSelector:
+    matchLabels:
+      dashboards: "dpf-grafana"
+  configMapRef:
+    name: dpf-argus-grafana-dashboard
+    key: doca-argus-alerts.json

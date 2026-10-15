@@ -13,21 +13,30 @@ if ! declare -F get_kubeconfig >/dev/null; then
 fi
 
 function render_argus_manifests() {
-    local template_src="${MANIFESTS_DIR}/argus/01-servicetemplate.yaml"
-    local config_src="${MANIFESTS_DIR}/argus/02-configuration.yaml"
-    local template_dst="${GENERATED_POST_INSTALL_DIR}/argus-01-servicetemplate.yaml"
-    local config_dst="${GENERATED_POST_INSTALL_DIR}/argus-02-configuration.yaml"
+    local src="${MANIFESTS_DIR}/argus"
+    local dst="${GENERATED_POST_INSTALL_DIR}"
 
-    mkdir -p "${GENERATED_POST_INSTALL_DIR}"
-    update_file_multi_replace "${template_src}" "${template_dst}" \
+    mkdir -p "${dst}"
+    update_file_multi_replace "${src}/01-servicetemplate.yaml" "${dst}/argus-01-servicetemplate.yaml" \
         "<ARGUS_HELM_REPO_URL>" "${ARGUS_HELM_REPO_URL}" \
         "<ARGUS_CHART_VERSION>" "${ARGUS_CHART_VERSION}" \
         "<ARGUS_IMAGE>" "${ARGUS_IMAGE}" \
         "<ARGUS_IMAGE_PULL_SECRET>" "${ARGUS_IMAGE_PULL_SECRET}"
-    cp "${config_src}" "${config_dst}"
+    update_file_multi_replace "${src}/02-configuration.yaml" "${dst}/argus-02-configuration.yaml" \
+        "<ARGUS_TELEMETRY_ADDRESS>" "${INGRESS_VIP}:${ARGUS_TELEMETRY_NODE_PORT}"
+    cp "${src}/03-logs-namespace.yaml" "${dst}/argus-03-logs-namespace.yaml"
+    update_file_multi_replace "${src}/04-loki.yaml" "${dst}/argus-04-loki.yaml" \
+        "<ARGUS_LOGS_STORAGE_CLASS>" "${ETCD_STORAGE_CLASS}"
+    update_file_multi_replace "${src}/05-fluent-bit.yaml" "${dst}/argus-05-fluent-bit.yaml" \
+        "<ARGUS_TELEMETRY_NODE_PORT>" "${ARGUS_TELEMETRY_NODE_PORT}"
 }
 
 function apply_argus_manifests() {
+    log "INFO" "Applying Argus alert receiver (Loki, Fluent Bit)..."
+    retry 5 30 apply_manifest "${GENERATED_POST_INSTALL_DIR}/argus-03-logs-namespace.yaml" "true"
+    retry 5 30 apply_manifest "${GENERATED_POST_INSTALL_DIR}/argus-04-loki.yaml" "true"
+    retry 5 30 apply_manifest "${GENERATED_POST_INSTALL_DIR}/argus-05-fluent-bit.yaml" "true"
+
     log "INFO" "Applying Argus DPUServiceTemplate and DPUServiceConfiguration..."
     retry 5 30 apply_manifest "${GENERATED_POST_INSTALL_DIR}/argus-01-servicetemplate.yaml" "true"
     retry 5 30 apply_manifest "${GENERATED_POST_INSTALL_DIR}/argus-02-configuration.yaml" "true"

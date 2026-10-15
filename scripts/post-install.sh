@@ -799,6 +799,13 @@ function apply_observability() {
         retry 5 30 apply_manifest "${OBSERVABILITY_DIR}/console-dashboards" "true"
     fi
 
+    # Loki and Fluent Bit are applied with Argus itself (enable-argus.sh); only
+    # the Grafana resources depend on the operator installed above.
+    if [ "${ARGUS_ENABLED}" = "true" ]; then
+        log [INFO] "Applying Argus Grafana datasource and dashboard..."
+        retry 5 30 apply_manifest "${OBSERVABILITY_DIR}/argus" "true"
+    fi
+
     log [INFO] "Observability manifest application completed successfully"
 }
 

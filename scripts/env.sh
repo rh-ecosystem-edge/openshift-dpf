@@ -127,6 +127,26 @@ require_argus_enabled() {
     fi
 }
 
+# Argus streams alerts to a Fluent Bit NodePort on INGRESS_VIP, and Loki keeps
+# them on a volume of ETCD_STORAGE_CLASS. Checked at load time so a bad value
+# fails before deployment starts.
+validate_argus_config() {
+    if [ -z "${INGRESS_VIP:-}" ]; then
+        echo "Error: ARGUS_ENABLED=true requires INGRESS_VIP: Argus streams alerts to its Fluent Bit NodePort on it." >&2
+        return 1
+    fi
+    if ! [[ "${ARGUS_TELEMETRY_NODE_PORT}" =~ ^[0-9]+$ ]] ||
+        [ "${ARGUS_TELEMETRY_NODE_PORT}" -lt 30000 ] ||
+        [ "${ARGUS_TELEMETRY_NODE_PORT}" -gt 32767 ]; then
+        echo "Error: ARGUS_TELEMETRY_NODE_PORT must be in the NodePort range 30000-32767 (got '${ARGUS_TELEMETRY_NODE_PORT}')" >&2
+        return 1
+    fi
+    if [ -z "${ETCD_STORAGE_CLASS:-}" ]; then
+        echo "Error: ARGUS_ENABLED=true requires ETCD_STORAGE_CLASS for the Argus Loki volume." >&2
+        return 1
+    fi
+}
+
 # _do_generate_env <defaults_file> <required_file> <template_file> <output_file> <force>
 _do_generate_env() {
     local defaults_file="$1" required_file="$2" template_file="$3"
@@ -542,8 +562,13 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     ARGUS_HELM_REPO_URL=${ARGUS_HELM_REPO_URL:-${DPF_HELM_REPO_URL}}
     ARGUS_IMAGE=${ARGUS_IMAGE:-nvcr.io/nvidia/doca/doca_argus:1.5.0-doca3.5.0}
     ARGUS_IMAGE_PULL_SECRET=${ARGUS_IMAGE_PULL_SECRET:-dpf-pull-secret}
+    ARGUS_TELEMETRY_NODE_PORT=${ARGUS_TELEMETRY_NODE_PORT:-30224}
 
     resolve_dpf_storage_class
+
+    if [ "${ARGUS_ENABLED}" = "true" ]; then
+        validate_argus_config || return 1
+    fi
 fi
 
 # If script is executed directly (not sourced), handle commands
