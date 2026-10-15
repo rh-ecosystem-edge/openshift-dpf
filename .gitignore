@@ -8,7 +8,9 @@
 .env
 .env.local
 .env.*.local
+.env.test
 user.env
+user.env.test
 
 # Secrets
 pull-secret.txt

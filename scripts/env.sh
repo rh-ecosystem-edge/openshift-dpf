@@ -109,6 +109,43 @@ validate_env_files() {
     echo "OK  all ci/env.defaults variables are present in ci/env.template"
 }
 
+validate_env_test_files() {
+    local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    local ci_dir="${script_dir}/../ci"
+    local defaults template required known missing extra count
+
+    defaults=$(grep -oP "^\w+" "$ci_dir/env.test.defaults" | sort)
+    template=$(grep -oP "^\w+" "$ci_dir/env.test.template" | sort)
+    required=$(grep -v '^\s*#' "$ci_dir/env.test.required" | grep -oP '(?<=\$\{)\w+(?=:\?)' | sort)
+    known=$(printf '%s\n%s' "$defaults" "$required")
+
+    missing=""
+    for var in $defaults $required; do
+        echo "$template" | grep -qx "$var" || missing="$missing $var"
+    done
+
+    extra=""
+    for var in $template; do
+        echo "$known" | grep -qx "$var" || extra="$extra $var"
+    done
+
+    if [ -n "$missing" ]; then
+        echo "ERROR: variables in ci/env.test.defaults or ci/env.test.required that are missing from ci/env.test.template:"
+        for var in $missing; do echo "  - $var"; done
+        echo ""
+        echo "These variables will be silently dropped from .env.test."
+        echo "Fix: add a line  VAR_NAME=\${VAR_NAME}  to ci/env.test.template for each."
+        exit 1
+    fi
+
+    if [ -n "$extra" ]; then
+        count=$(echo "$extra" | wc -w | tr -d " ")
+        echo "OK  $count template-only variable(s) have no default (set per-environment):${extra}"
+    fi
+
+    echo "OK  all ci/env.test.defaults and ci/env.test.required variables are present in ci/env.test.template"
+}
+
 generate_env() {
     local force="${1:-false}"
     local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -127,6 +164,27 @@ generate_env() {
         set +a
         source "$ci_dir/env.required"
         envsubst < "$ci_dir/env.template" > "${root_dir}/.env"
+    )
+}
+
+generate_env_test() {
+    local force="${1:-false}"
+    local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    local root_dir="${script_dir}/.."
+    local ci_dir="${root_dir}/ci"
+
+    if [ -f "${root_dir}/.env.test" ] && [ "$force" != "true" ]; then
+        echo "ERROR: .env.test already exists. To overwrite, run:  make generate-env-test FORCE=true"
+        exit 1
+    fi
+
+    echo "Generating .env.test from ci/env.test.defaults + ci/env.test.template..."
+    (
+        set -a
+        source "$ci_dir/env.test.defaults"
+        set +a
+        source "$ci_dir/env.test.required"
+        envsubst < "$ci_dir/env.test.template" > "${root_dir}/.env.test"
     )
 }
 
@@ -231,9 +289,15 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         generate-env)
             generate_env "${2:-false}"
             ;;
+        validate-env-test-files)
+            validate_env_test_files
+            ;;
+        generate-env-test)
+            generate_env_test "${2:-false}"
+            ;;
         *)
             echo "ERROR: Unknown command: $command"
-            echo "Available commands: validate-env-files, generate-env"
+            echo "Available commands: validate-env-files, generate-env, validate-env-test-files, generate-env-test"
             exit 1
             ;;
     esac

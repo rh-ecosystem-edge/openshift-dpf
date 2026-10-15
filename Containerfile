@@ -9,7 +9,16 @@ USER root
 COPY --from=oc-cli /usr/bin/oc /usr/bin/oc
 RUN ln -s /usr/bin/oc /usr/bin/kubectl
 
-RUN dnf install -y findutils gettext git golang jq make openssh-clients python3.11 python3.11-devel python3.11-pip rsync && dnf clean all
+# UBI 9 lacks the libvirt client tools required to provision temporary mixed-worker test VMs.
+RUN dnf install -y findutils gettext git golang jq make openssh-clients \
+      python3.11 python3.11-devel python3.11-pip rsync && \
+    rpm --import https://www.centos.org/keys/RPM-GPG-KEY-CentOS-Official-SHA256 && \
+    dnf install -y --repofrompath='cs9-appstream,https://mirror.stream.centos.org/9-stream/AppStream/$basearch/os/' \
+      --setopt=cs9-appstream.gpgkey=https://www.centos.org/keys/RPM-GPG-KEY-CentOS-Official-SHA256 \
+      libvirt-client virt-install && \
+    python3.11 -m pip install aicli && \
+    command -v aicli && command -v virsh && command -v virt-install && \
+    dnf clean all
 
 # Get the source code in there
 WORKDIR /root/dpf-ci
