@@ -23,6 +23,54 @@ _bmc_ipmi_session_exhausted() {
         [[ "${output}" == *"Unable to establish IPMI v2 / RMCP+ session"* ]]
 }
 
+# Single ipmitool invocation (no retry/reset). Password file must already exist.
+_ipmitool_invoke() {
+    local bmc_ip="$1"
+    local user="$2"
+    local pw_file="$3"
+    shift 3
+    ipmitool -I lanplus -H "${bmc_ip}" -U "${user}" -f "${pw_file}" "$@" 2>&1
+}
+
+# Reset iDRAC/BMC to drop stuck IPMI sessions, then wait until mc info succeeds.
+_bmc_reset_after_session_exhaustion() {
+    local bmc_ip="$1"
+    local user="$2"
+    local pw_file="$3"
+
+    local reset_output="" reset_status=0
+    log "WARN" "BMC ${bmc_ip} IPMI sessions exhausted; resetting BMC (warm) to free sessions..."
+    reset_output=$(_ipmitool_invoke "${bmc_ip}" "${user}" "${pw_file}" mc reset warm) || reset_status=$?
+
+    if [[ "${reset_status}" -ne 0 ]]; then
+        log "WARN" "BMC warm reset failed on ${bmc_ip}; trying cold reset..."
+        reset_output=$(_ipmitool_invoke "${bmc_ip}" "${user}" "${pw_file}" mc reset cold) || reset_status=$?
+    fi
+
+    if [[ "${reset_status}" -ne 0 ]]; then
+        log "ERROR" "BMC reset failed on ${bmc_ip}; reboot iDRAC manually. ipmitool: ${reset_output}"
+        return 1
+    fi
+
+    local ready_attempts="${BMC_RESET_READY_MAX_ATTEMPTS:-20}"
+    local ready_delay="${BMC_RESET_READY_DELAY_SECONDS:-15}"
+    log "INFO" "Waiting for BMC ${bmc_ip} after reset (up to ${ready_attempts} attempts, ${ready_delay}s apart)..."
+
+    _bmc_wait_after_reset() {
+        local probe_output="" probe_status=0
+        probe_output=$(_ipmitool_invoke "${bmc_ip}" "${user}" "${pw_file}" mc info) || probe_status=$?
+        [[ "${probe_status}" -eq 0 ]]
+    }
+
+    if ! retry "${ready_attempts}" "${ready_delay}" --no-dump-on-failure _bmc_wait_after_reset; then
+        log "ERROR" "BMC ${bmc_ip} did not respond after reset"
+        return 1
+    fi
+
+    log "INFO" "BMC ${bmc_ip} is reachable again after reset"
+    return 0
+}
+
 # Helper to run ipmitool securely by passing password via a temporary file.
 # Avoids passing credentials via command line arguments (-P) or environment variables (-E).
 _run_ipmitool() {
@@ -39,10 +87,11 @@ _run_ipmitool() {
 
     local status=0
     local output=""
+    local ipmi_args=("$@")
 
     _ipmitool_try() {
         status=0
-        output=$(ipmitool -I lanplus -H "${bmc_ip}" -U "${user}" -f "${pw_file}" "$@" 2>&1) || status=$?
+        output=$(_ipmitool_invoke "${bmc_ip}" "${user}" "${pw_file}" "${ipmi_args[@]}") || status=$?
         if [[ "${status}" -eq 0 ]]; then
             return 0
         fi
@@ -54,6 +103,13 @@ _run_ipmitool() {
     }
 
     retry 5 30 --no-dump-on-failure _ipmitool_try || true
+
+    if [[ "${status}" -ne 0 ]] && _bmc_ipmi_session_exhausted "${output}" &&
+        [[ "${BMC_RESET_ON_IPMI_SESSION_EXHAUSTION:-true}" == "true" ]]; then
+        if _bmc_reset_after_session_exhaustion "${bmc_ip}" "${user}" "${pw_file}"; then
+            retry 5 30 --no-dump-on-failure _ipmitool_try || true
+        fi
+    fi
 
     rm -f "${pw_file}"
 
