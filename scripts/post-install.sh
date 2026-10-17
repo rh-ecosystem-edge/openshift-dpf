@@ -10,12 +10,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/utils.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/cluster.sh"
 
-# Configuration
-MANIFESTS_DIR=${MANIFESTS_DIR:-"manifests"}
-POST_INSTALL_DIR="${MANIFESTS_DIR}/post-installation"
-COMMON_POST_INSTALL_DIR="${POST_INSTALL_DIR}/common"
-HOST_TRUSTED_POST_INSTALL_DIR="${POST_INSTALL_DIR}/host-trusted"
-ZERO_TRUST_POST_INSTALL_DIR="${POST_INSTALL_DIR}/zero-trust"
+# Configuration (POST_INSTALL_* paths and NUM_VFS validated in env.sh)
 GENERATED_DIR=${GENERATED_DIR:-"$MANIFESTS_DIR/generated"}
 GENERATED_POST_INSTALL_DIR="${GENERATED_DIR}/post-install"
 GENERATED_ZT_SERVICE_DIR="${GENERATED_DIR}/zero-trust-services"
@@ -568,33 +563,10 @@ function update_nodesriov_device_plugin_config() {
 function prepare_post_installation() {
     log [INFO] "Starting post-installation manifest preparation..."
 
-    # Check if post-installation directory exists
-    if [ ! -d "${POST_INSTALL_DIR}" ]; then
-        log [ERROR] "Post-installation directory not found: ${POST_INSTALL_DIR}"
-        exit 1
-    fi
-    if [ ! -d "${COMMON_POST_INSTALL_DIR}" ]; then
-        log [ERROR] "Common post-installation directory not found: ${COMMON_POST_INSTALL_DIR}"
-        return 1
-    fi
-    if ! [[ "${NUM_VFS}" =~ ^[1-9][0-9]*$ ]]; then
-        log [ERROR] "NUM_VFS must be a positive integer"
-        return 1
-    fi
-
     if [ "${DPF_DEPLOYMENT_MODE}" = "zero-trust" ]; then
-        if [ ! -d "${ZERO_TRUST_POST_INSTALL_DIR}" ]; then
-            log [ERROR] "Zero Trust post-installation directory not found: ${ZERO_TRUST_POST_INSTALL_DIR}"
-            return 1
-        fi
         prepare_zero_trust_provisioning_manifests
         log [INFO] "Post-installation manifest preparation completed successfully"
         return 0
-    fi
-
-    if [ ! -d "${HOST_TRUSTED_POST_INSTALL_DIR}" ]; then
-        log [ERROR] "Host-trusted post-installation directory not found: ${HOST_TRUSTED_POST_INSTALL_DIR}"
-        return 1
     fi
 
     # Update manifests with custom values

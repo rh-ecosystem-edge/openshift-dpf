@@ -438,6 +438,36 @@ validate_host_trusted_mode() {
     echo "OK  Host-trusted mode validation passed"
 }
 
+validate_post_install_manifest_dirs() {
+    is_dpf_profile || return 0
+
+    if [ ! -d "${POST_INSTALL_DIR}" ]; then
+        echo "Error: Post-installation directory not found: ${POST_INSTALL_DIR}" >&2
+        return 1
+    fi
+    if [ ! -d "${COMMON_POST_INSTALL_DIR}" ]; then
+        echo "Error: Common post-installation directory not found: ${COMMON_POST_INSTALL_DIR}" >&2
+        return 1
+    fi
+    if ! [[ "${NUM_VFS}" =~ ^[1-9][0-9]*$ ]]; then
+        echo "Error: NUM_VFS must be a positive integer" >&2
+        return 1
+    fi
+
+    if [ "${DPF_DEPLOYMENT_MODE}" = "zero-trust" ]; then
+        if [ ! -d "${ZERO_TRUST_POST_INSTALL_DIR}" ]; then
+            echo "Error: Zero Trust post-installation directory not found: ${ZERO_TRUST_POST_INSTALL_DIR}" >&2
+            return 1
+        fi
+        return 0
+    fi
+
+    if [ ! -d "${HOST_TRUSTED_POST_INSTALL_DIR}" ]; then
+        echo "Error: Host-trusted post-installation directory not found: ${HOST_TRUSTED_POST_INSTALL_DIR}" >&2
+        return 1
+    fi
+}
+
 # Load environment variables from .env file and validate aicli connectivity
 # (skip load/validate if already in Make context — the Makefile does
 # `include .env` + `export`). Still strip quotes Make left on values;
@@ -488,6 +518,13 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
 
         validate_zero_trust_mode || exit 1
     fi
+
+    MANIFESTS_DIR=${MANIFESTS_DIR:-manifests}
+    POST_INSTALL_DIR="${MANIFESTS_DIR}/post-installation"
+    COMMON_POST_INSTALL_DIR="${POST_INSTALL_DIR}/common"
+    HOST_TRUSTED_POST_INSTALL_DIR="${POST_INSTALL_DIR}/host-trusted"
+    ZERO_TRUST_POST_INSTALL_DIR="${POST_INSTALL_DIR}/zero-trust"
+    validate_post_install_manifest_dirs || exit 1
 
     HELM_CHARTS_DIR=${HELM_CHARTS_DIR:-"$MANIFESTS_DIR/helm-charts-values"}
     HOST_CLUSTER_API=${HOST_CLUSTER_API:-"api.$CLUSTER_NAME.$BASE_DOMAIN"}
