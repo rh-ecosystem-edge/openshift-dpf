@@ -350,11 +350,12 @@ _ip_reachable() {
 }
 
 # True when a multi-node management cluster likely still holds API/ingress VIPs.
+# Threshold matches ci/env.required (API_VIP / INGRESS_VIP required when VM_COUNT > 1).
 management_cluster_vips_in_use() {
-    if [ "${VM_COUNT}" -le 1 ]; then
-        return 1
+    if [ "${VM_COUNT}" -gt 1 ]; then
+        _ip_reachable "${API_VIP}" || _ip_reachable "${INGRESS_VIP}"
     fi
-    _ip_reachable "${API_VIP}" || _ip_reachable "${INGRESS_VIP}"
+    return 1
 }
 
 validate_worker_power_on_delay() {
