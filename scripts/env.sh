@@ -344,6 +344,20 @@ _ipv4_to_integer() {
     printf '%u\n' "$(( (10#${first} << 24) + (10#${second} << 16) + (10#${third} << 8) + 10#${fourth} ))"
 }
 
+_ip_reachable() {
+    local ip="$1"
+    [ -n "${ip}" ] && ping -c 1 -W 2 "${ip}" >/dev/null 2>&1
+}
+
+# True when a multi-node management cluster likely still holds API/ingress VIPs.
+# Threshold matches ci/env.required (API_VIP / INGRESS_VIP required when VM_COUNT > 1).
+management_cluster_vips_in_use() {
+    if [ "${VM_COUNT}" -gt 1 ]; then
+        _ip_reachable "${API_VIP}" || _ip_reachable "${INGRESS_VIP}"
+    fi
+    return 1
+}
+
 validate_worker_power_on_delay() {
     if ! [[ "${WORKER_POWER_ON_DELAY}" =~ ^[0-9]+$ ]]; then
         echo "ERROR: WORKER_POWER_ON_DELAY must be a non-negative integer" >&2
