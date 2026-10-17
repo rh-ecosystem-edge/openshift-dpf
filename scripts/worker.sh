@@ -23,20 +23,6 @@ _bmc_ipmi_session_exhausted() {
         [[ "${output}" == *"Unable to establish IPMI v2 / RMCP+ session"* ]]
 }
 
-_ip_reachable() {
-    local ip="$1"
-    [[ -n "${ip}" ]] && ping -c 1 -W 2 "${ip}" >/dev/null 2>&1
-}
-
-# True when a multi-node management cluster likely still holds API/ingress VIPs.
-_management_cluster_vips_in_use() {
-    local vm_count="${VM_COUNT:-3}"
-    if [[ "${vm_count}" -le 1 ]]; then
-        return 1
-    fi
-    _ip_reachable "${API_VIP:-}" || _ip_reachable "${INGRESS_VIP:-}"
-}
-
 # Helper to run ipmitool securely by passing password via a temporary file.
 # Avoids passing credentials via command line arguments (-P) or environment variables (-E).
 _run_ipmitool() {
@@ -51,26 +37,23 @@ _run_ipmitool() {
     printf "%s" "${pass}" > "${pw_file}"
     chmod 600 "${pw_file}"
 
-    local max_attempts=5
-    local delay_seconds=30
-    local attempt=1
     local status=0
     local output=""
 
-    while [[ "${attempt}" -le "${max_attempts}" ]]; do
+    _ipmitool_try() {
         status=0
         output=$(ipmitool -I lanplus -H "${bmc_ip}" -U "${user}" -f "${pw_file}" "$@" 2>&1) || status=$?
-
-        if [[ "${status}" -eq 0 ]] || ! _bmc_ipmi_session_exhausted "${output}"; then
-            break
+        if [[ "${status}" -eq 0 ]]; then
+            return 0
         fi
-
-        if [[ "${attempt}" -lt "${max_attempts}" ]]; then
-            log "WARN" "BMC ${bmc_ip} IPMI session limit hit; retrying in ${delay_seconds}s (${attempt}/${max_attempts})..."
-            sleep "${delay_seconds}"
+        if _bmc_ipmi_session_exhausted "${output}"; then
+            log "WARN" "BMC ${bmc_ip} IPMI session limit hit; will retry..."
+            return 1
         fi
-        attempt=$((attempt + 1))
-    done
+        return 0
+    }
+
+    retry 5 30 --no-dump-on-failure _ipmitool_try || true
 
     rm -f "${pw_file}"
 
@@ -102,6 +85,44 @@ _bmc_get_power_state() {
     fi
 }
 
+# Echo On|Off|Unknown, or return 1 when BMC IPMI sessions are exhausted.
+_bmc_power_state_or_fail() {
+    local bmc_ip="$1"
+    local user="$2"
+    local pass="$3"
+
+    local state_status=0
+    local current_state
+    current_state=$(_bmc_get_power_state "${bmc_ip}" "${user}" "${pass}") || state_status=$?
+    if [[ "${state_status}" -ne 0 ]] || [[ "${current_state}" == "SessionExhausted" ]]; then
+        return 1
+    fi
+    echo "${current_state}"
+}
+
+# Poll until power state matches expected (On or Off).
+_bmc_wait_for_power_state() {
+    local bmc_ip="$1"
+    local user="$2"
+    local pass="$3"
+    local expected="$4"
+    local max_retries="$5"
+    local sleep_interval="$6"
+
+    local retries=0 current_state
+    while [[ $retries -lt $max_retries ]]; do
+        sleep "${sleep_interval}"
+        if ! current_state=$(_bmc_power_state_or_fail "${bmc_ip}" "${user}" "${pass}"); then
+            return 1
+        fi
+        if [[ "${current_state}" == "${expected}" ]]; then
+            return 0
+        fi
+        retries=$((retries + 1))
+    done
+    return 1
+}
+
 _bmc_power_action() {
     local bmc_ip="$1"
     local user="$2"
@@ -116,64 +137,14 @@ _bmc_power_action() {
     return 0
 }
 
-# Poll power state until Off or the retry budget is exhausted.
-_bmc_wait_for_off() {
-    local bmc_ip="$1"
-    local user="$2"
-    local pass="$3"
-    local max_retries="$4"
-    local sleep_interval="$5"
-
-    local retries=0 current_state state_status=0
-    while [[ $retries -lt $max_retries ]]; do
-        sleep "${sleep_interval}"
-        state_status=0
-        current_state=$(_bmc_get_power_state "${bmc_ip}" "${user}" "${pass}") || state_status=$?
-        if [[ "${state_status}" -ne 0 ]] || [[ "${current_state}" == "SessionExhausted" ]]; then
-            return 1
-        fi
-        if [[ "${current_state}" == "Off" ]]; then
-            return 0
-        fi
-        retries=$((retries + 1))
-    done
-    return 1
-}
-
-# Poll power state until On or the retry budget is exhausted.
-_bmc_wait_for_on() {
-    local bmc_ip="$1"
-    local user="$2"
-    local pass="$3"
-    local max_retries="$4"
-    local sleep_interval="$5"
-
-    local retries=0 current_state state_status=0
-    while [[ $retries -lt $max_retries ]]; do
-        sleep "${sleep_interval}"
-        state_status=0
-        current_state=$(_bmc_get_power_state "${bmc_ip}" "${user}" "${pass}") || state_status=$?
-        if [[ "${state_status}" -ne 0 ]] || [[ "${current_state}" == "SessionExhausted" ]]; then
-            return 1
-        fi
-        if [[ "${current_state}" == "On" ]]; then
-            return 0
-        fi
-        retries=$((retries + 1))
-    done
-    return 1
-}
-
 # Power off a server: use graceful ACPI shutdown (soft) via IPMI
 _bmc_power_off() {
     local bmc_ip="$1"
     local user="$2"
     local pass="$3"
 
-    local state_status=0
     local current_state
-    current_state=$(_bmc_get_power_state "${bmc_ip}" "${user}" "${pass}") || state_status=$?
-    if [[ "${state_status}" -ne 0 ]] || [[ "${current_state}" == "SessionExhausted" ]]; then
+    if ! current_state=$(_bmc_power_state_or_fail "${bmc_ip}" "${user}" "${pass}"); then
         return 1
     fi
     if [[ "${current_state}" == "Off" ]]; then
@@ -184,7 +155,7 @@ _bmc_power_off() {
     log "INFO" "Attempting graceful shutdown of ${bmc_ip} via ipmitool (soft)..."
     if _bmc_power_action "${bmc_ip}" "${user}" "${pass}" "soft"; then
         # Increase wait time for graceful shutdown to 60 retries * 2s = 120s (2 minutes)
-        if _bmc_wait_for_off "${bmc_ip}" "${user}" "${pass}" 60 2; then
+        if _bmc_wait_for_power_state "${bmc_ip}" "${user}" "${pass}" Off 60 2; then
             log "INFO" "Server ${bmc_ip} shut down gracefully"
             return 0
         fi
@@ -194,7 +165,7 @@ _bmc_power_off() {
     log "INFO" "Powering off ${bmc_ip} via ipmitool (off)..."
     _bmc_power_action "${bmc_ip}" "${user}" "${pass}" "off"
 
-    if _bmc_wait_for_off "${bmc_ip}" "${user}" "${pass}" 30 2; then
+    if _bmc_wait_for_power_state "${bmc_ip}" "${user}" "${pass}" Off 30 2; then
         log "INFO" "Server ${bmc_ip} is powered off"
         return 0
     fi
@@ -209,10 +180,8 @@ _bmc_power_on() {
     local user="$2"
     local pass="$3"
 
-    local state_status=0
     local current_state
-    current_state=$(_bmc_get_power_state "${bmc_ip}" "${user}" "${pass}") || state_status=$?
-    if [[ "${state_status}" -ne 0 ]] || [[ "${current_state}" == "SessionExhausted" ]]; then
+    if ! current_state=$(_bmc_power_state_or_fail "${bmc_ip}" "${user}" "${pass}"); then
         return 1
     fi
     if [[ "${current_state}" == "On" ]]; then
@@ -223,7 +192,7 @@ _bmc_power_on() {
     log "INFO" "Powering on ${bmc_ip} via ipmitool..."
     _bmc_power_action "${bmc_ip}" "${user}" "${pass}" "on"
 
-    if _bmc_wait_for_on "${bmc_ip}" "${user}" "${pass}" 30 2; then
+    if _bmc_wait_for_power_state "${bmc_ip}" "${user}" "${pass}" On 30 2; then
         log "INFO" "Server ${bmc_ip} is powered on"
         return 0
     fi
@@ -267,7 +236,7 @@ shutoff_all_workers() {
         return 0
     fi
 
-    if ! _management_cluster_vips_in_use; then
+    if ! management_cluster_vips_in_use; then
         log "INFO" "API and ingress VIPs are unreachable; skipping physical worker shutoff (management cluster not up)"
         return 0
     fi
