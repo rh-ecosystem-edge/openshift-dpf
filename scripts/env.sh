@@ -341,7 +341,7 @@ _ipv4_to_integer() {
         return 1
     fi
 
-    printf '%u\n' "$(( (10#${first} << 24) + (10#${second} << 16) + (10#${third} << 8) + 10#${fourth} ))"
+    printf '%u\n' "$(( (10#${first} * 16777216) + (10#${second} * 65536) + (10#${third} * 256) + 10#${fourth} ))"
 }
 
 validate_worker_power_on_delay() {
