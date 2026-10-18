@@ -40,7 +40,6 @@ spec:
     command: ["sh", "-c", "sleep infinity"]
     securityContext:
       allowPrivilegeEscalation: false
-      runAsNonRoot: true
       seccompProfile:
         type: RuntimeDefault
       capabilities:
@@ -65,7 +64,6 @@ spec:
     command: ["sh", "-c", "sleep infinity"]
     securityContext:
       allowPrivilegeEscalation: false
-      runAsNonRoot: true
       seccompProfile:
         type: RuntimeDefault
       capabilities:
@@ -92,7 +90,6 @@ spec:
     - containerPort: 8080
     securityContext:
       allowPrivilegeEscalation: false
-      runAsNonRoot: true
       seccompProfile:
         type: RuntimeDefault
       capabilities:
@@ -120,7 +117,6 @@ spec:
     - containerPort: 8081
     securityContext:
       allowPrivilegeEscalation: false
-      runAsNonRoot: true
       seccompProfile:
         type: RuntimeDefault
       capabilities:
@@ -152,7 +148,6 @@ spec:
     command: ["sh", "-c", "sleep infinity"]
     securityContext:
       allowPrivilegeEscalation: false
-      runAsNonRoot: true
       seccompProfile:
         type: RuntimeDefault
       capabilities:

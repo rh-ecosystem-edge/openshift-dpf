@@ -17,7 +17,6 @@ spec:
     command: ["sh", "-c", "sleep infinity"]
     securityContext:
       allowPrivilegeEscalation: false
-      runAsNonRoot: true
       seccompProfile:
         type: RuntimeDefault
       capabilities:
