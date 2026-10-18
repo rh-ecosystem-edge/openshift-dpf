@@ -31,6 +31,9 @@ TFT_SCRIPT := scripts/traffic-flow-tests.sh
 # Worker provisioning script
 WORKER_SCRIPT := scripts/worker.sh
 
+# Full teardown orchestration (VMs, workers, Assisted Installer)
+CLEANUP_SCRIPT := scripts/cleanup.sh
+
 .PHONY: all
 all:
 	@mkdir -p logs
@@ -312,13 +315,7 @@ update-etc-hosts:
 
 .PHONY: clean-all
 clean-all:
-	@$(WORKER_SCRIPT) shutoff-all-workers
-	@echo "Step 2/4: Destroying worker VMs (release ingress/API VIPs)..."
-	@$(VM_SCRIPT) delete-worker-vms
-	@echo "Step 3/4: Deleting Assisted Installer cluster and generated files..."
-	@$(CLUSTER_SCRIPT) clean-all
-	@echo "Step 4/4: Destroying remaining VMs (control-plane; worker VMs already removed in step 2)..."
-	@$(VM_SCRIPT) delete
+	@bash $(CLEANUP_SCRIPT) clean-all
 
 .PHONY: kubeconfig
 kubeconfig:
@@ -541,7 +538,7 @@ help:
 	@echo "  deploy-core-operator-sources - Deploy NFD & SR-IOV subscriptions and CatalogSource"
 	@echo "  delete-cluster    - Delete the cluster"
 	@echo "  clean            - Remove generated files"
-	@echo "  clean-all        - Power off physical workers (ipmitool), delete cluster, VMs, and clean all generated files"
+	@echo "  clean-all        - Delete libvirt VMs, delete cluster and generated files, power off physical workers (ipmitool)"
 	@echo "                     Set POWER_OFF_WORKERS=false to leave physical workers powered on"
 	@echo ""
 	@echo "VM Management:"
