@@ -110,7 +110,10 @@ No vendor-specific configuration needed - it just works.
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `WORKER_n_ROOT_DEVICE` | Installation disk | `/dev/sda` |
+| `BMH_ENABLE_INSPECTION` | Run BMO agent-based hardware inspection before provisioning | `false` |
 | `AUTO_APPROVE_WORKER_CSR` | Deploy CronJob to auto-approve host cluster CSRs | `false` |
+
+With `BMH_ENABLE_INSPECTION=false` (default), new BareMetalHosts use `inspectionMode: disabled`, skipping the extra IPA ramdisk boot used to discover hardware. That shortens worker provisioning in CI and lab runs when `WORKER_n_BOOT_MAC` and `WORKER_n_ROOT_DEVICE` are already correct. Enable inspection only if you need BMO to populate hardware data automatically.
 
 ### Security Settings
 

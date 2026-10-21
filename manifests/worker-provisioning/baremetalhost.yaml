@@ -6,6 +6,7 @@ metadata:
   namespace: openshift-machine-api
 spec:
   online: true
+  inspectionMode: <BMH_INSPECTION_MODE>
   bootMACAddress: <BOOT_MAC>
   bmc:
     address: redfish-virtualmedia+https://<BMC_IP>
