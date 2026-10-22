@@ -714,6 +714,7 @@ help:
 	@echo ""
 	@echo "CSR Auto-Approval Configuration:"
 	@echo "  AUTO_APPROVE_WORKER_CSR     - Deploy CronJob to auto-approve CSRs for host cluster workers (default: false)"
+	@echo "  BMH_ENABLE_INSPECTION       - BMO agent hardware inspection on new BMHs (default: false, saves CI time)"
 	@echo ""
 	@echo "Verification Configuration:"
 	@echo "  VERIFY_DEPLOYMENT    - Run verification after 'make all' completes (default: false)"

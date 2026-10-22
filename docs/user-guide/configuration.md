@@ -124,6 +124,9 @@ WORKER_1_ROOT_DEVICE=/dev/sda         # Installation disk (optional)
 
 # CSR Auto-Approval (deploy CronJobs to approve certificates)
 AUTO_APPROVE_WORKER_CSR=false         # Host cluster workers (recommended: false)
+
+# BareMetalHost inspection (skip by default to shorten CI/lab worker provisioning)
+BMH_ENABLE_INSPECTION=false           # true = agent-based hardware discovery before install
 ```
 
 ## Deployment Scenarios
