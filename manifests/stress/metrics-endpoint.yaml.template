@@ -1,0 +1,36 @@
+# metrics-endpoint.yaml template for kube-burner-ocp stress tests
+# This file is generated automatically by `make stress` (scripts/stress.sh run).
+# Tokens are created with `oc create token` and expire after 2x STRESS_DURATION.
+#
+# To regenerate manually:
+#   oc create token prometheus-k8s -n openshift-monitoring --duration=48h
+#   oc --kubeconfig=<hosted-kubeconfig> create token prometheus-k8s -n openshift-monitoring --duration=48h
+
+# Management cluster Prometheus (alerts + metrics collection)
+- endpoint: https://prometheus-k8s-openshift-monitoring.apps.<CLUSTER_NAME>.<BASE_DOMAIN>
+  token: <MGMT_TOKEN>
+  skipTLSVerify: true
+  metrics:
+    - manifests/stress/metrics-report.yml
+  alerts:
+    - manifests/stress/alerts.yml
+  indexer:
+    esServers: ["<OPENSEARCH_URL>"]
+    insecureSkipVerify: true
+    defaultIndex: kube-burner-ocp-mgmt
+    type: opensearch
+
+# Hosted cluster thanos-querier via NodePort (metrics + alerts)
+# Prereq: thanos-querier-nodeport svc in openshift-monitoring on the hosted cluster
+- endpoint: https://<HOSTED_NODE_IP>:<THANOS_NODEPORT>
+  token: <HOSTED_TOKEN>
+  skipTLSVerify: true
+  metrics:
+    - manifests/stress/metrics-report-hosted.yml
+  alerts:
+    - manifests/stress/alerts.yml
+  indexer:
+    esServers: ["<OPENSEARCH_URL>"]
+    insecureSkipVerify: true
+    defaultIndex: kube-burner-ocp-hosted
+    type: opensearch
