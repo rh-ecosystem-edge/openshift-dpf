@@ -52,7 +52,8 @@ function apply_argus_manifests() {
 }
 
 function patch_argus_service() {
-    retry 5 30 oc patch dpudeployment dpudeployment -n dpf-operator-system --type=merge \
+    local deployment_name="${DPU_DEPLOYMENT_NAME:-${NICO_DPU_DEPLOYMENT_NAME:-dpudeployment}}"
+    retry 5 30 oc patch dpudeployment "${deployment_name}" -n dpf-operator-system --type=merge \
         -p '{"spec":{"services":{"argus":{"serviceTemplate":"argus","serviceConfiguration":"argus"}}}}'
 }
 
@@ -104,16 +105,17 @@ function wait_for_argus_dpuservices_ready() {
 }
 
 function enable_argus() {
+    local deployment_name="${DPU_DEPLOYMENT_NAME:-${NICO_DPU_DEPLOYMENT_NAME:-dpudeployment}}"
     get_kubeconfig
-    if ! oc get dpudeployment dpudeployment -n dpf-operator-system >/dev/null 2>&1; then
-        log "ERROR" "DPUDeployment dpudeployment was not found. Deploy DPU services before running make enable-argus."
+    if ! oc get dpudeployment "${deployment_name}" -n dpf-operator-system >/dev/null 2>&1; then
+        log "ERROR" "DPUDeployment ${deployment_name} was not found. Deploy DPU services before running make enable-argus."
         return 1
     fi
 
     render_argus_manifests
     apply_argus_manifests
 
-    log "INFO" "Adding Argus to DPUDeployment dpudeployment..."
+    log "INFO" "Adding Argus to DPUDeployment ${deployment_name}..."
     patch_argus_service
     wait_for_argus_dpuservices_ready
     log "INFO" "Argus service enabled"

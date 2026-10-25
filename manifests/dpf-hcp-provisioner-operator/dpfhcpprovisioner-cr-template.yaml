@@ -12,9 +12,9 @@ spec:
     name: <HOSTED_CLUSTER_NAME>
     namespace: dpf-operator-system
 
-  # Reference to DPUDeployment CR (created by DPF operator)
+  # Reference to the DPUDeployment created by DPF or NICo.
   dpuDeploymentRef:
-    name: dpudeployment
+    name: <NICO_DPU_DEPLOYMENT_NAME>
     namespace: dpf-operator-system
 
 <BLUEFIELD_OCP_MACHINE_OS_BLOCK>

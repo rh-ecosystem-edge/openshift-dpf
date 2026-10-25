@@ -314,6 +314,7 @@ function create_dpfhcpprovisioner_cr() {
         "<OCP_RELEASE_IMAGE>" "${OCP_RELEASE_IMAGE}" \
         "<DPFHCPPROVISIONER_PULL_SECRET_NAME>" "${DPFHCPPROVISIONER_PULL_SECRET_NAME}" \
         "<DPFHCPPROVISIONER_SSH_SECRET_NAME>" "${DPFHCPPROVISIONER_SSH_SECRET_NAME}" \
+        "<NICO_DPU_DEPLOYMENT_NAME>" "${NICO_DPU_DEPLOYMENT_NAME}" \
         "<CONTROL_PLANE_POLICY>" "${control_plane_policy}" \
         "<BLUEFIELD_OCP_MACHINE_OS_BLOCK>" "${machine_os_block}"
 
@@ -700,6 +701,11 @@ function configure_zero_trust_dpunodes() {
 function configure_zero_trust_dpu_inventory() {
     local apply_always="${1:-true}"
 
+    if [ "${NICO_ENABLED:-false}" = "true" ]; then
+        log [INFO] "NICo integration enabled: skipping static/scanning DPU inventory and scripted reboot resources"
+        return 0
+    fi
+
     apply_zero_trust_dpu_inventory_resources "${apply_always}" || return 1
     wait_for_zero_trust_dpu_inventory_resources || return 1
     apply_zero_trust_dpunode_reboot_resources || return 1
@@ -711,6 +717,11 @@ function configure_zero_trust_dpu_inventory() {
 }
 
 function scale_out_zero_trust_dpus() {
+    if [ "${NICO_ENABLED:-false}" = "true" ]; then
+        log [ERROR] "DPU scale operations are owned by NICo when NICO_ENABLED=true"
+        return 1
+    fi
+
     if [ "${DPF_DEPLOYMENT_MODE}" != "zero-trust" ]; then
         log [ERROR] "DPU scale-out requires DPF_DEPLOYMENT_MODE=zero-trust"
         return 1
@@ -762,6 +773,11 @@ function wait_for_zero_trust_dpu_removal() {
 }
 
 function scale_in_zero_trust_dpu() {
+    if [ "${NICO_ENABLED:-false}" = "true" ]; then
+        log [ERROR] "DPU scale operations are owned by NICo when NICO_ENABLED=true"
+        return 1
+    fi
+
     local serial="${1:-}"
 
     if [ "${DPF_DEPLOYMENT_MODE}" != "zero-trust" ]; then
@@ -1052,7 +1068,12 @@ function apply_dpf() {
     
     apply_remaining
     apply_scc
-    deploy_hosted_cluster
+    if [ "${NICO_ENABLED:-false}" = "true" ]; then
+        log [INFO] "NICo integration enabled: installing the HCP provisioner but deferring hosted-cluster creation until NICo creates ${NICO_DPU_DEPLOYMENT_NAME}"
+        deploy_dpfhcp
+    else
+        deploy_hosted_cluster
+    fi
 
     wait_for_pods "dpf-operator-system" "dpu.nvidia.com/component=dpf-operator-controller-manager" 30 5
     wait_for_dpf_provisioning_api
