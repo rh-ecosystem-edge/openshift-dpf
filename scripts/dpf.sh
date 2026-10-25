@@ -504,6 +504,40 @@ function apply_remaining() {
     done
 }
 
+function configure_zero_trust_bfb_registry_endpoint() {
+    [ "${DPF_DEPLOYMENT_MODE}" = "zero-trust" ] || return 0
+
+    local namespace="${DPF_OPERATOR_NAMESPACE:-dpf-operator-system}"
+    local configured_address configured_load_balancer
+    configured_address=$(oc get dpfoperatorconfig -n "${namespace}" dpfoperatorconfig \
+        -o jsonpath='{.spec.provisioningController.registry.address}' 2>/dev/null || true)
+    configured_load_balancer=$(oc get dpfoperatorconfig -n "${namespace}" dpfoperatorconfig \
+        -o jsonpath='{.spec.provisioningController.registry.loadBalancerAddress}' 2>/dev/null || true)
+    if [ -n "${configured_address}" ] || [ -n "${configured_load_balancer}" ]; then
+        log "INFO" "Zero Trust BFB registry endpoint is explicitly configured; leaving it unchanged"
+        return 0
+    fi
+
+    local registry_host node_port registry_address patch
+    resolve_zero_trust_bfb_registry_host registry_host || return 1
+
+    if ! retry 60 5 bash -c \
+        'node_port=$(oc get service bfb-registry -n "$1" -o jsonpath="{.spec.ports[?(@.nodePort)].nodePort}" 2>/dev/null || true); [[ "$node_port" =~ ^[0-9]+$ ]]' \
+        _ "${namespace}"; then
+        log "ERROR" "Timed out waiting for the bfb-registry NodePort"
+        return 1
+    fi
+    node_port=$(oc get service bfb-registry -n "${namespace}" \
+        -o jsonpath='{.spec.ports[?(@.nodePort)].nodePort}')
+    registry_address="http://${registry_host}:${node_port}"
+    patch=$(jq -nc --arg address "${registry_address}" \
+        '{spec:{provisioningController:{registry:{address:$address}}}}')
+
+    log "INFO" "Configuring Zero Trust BFB registry endpoint: ${registry_address}"
+    oc patch dpfoperatorconfig -n "${namespace}" dpfoperatorconfig \
+        --type=merge -p "${patch}"
+}
+
 function wait_for_dpf_provisioning_api() {
     log [INFO] "Waiting for the DPF provisioning API..."
     if [ "${DPF_DEPLOYMENT_MODE}" = "zero-trust" ]; then
@@ -1052,6 +1086,7 @@ function apply_dpf() {
     
     apply_remaining
     apply_scc
+    configure_zero_trust_bfb_registry_endpoint
     deploy_hosted_cluster
 
     wait_for_pods "dpf-operator-system" "dpu.nvidia.com/component=dpf-operator-controller-manager" 30 5
