@@ -66,7 +66,7 @@ all-zt:
 # Host worker/BMO provisioning, OVN injection, Kata, and trusted verification
 # are deliberately excluded. With VERIFY_DEPLOYMENT=true it ends by waiting for
 # every listed DPU to be Ready and the cluster operators to be stable.
-ZT_ALL_STEPS := validate-zt-mode verify-files check-cluster create-vms prepare-manifests cluster-install update-etc-hosts kubeconfig poweron-workers deploy-dpf prepare-dpu-files deploy-dpu-services deploy-zt-dpu-services
+ZT_ALL_STEPS := validate-zt-mode verify-files check-cluster create-vms prepare-manifests cluster-install update-etc-hosts kubeconfig poweron-workers deploy-dpf prepare-dpu-files deploy-dpu-services
 
 .NOTPARALLEL: _all-zt
 .PHONY: _all-zt
@@ -250,10 +250,6 @@ deploy-dpu-services: prepare-dpu-files
 .PHONY: prepare-zt-dpu-services
 prepare-zt-dpu-services: validate-zt-mode
 	@$(POST_INSTALL_SCRIPT) prepare-zt-services
-
-.PHONY: deploy-zt-dpu-services
-deploy-zt-dpu-services: prepare-zt-dpu-services
-	@$(POST_INSTALL_SCRIPT) apply-zt-services
 
 .PHONY: scale-out-zt-dpus
 scale-out-zt-dpus: validate-zt-mode prepare-dpf-manifests
@@ -598,11 +594,10 @@ help:
 	@echo "  upgrade-dpu       - Upgrade DPUs by creating a new BFB and patching DPUDeployment (optional: DPU_UPGRADE_BFB_URL)"
 	@echo "  upgrade-dpf       - Interactive DPF operator upgrade (user-friendly wrapper for prepare-dpf-manifests)"
 	@echo "  prepare-dpu-files - Prepare post-installation manifests with custom values"
-	@echo "  prepare-zt-dpu-services - Prepare Zero Trust DPU service and hosted-cluster RBAC manifests"
+	@echo "  prepare-zt-dpu-services - Regenerate Zero Trust DPU service manifests (scale-out/in)"
 	@echo "  generate-overrides - Write DPUServiceTemplate overrides ConfigMap (also via GENERATE_DPUSERVICETEMPLATE_OVERRIDES=true)"
-	@echo "  deploy-dpu-services - Deploy DPU services to the cluster"
+	@echo "  deploy-dpu-services - Deploy DPU services to the cluster (host-trusted or zero-trust per DPF_DEPLOYMENT_MODE)"
 	@echo "  run-custom-postinstall-script - Run CUSTOM_POSTINSTALL_SCRIPT (file or http(s) URL, with args); also last make all step"
-	@echo "  deploy-zt-dpu-services - Apply and verify Zero Trust services and hosted-cluster RBAC"
 	@echo "  scale-out-zt-dpus - Create DPUNodes for hosts added to WORKER_<N>_DPU_BMC_IPS and refresh per-DPU services"
 	@echo "  scale-in-zt-dpus - Remove one host's Zero Trust DPUNode and DPUs (usage: make scale-in-zt-dpus DPU_NODE=dpu-node-worker-<N>)"
 	@echo "  enable-kata       - OSC (inert KataConfig) + kata-coldplug on worker-dpu (also last make all step when KATA_ENABLED=true)"

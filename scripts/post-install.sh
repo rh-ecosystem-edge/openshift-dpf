@@ -597,6 +597,7 @@ function prepare_post_installation() {
 
     if [ "${DPF_DEPLOYMENT_MODE}" = "zero-trust" ]; then
         prepare_zero_trust_provisioning_manifests
+        prepare_zero_trust_service_manifests
         log [INFO] "Post-installation manifest preparation completed successfully"
         return 0
     fi
@@ -689,6 +690,7 @@ function apply_post_installation() {
 
     if [ "${DPF_DEPLOYMENT_MODE}" = "zero-trust" ]; then
         apply_zero_trust_provisioning_manifests
+        apply_zero_trust_service_manifests
         log [INFO] "Post-installation manifest application completed successfully"
         return 0
     fi
