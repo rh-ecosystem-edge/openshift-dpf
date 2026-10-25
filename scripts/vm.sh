@@ -51,7 +51,7 @@ _delete_vms_by_prefix() {
     local vms
     local vms_raw
     # Use exact pattern matching to avoid deleting VMs with similar prefixes
-    vms_raw=$(lvirsh list --all)
+    vms_raw=$(lvirsh list --all) || return 1
     vms=$(echo "${vms_raw}" | awk '{print $2}' | grep "^${prefix}" || true)
     
     local failed=0

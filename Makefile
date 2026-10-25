@@ -152,7 +152,8 @@ delete-worker-vms:
 
 .PHONY: add-vm-workers
 add-vm-workers:
-	@if [ "$(VM_WORKER_COUNT)" = "0" ] || [ -z "$(VM_WORKER_COUNT)" ]; then \
+	@set -e; \
+	if [ "$(VM_WORKER_COUNT)" = "0" ] || [ -z "$(VM_WORKER_COUNT)" ]; then \
 		echo "VM_WORKER_COUNT=0, skipping VM worker provisioning"; \
 	else \
 		$(MAKE) create-worker-vms; \
