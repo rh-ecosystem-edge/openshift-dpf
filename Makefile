@@ -31,6 +31,9 @@ TFT_SCRIPT := scripts/traffic-flow-tests.sh
 # Worker provisioning script
 WORKER_SCRIPT := scripts/worker.sh
 
+# Worker Secure Boot helper
+WORKER_SECURE_BOOT_SCRIPT := scripts/worker-secure-boot.sh
+
 # Full teardown orchestration (VMs, workers, Assisted Installer)
 CLEANUP_SCRIPT := scripts/cleanup.sh
 
@@ -453,6 +456,47 @@ add-worker-nodes:
 worker-status:
 	@$(WORKER_SCRIPT) display-worker-status
 
+.PHONY: worker-secure-boot
+worker-secure-boot:
+	@case "$(SECURE_BOOT_ACTION)" in \
+		show) $(WORKER_SECURE_BOOT_SCRIPT) show "$(WORKER_INDEX)" ;; \
+		set) $(WORKER_SECURE_BOOT_SCRIPT) set "$(WORKER_INDEX)" "$(SECURE_BOOT_STATE)" ;; \
+		wait) \
+			if [ -n "$(SECURE_BOOT_TIMEOUT_MINUTES)" ]; then \
+				$(WORKER_SECURE_BOOT_SCRIPT) wait "$(WORKER_INDEX)" "$(SECURE_BOOT_STATE)" "$(SECURE_BOOT_TIMEOUT_MINUTES)"; \
+			else \
+				$(WORKER_SECURE_BOOT_SCRIPT) wait "$(WORKER_INDEX)" "$(SECURE_BOOT_STATE)"; \
+			fi ;; \
+		all) \
+			if [ -n "$(SECURE_BOOT_TIMEOUT_MINUTES)" ]; then \
+				$(WORKER_SECURE_BOOT_SCRIPT) all "$(SECURE_BOOT_STATE)" "$(SECURE_BOOT_TIMEOUT_MINUTES)"; \
+			else \
+				$(WORKER_SECURE_BOOT_SCRIPT) all "$(SECURE_BOOT_STATE)"; \
+			fi ;; \
+		*) \
+			echo "Usage: make worker-secure-boot SECURE_BOOT_ACTION=show WORKER_INDEX=1"; \
+			echo "   or: make worker-secure-boot SECURE_BOOT_ACTION=set WORKER_INDEX=1 SECURE_BOOT_STATE=enable"; \
+			echo "   or: make worker-secure-boot SECURE_BOOT_ACTION=wait WORKER_INDEX=1 SECURE_BOOT_STATE=enable [SECURE_BOOT_TIMEOUT_MINUTES=15]"; \
+			echo "   or: make worker-secure-boot SECURE_BOOT_ACTION=all SECURE_BOOT_STATE=enable [SECURE_BOOT_TIMEOUT_MINUTES=15]"; \
+			exit 2 ;; \
+	esac
+
+.PHONY: worker-secure-boot-enable
+worker-secure-boot-enable:
+	@if [ -n "$(SECURE_BOOT_TIMEOUT_MINUTES)" ]; then \
+		$(WORKER_SECURE_BOOT_SCRIPT) all enable "$(SECURE_BOOT_TIMEOUT_MINUTES)"; \
+	else \
+		$(WORKER_SECURE_BOOT_SCRIPT) all enable; \
+	fi
+
+.PHONY: worker-secure-boot-disable
+worker-secure-boot-disable:
+	@if [ -n "$(SECURE_BOOT_TIMEOUT_MINUTES)" ]; then \
+		$(WORKER_SECURE_BOOT_SCRIPT) all disable "$(SECURE_BOOT_TIMEOUT_MINUTES)"; \
+	else \
+		$(WORKER_SECURE_BOOT_SCRIPT) all disable; \
+	fi
+
 .PHONY: delete-worker
 delete-worker:
 	@if [ -z "$(WORKER_NAME)" ]; then \
@@ -604,6 +648,9 @@ help:
 	@echo "  poweron-workers  - Power on physical workers via ipmitool (no-op if WORKER_COUNT=0)"
 	@echo "  add-worker-nodes  - Provision worker nodes via BMO/Redfish (uses WORKER_* env vars)"
 	@echo "  worker-status     - Display provisioning status for all configured workers"
+	@echo "  worker-secure-boot - Read, set, or monitor worker Secure Boot (SECURE_BOOT_ACTION=show|set|wait|all)"
+	@echo "  worker-secure-boot-enable - Enable Secure Boot on all workers (optional SECURE_BOOT_TIMEOUT_MINUTES=15)"
+	@echo "  worker-secure-boot-disable - Disable Secure Boot on all workers (optional SECURE_BOOT_TIMEOUT_MINUTES=15)"
 	@echo "  delete-worker     - Delete a worker (usage: make delete-worker WORKER_NAME=<name>)"
 	@echo "  approve-worker-csrs - Approve pending CSRs (one-time, for manual use)"
 	@echo "  deploy-csr-approver - Deploy CSR auto-approver CronJob for host cluster workers"
