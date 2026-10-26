@@ -387,10 +387,24 @@ make add-worker-nodes       # Add worker nodes
 ### Management
 ```bash
 make worker-status          # Check worker status
+make worker-secure-boot SECURE_BOOT_ACTION=show WORKER_INDEX=1
+make worker-secure-boot-enable SECURE_BOOT_TIMEOUT_MINUTES=15
+make worker-secure-boot-disable SECURE_BOOT_TIMEOUT_MINUTES=15
 make run-dpf-sanity        # Health checks
 make clean-all                           # Complete cleanup, including physical worker power off
 make clean-all POWER_OFF_WORKERS=false   # Complete cleanup, leave physical workers powered on
 ```
+
+The Secure Boot enable and disable targets force-restart workers that need a
+change, without draining them first. Workers already configured for and booted
+in the requested state are skipped. Schedule maintenance before running these
+commands on an active cluster.
+
+Redfish TLS certificate verification is enabled by default. Set
+`REDFISH_CA_BUNDLE=/path/to/ca-bundle.pem` when worker BMCs use a private CA.
+For an isolated lab using self-signed BMC certificates, you can explicitly opt
+out with `make worker-secure-boot-disable REDFISH_INSECURE=true` (or the enable
+target). Use that only on a trusted management network.
 
 ## 🎯 Supported Versions
 
