@@ -422,6 +422,13 @@ validate_zero_trust_redfish_configuration() {
         return 1
     fi
 
+    # NICo supplies DPU inventory and host reboot details. DPF still creates
+    # the shared BMC secret for the platform, but does not need static serials
+    # or host BMC credentials in this mode.
+    if [ "${NICO_ENABLED:-false}" = "true" ]; then
+        return 0
+    fi
+
     validate_worker_power_on_delay || return 1
     validate_zero_trust_dpu_serials || return 1
     validate_zero_trust_host_bmc_credentials || return 1
@@ -442,6 +449,30 @@ validate_zero_trust_redfish_configuration() {
        ! end_value=$(_ipv4_to_integer "${ZT_DPU_BMC_IP_RANGE_END}") ||
        [ "${start_value}" -gt "${end_value}" ]; then
         echo "ERROR: Invalid Zero Trust DPU BMC IP range: ${ZT_DPU_BMC_IP_RANGE_START}-${ZT_DPU_BMC_IP_RANGE_END}" >&2
+        return 1
+    fi
+}
+
+validate_nico_configuration() {
+    local deployment_name="${NICO_DPU_DEPLOYMENT_NAME:-dpudeployment}"
+
+    case "${NICO_ENABLED:-false}" in
+        true|false)
+            ;;
+        *)
+            echo "ERROR: NICO_ENABLED must be 'true' or 'false'" >&2
+            return 1
+            ;;
+    esac
+
+    if ! [[ "${deployment_name}" =~ ^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$ ]]; then
+        echo "ERROR: NICO_DPU_DEPLOYMENT_NAME must be a valid Kubernetes resource name" >&2
+        return 1
+    fi
+
+    if [ "${NICO_ENABLED:-false}" = "true" ] &&
+       [ "${DPF_DEPLOYMENT_MODE:-}" != "zero-trust" ]; then
+        echo "ERROR: NICO_ENABLED=true currently requires DPF_DEPLOYMENT_MODE=zero-trust" >&2
         return 1
     fi
 }
@@ -557,6 +588,9 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     # Compatibility default for .env files generated before deployment profiles
     # were introduced.
     DPF_DEPLOYMENT_MODE=${DPF_DEPLOYMENT_MODE:-host-trusted}
+    # Keep .env files generated before NICo integration backward compatible.
+    NICO_ENABLED=${NICO_ENABLED:-false}
+    NICO_DPU_DEPLOYMENT_NAME=${NICO_DPU_DEPLOYMENT_NAME:-dpudeployment}
     case "${DPF_DEPLOYMENT_MODE}" in
         host-trusted|zero-trust)
             ;;
@@ -565,6 +599,8 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
             exit 1
             ;;
     esac
+
+    validate_nico_configuration || exit 1
 
     if [ "${DPF_DEPLOYMENT_MODE}" = "zero-trust" ]; then
         if [ "${VM_COUNT}" -eq 1 ]; then

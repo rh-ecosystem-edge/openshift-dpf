@@ -43,6 +43,11 @@ HOST_TRUSTED_SPECIAL_FILES=(
 )
 
 function prepare_zero_trust_provisioning_manifests() {
+    if [ "${NICO_ENABLED:-false}" = "true" ]; then
+        log [INFO] "NICo integration enabled: skipping DPUFlavor, BFB, and DPUDeployment manifests"
+        return 0
+    fi
+
     log [INFO] "Preparing Zero Trust DPUFlavor, BFB, and DPUDeployment manifests..."
 
     update_file_multi_replace \
@@ -68,10 +73,18 @@ function prepare_zero_trust_service_manifests() {
         return 1
     fi
 
-    log [INFO] "Preparing Zero Trust DPU service manifests..."
-
     # Keep Zero Trust service outputs isolated from the trusted post-install set.
     find "${GENERATED_ZT_SERVICE_DIR}" -maxdepth 1 -type f -name "*.yaml" -delete
+
+    if [ "${NICO_ENABLED:-false}" = "true" ]; then
+        update_file_multi_replace \
+            "${COMMON_POST_INSTALL_DIR}/dpu-services-scc.yaml" \
+            "${GENERATED_ZT_SERVICE_DIR}/dpu-services-scc.yaml"
+        log [INFO] "NICo integration enabled: skipping DPF DPUService templates/interfaces/NADs/IPAM"
+        return 0
+    fi
+
+    log [INFO] "Preparing Zero Trust DPU service manifests..."
 
     validate_zero_trust_dpu_serials || return 1
 
@@ -217,6 +230,11 @@ function wait_for_dpfhcp_provisioner_ready() {
 }
 
 function apply_zero_trust_provisioning_manifests() {
+    if [ "${NICO_ENABLED:-false}" = "true" ]; then
+        log [INFO] "NICo integration enabled: DPF provisioning resources are owned by NICo"
+        return 0
+    fi
+
     local flavor_manifest="${GENERATED_POST_INSTALL_DIR}/dpuflavor.yaml"
     local bfb_manifest="${GENERATED_POST_INSTALL_DIR}/bfb.yaml"
     local deployment_manifest="${GENERATED_POST_INSTALL_DIR}/dpudeployment.yaml"
@@ -346,6 +364,16 @@ function apply_zero_trust_service_manifests() {
         return 1
     fi
 
+    if [ "${NICO_ENABLED:-false}" = "true" ]; then
+        log [INFO] "NICo integration enabled: DPF DPUService resources are owned by NICo"
+        if ensure_hosted_kubeconfig && wait_for_hosted_cluster_api "${HOSTED_KUBECONFIG}" 60 10; then
+            apply_zero_trust_hosted_cluster_authorization
+        else
+            log [INFO] "Hosted cluster is not ready yet; run deploy-zt-dpu-services after NICo and HCP are ready"
+        fi
+        return 0
+    fi
+
     get_kubeconfig
 
     local manifests=(
@@ -371,6 +399,11 @@ function apply_zero_trust_service_manifests() {
 }
 
 function update_zero_trust_hbn_configuration() {
+    if [ "${NICO_ENABLED:-false}" = "true" ]; then
+        log [ERROR] "HBN configuration is owned by NICo when NICO_ENABLED=true"
+        return 1
+    fi
+
     if [ "${DPF_DEPLOYMENT_MODE}" != "zero-trust" ]; then
         log [ERROR] "Zero Trust HBN configuration requires DPF_DEPLOYMENT_MODE=zero-trust"
         return 1

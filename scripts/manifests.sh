@@ -241,6 +241,11 @@ prepare_zero_trust_objects() {
     mkdir -p "${inventory_dir}"
     find "${inventory_dir}" -maxdepth 1 -type f -name "*.yaml" -delete
 
+    if [ "${NICO_ENABLED:-false}" = "true" ]; then
+        log [INFO] "NICo integration enabled: leaving DPUDevice/DPUNode inventory to NICo"
+        return
+    fi
+
     if [ "${ZT_DPU_DISCOVERY_MODE}" = "scanning" ]; then
         update_file_multi_replace \
             "$MANIFESTS_DIR/dpf-installation/zero-trust/dpudiscovery.yaml" \
