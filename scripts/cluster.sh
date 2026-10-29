@@ -820,11 +820,12 @@ function get_iso() {
     fi
 
     log "INFO" "Getting ISO URL for ${infraenv_name}..."
-    local iso_url="$(aicli info iso "${infraenv_name}" -s | sed 's/\x1b\[[0-9;]*m//g')"
+    local iso_url
+    iso_url=$(aicli info iso "${infraenv_name}" -s | sed 's/\x1b\[[0-9;]*m//g') || return 1
 
-    if [ -z "${iso_url}" ]; then
-        log "INFO" "No direct URL found. Use console.redhat.com to generate an ISO."
-        iso_url="https://console.redhat.com/openshift"
+    if [[ "$iso_url" != https://* ]]; then
+        log "ERROR" "Assisted Installer did not return an ISO URL for $infraenv_name"
+        return 1
     fi
 
     iso_url="${iso_url%/*}/${iso_type}.iso"
@@ -873,7 +874,7 @@ function get_infra_env_id() {
     local infra_env_id
     infra_env_id=$(aicli -o json list infraenvs 2>/dev/null \
         | jq -r --arg name "${infraenv_name}" --arg cluster "${CLUSTER_NAME}" \
-          '.[] | select(.name == $name or .name == $cluster) | .id' \
+          '.[] | select(.name == $name) | .id' \
         | head -1)
 
     if [ -z "${infra_env_id}" ]; then
@@ -885,6 +886,8 @@ function get_infra_env_id() {
 
 function install_day2_hosts() {
     local expected_count="${VM_WORKER_COUNT:-0}"
+    local infraenv_name="${1:-${CLUSTER_NAME}_infra-env}"
+    local install_attempts="${2:-120}"
     if [ "${expected_count}" -eq 0 ]; then
         log "INFO" "VM_WORKER_COUNT=0, skipping day2 host installation"
         return 0
@@ -892,7 +895,7 @@ function install_day2_hosts() {
 
     local cluster_id infra_env_id
     cluster_id=$(get_day2_cluster_id) || return 1
-    infra_env_id=$(get_infra_env_id) || return 1
+    infra_env_id=$(get_infra_env_id "$infraenv_name") || return 1
 
     # Wait for hosts to register via InfraEnv
     log "INFO" "Waiting for ${expected_count} day2 host(s) to register..."
@@ -900,7 +903,7 @@ function install_day2_hosts() {
         local count
         count=$(aicli -o json list hosts 2>/dev/null \
             | jq -r --arg ieid "${infra_env_id}" \
-              '[.[] | select(.infra_env_id == $ieid and .status == "known")] | length') || count=0
+              '[.[] | select(.infra_env_id == $ieid)] | length') || count=0
         log "INFO" "Day2 hosts registered: ${count}/${expected_count}"
         [ "${count}" -ge "${expected_count}" ]
     }
@@ -914,35 +917,35 @@ function install_day2_hosts() {
         local host_ids
         host_ids=$(aicli -o json list hosts 2>/dev/null \
             | jq -r --arg ieid "${infra_env_id}" \
-              '.[] | select(.infra_env_id == $ieid and .status == "known" and (.cluster_id == null or .cluster_id == "")) | .id')
+              '.[] | select(.infra_env_id == $ieid and (.status == "known" or .status == "known-unbound") and (.cluster_id == null or .cluster_id == "")) | .id') || return 1
         for host_id in ${host_ids}; do
             log "INFO" "Binding host ${host_id} to cluster ${CLUSTER_NAME}..."
-            aicli bind host "${host_id}" --cluster "${CLUSTER_NAME}" || true
+            aicli bind host "${host_id}" --cluster "${CLUSTER_NAME}" || return 1
         done
 
         host_ids=$(aicli -o json list hosts 2>/dev/null \
-            | jq -r --arg cid "${cluster_id}" \
-              '.[] | select(.cluster_id == $cid and .status == "known") | .id')
+            | jq -r --arg cid "${cluster_id}" --arg ieid "${infra_env_id}" \
+              '.[] | select(.cluster_id == $cid and .infra_env_id == $ieid and .status == "known") | .id') || return 1
         for host_id in ${host_ids}; do
             log "INFO" "Starting installation for host ${host_id}..."
-            aicli start host "${host_id}" || true
+            aicli start host "${host_id}" || return 1
         done
     }
 
     log "INFO" "Binding and installing day2 hosts..."
-    _bind_and_start_hosts
+    _bind_and_start_hosts || return 1
 
     log "INFO" "Waiting for ${expected_count} day2 host(s) to complete installation..."
     _check_hosts_installed() {
-        _bind_and_start_hosts
+        _bind_and_start_hosts || return 1
         local installed_count
         installed_count=$(aicli -o json list hosts 2>/dev/null \
-            | jq -r --arg cid "${cluster_id}" \
-              '[.[] | select(.cluster_id == $cid and (.status == "installed" or .status == "added-to-existing-cluster"))] | length') || installed_count=0
+            | jq -r --arg cid "${cluster_id}" --arg ieid "${infra_env_id}" \
+              '[.[] | select(.cluster_id == $cid and .infra_env_id == $ieid and (.status == "installed" or .status == "added-to-existing-cluster"))] | length') || installed_count=0
         log "INFO" "Day2 hosts installed: ${installed_count}/${expected_count}"
         [ "${installed_count}" -ge "${expected_count}" ]
     }
-    if ! retry 120 60 _check_hosts_installed; then
+    if ! retry "$install_attempts" 60 _check_hosts_installed; then
         log "ERROR" "Timeout waiting for day2 hosts to complete installation"
         return 1
     fi

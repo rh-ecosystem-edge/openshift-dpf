@@ -591,7 +591,11 @@ function clean_resources() {
 # -----------------------------------------------------------------------------
 libvirt_uri() {
     if [ -n "${LIBVIRT_HOST:-}" ]; then
-        echo "qemu+ssh://${LIBVIRT_HOST}/system"
+        local uri="qemu+ssh://${LIBVIRT_HOST}/system"
+        if [ -n "${LIBVIRT_SSH_KEY:-}" ]; then
+            uri+="?keyfile=${LIBVIRT_SSH_KEY}&no_verify=1&no_tty=1"
+        fi
+        echo "$uri"
     else
         echo "qemu:///system"
     fi
@@ -601,9 +605,18 @@ is_remote_libvirt() {
     [ -n "${LIBVIRT_HOST:-}" ]
 }
 
+# Use the same explicit identity for host commands and libvirt's SSH transport.
+libvirt_ssh() {
+    local options=(-o BatchMode=yes -o ConnectTimeout=30)
+    if [ -n "${LIBVIRT_SSH_KEY:-}" ]; then
+        options+=(-i "$LIBVIRT_SSH_KEY" -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null)
+    fi
+    ssh "${options[@]}" -- "${LIBVIRT_HOST}" "$@"
+}
+
 libvirt_host_cmd() {
     if is_remote_libvirt; then
-        ssh "${LIBVIRT_HOST}" -- "$(printf '%q ' "$@")"
+        libvirt_ssh "$(printf '%q ' "$@")"
     else
         "$@"
     fi
@@ -651,7 +664,7 @@ libvirt_host_script() {
     if is_remote_libvirt; then
         local escaped_args
         escaped_args=$(printf '%q ' "$@")
-        ssh "${LIBVIRT_HOST}" "${env_prefix} bash -s -- ${escaped_args}" < "${script}"
+        libvirt_ssh "${env_prefix} bash -s -- ${escaped_args}" < "${script}"
     else
         env ${env_prefix} "${script}" "$@"
     fi

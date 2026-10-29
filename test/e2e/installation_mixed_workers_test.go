@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"syscall"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -16,11 +17,11 @@ import (
 
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 
-	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/openshift-dpf/test/utils"
@@ -32,10 +33,8 @@ import (
 // worker nodes only, leaving regular (non-DPU) workers untouched and fully schedulable.
 var _ = Describe("TC-INST-003: Validate DPF on OCP Operates a Cluster with a Mix of DPU Workers and Non-DPU Workers", Label("deployment", "installation-mixed-workers"), Ordered, func() {
 	var (
-		existingWorkerNames      map[string]struct{}
 		temporaryWorkerNodeNames map[string]struct{}
 		temporaryWorkerVMPrefix  string
-		createdCSRApproverByTest bool
 	)
 
 	BeforeAll(func() {
@@ -43,10 +42,6 @@ var _ = Describe("TC-INST-003: Validate DPF on OCP Operates a Cluster with a Mix
 			Skip("No DPU nodes available, skipping TC-INST-003")
 		}
 
-		allWorkers, err := utils.GetWorkerNodes(ctx, mgmtClient)
-		Expect(err).NotTo(HaveOccurred())
-
-		existingWorkerNames = workerNodeNames(allWorkers)
 		readyWorkers, err := utils.GetReadyWorkerNodes(ctx, mgmtClient)
 		Expect(err).NotTo(HaveOccurred())
 		if hasNonDPUWorker(readyWorkers) {
@@ -56,20 +51,10 @@ var _ = Describe("TC-INST-003: Validate DPF on OCP Operates a Cluster with a Mix
 
 		temporaryWorkerVMPrefix = fmt.Sprintf("dpf-mixed-test-%d-", time.Now().UnixNano())
 		temporaryWorkerNodeNames = make(map[string]struct{})
+		err = mgmtClient.Get(ctx, client.ObjectKey{Name: temporaryWorkerVMPrefix + "1"}, &corev1.Node{})
+		Expect(apierrors.IsNotFound(err)).To(BeTrue(), "temporary Node name must not already exist: %v", err)
 
-		// Register cleanup before provisioning so VMs and any worker nodes discovered
-		// before the Make target or a later assertion fails are removed.
-		csrApprover := &batchv1.CronJob{}
-		err = mgmtClient.Get(ctx, client.ObjectKey{
-			Namespace: "openshift-machine-api",
-			Name:      "csr-auto-approver",
-		}, csrApprover)
-		if err != nil && !apierrors.IsNotFound(err) {
-			Expect(err).NotTo(HaveOccurred(), "failed to check for the existing CSR auto-approver")
-		}
-		csrApproverExisted := err == nil
-		createdCSRApproverByTest = !csrApproverExisted
-
+		// Register cleanup before provisioning, including a failed BeforeAll.
 		DeferCleanup(func() {
 			cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 			defer cancel()
@@ -77,28 +62,16 @@ var _ = Describe("TC-INST-003: Validate DPF on OCP Operates a Cluster with a Mix
 			cleanupErrs := cleanupTemporaryMixedWorker(
 				cleanupCtx,
 				mgmtClient,
-				temporaryWorkerNodeNames,
 				temporaryWorkerVMPrefix,
-				createdCSRApproverByTest,
 			)
 			Expect(cleanupErrs).To(BeEmpty(), "temporary mixed-worker cleanup failures")
 		})
 
 		By(fmt.Sprintf("Adding one temporary regular VM worker with prefix %s", temporaryWorkerVMPrefix))
-		err = runMakeTarget(ctx,
-			"VM_WORKER_COUNT=1",
-			"VM_WORKER_PREFIX="+temporaryWorkerVMPrefix,
-			"AUTO_APPROVE_WORKER_CSR=true",
-			"add-vm-workers",
-		)
-		if err != nil {
-			workers, listErr := utils.GetWorkerNodes(ctx, mgmtClient)
-			if listErr != nil {
-				GinkgoWriter.Printf("Could not discover temporary worker Nodes after provisioning failure: %v\n", listErr)
-			} else {
-				recordTemporaryWorkerNodes(workers, existingWorkerNames, temporaryWorkerNodeNames)
-			}
-		}
+		provisionCtx, cancelProvision := context.WithTimeout(ctx, 90*time.Minute)
+		defer cancelProvision()
+		err = runMakeTarget(provisionCtx, "VM_WORKER_COUNT=1", "VM_WORKER_PREFIX="+temporaryWorkerVMPrefix,
+			"AUTO_APPROVE_WORKER_CSR=true", "add-vm-workers")
 		Expect(err).NotTo(HaveOccurred(), "failed to add a temporary regular VM worker")
 
 		By("Waiting for the temporary regular VM worker to become Ready")
@@ -106,11 +79,11 @@ var _ = Describe("TC-INST-003: Validate DPF on OCP Operates a Cluster with a Mix
 			workers, listErr := utils.GetWorkerNodes(ctx, mgmtClient)
 			g.Expect(listErr).NotTo(HaveOccurred())
 
-			recordTemporaryWorkerNodes(workers, existingWorkerNames, temporaryWorkerNodeNames)
+			recordTemporaryWorkerNodes(workers, temporaryWorkerVMPrefix, temporaryWorkerNodeNames)
 
 			newRegularReadyWorkers := make([]corev1.Node, 0)
 			for _, worker := range workers {
-				if _, existed := existingWorkerNames[worker.Name]; existed {
+				if worker.Name != temporaryWorkerVMPrefix+"1" {
 					continue
 				}
 				if hasDPUEnabledLabel(worker) {
@@ -316,8 +289,11 @@ var _ = Describe("TC-INST-003: Validate DPF on OCP Operates a Cluster with a Mix
 })
 
 func runMakeTarget(ctx context.Context, args ...string) error {
-	makeArgs := append([]string{"-C", repositoryRoot()}, args...)
+	makeArgs := append([]string{"-C", repositoryRoot(), "KUBECONFIG=" + cfg.Kubeconfig}, args...)
 	cmd := exec.CommandContext(ctx, "make", makeArgs...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM) }
+	cmd.WaitDelay = 10 * time.Second
 	cmd.Stdout = GinkgoWriter
 	cmd.Stderr = GinkgoWriter
 	return cmd.Run()
@@ -329,14 +305,6 @@ func repositoryRoot() string {
 		return "."
 	}
 	return filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "..", ".."))
-}
-
-func workerNodeNames(workers []corev1.Node) map[string]struct{} {
-	names := make(map[string]struct{}, len(workers))
-	for _, worker := range workers {
-		names[worker.Name] = struct{}{}
-	}
-	return names
 }
 
 func hasNonDPUWorker(workers []corev1.Node) bool {
@@ -355,11 +323,11 @@ func hasDPUEnabledLabel(node corev1.Node) bool {
 
 func recordTemporaryWorkerNodes(
 	workers []corev1.Node,
-	existingWorkerNames map[string]struct{},
+	temporaryWorkerVMPrefix string,
 	temporaryWorkerNodeNames map[string]struct{},
 ) {
 	for _, worker := range workers {
-		if _, existed := existingWorkerNames[worker.Name]; existed {
+		if worker.Name != temporaryWorkerVMPrefix+"1" {
 			continue
 		}
 		if hasDPUEnabledLabel(worker) {
@@ -391,40 +359,40 @@ func sortedWorkerNames(names map[string]struct{}) []string {
 func cleanupTemporaryMixedWorker(
 	ctx context.Context,
 	c client.Client,
-	temporaryWorkerNodeNames map[string]struct{},
 	temporaryWorkerVMPrefix string,
-	removeCSRApprover bool,
 ) []error {
 	cleanupErrs := make([]error, 0)
-
-	for nodeName := range temporaryWorkerNodeNames {
-		node := &corev1.Node{}
-		err := c.Get(ctx, client.ObjectKey{Name: nodeName}, node)
+	if temporaryWorkerVMPrefix == "" {
+		return cleanupErrs
+	}
+	if err := runMakeTarget(ctx, "VM_WORKER_PREFIX="+temporaryWorkerVMPrefix, "delete-worker-vms"); err != nil {
+		cleanupErrs = append(cleanupErrs, fmt.Errorf("deleting temporary worker VMs and day2 artifacts: %w", err))
+	}
+	// Fetch the exact name even if it registered before receiving the worker label.
+	nodeName := temporaryWorkerVMPrefix + "1"
+	node := &corev1.Node{}
+	err := c.Get(ctx, client.ObjectKey{Name: nodeName}, node)
+	if apierrors.IsNotFound(err) {
+		return cleanupErrs
+	}
+	if err != nil {
+		return append(cleanupErrs, err)
+	}
+	_, controlPlane := node.Labels["node-role.kubernetes.io/control-plane"]
+	if hasDPUEnabledLabel(*node) || controlPlane {
+		return append(cleanupErrs, fmt.Errorf("refusing to delete protected Node %s", nodeName))
+	}
+	if err := c.Delete(ctx, node, client.Preconditions{UID: &node.UID}); err != nil && !apierrors.IsNotFound(err) {
+		return append(cleanupErrs, fmt.Errorf("deleting temporary worker node %s: %w", nodeName, err))
+	}
+	if err := wait.PollUntilContextTimeout(ctx, 5*time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
+		err := c.Get(ctx, client.ObjectKey{Name: nodeName}, &corev1.Node{})
 		if apierrors.IsNotFound(err) {
-			continue
+			return true, nil
 		}
-		if err != nil {
-			cleanupErrs = append(cleanupErrs, fmt.Errorf("getting temporary worker node %s: %w", nodeName, err))
-			continue
-		}
-		if err := c.Delete(ctx, node); err != nil && !apierrors.IsNotFound(err) {
-			cleanupErrs = append(cleanupErrs, fmt.Errorf("deleting temporary worker node %s: %w", nodeName, err))
-		} else {
-			GinkgoWriter.Printf("Deleted temporary worker node %s\n", nodeName)
-		}
+		return false, err
+	}); err != nil {
+		cleanupErrs = append(cleanupErrs, fmt.Errorf("waiting for temporary worker Node %s deletion: %w", nodeName, err))
 	}
-
-	if temporaryWorkerVMPrefix != "" {
-		if err := runMakeTarget(ctx, "VM_WORKER_PREFIX="+temporaryWorkerVMPrefix, "delete-worker-vms"); err != nil {
-			cleanupErrs = append(cleanupErrs, fmt.Errorf("deleting temporary worker VMs: %w", err))
-		}
-	}
-
-	if removeCSRApprover {
-		if err := runMakeTarget(ctx, "delete-csr-approver"); err != nil {
-			cleanupErrs = append(cleanupErrs, fmt.Errorf("removing test-created CSR auto-approver: %w", err))
-		}
-	}
-
 	return cleanupErrs
 }

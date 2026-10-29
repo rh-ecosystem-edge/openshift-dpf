@@ -51,8 +51,8 @@ _delete_vms_by_prefix() {
     local vms
     local vms_raw
     # Use exact pattern matching to avoid deleting VMs with similar prefixes
-    vms_raw=$(lvirsh list --all)
-    vms=$(echo "${vms_raw}" | awk '{print $2}' | grep "^${prefix}" || true)
+    vms_raw=$(lvirsh list --all) || return 1
+    vms=$(printf '%s\n' "$vms_raw" | awk -v prefix="$prefix" 'index($2, prefix) == 1 {print $2}')
     
     local failed=0
     for vm in ${vms}; do
@@ -82,13 +82,14 @@ _delete_vms_by_prefix() {
     log "INFO" "VMs matching prefix ${prefix} deleted"
 }
 
-# Create a single VM via virt-install (backgrounded).
+# Create a single VM and propagate virt-install failures.
 # Args: vm_name ram vcpus disk1 disk2 network_arg
 _create_vm() {
     local vm_name="$1" ram="$2" vcpus="$3" disk1="$4" disk2="$5" network_arg="$6"
     log "INFO" "Starting VM creation for $vm_name..."
-    # nohup cannot call shell functions — expand lvirt_install inline
-    nohup virt-install --connect "${LIBVIRT_URI}" --name "$vm_name" --memory "$ram" \
+    local log_dir="${ARTIFACT_DIR:-logs}/vm-workers"
+    mkdir -p "$log_dir"
+    if ! virt-install --connect "${LIBVIRT_URI}" --name "$vm_name" --memory "$ram" \
             --vcpus "$vcpus" \
             --os-variant=rhel9.4 \
             --disk path="${DISK_PATH}/${vm_name}-disk1.qcow2",size="${disk1}" \
@@ -100,7 +101,11 @@ _create_vm() {
             --cpu host-passthrough \
             --boot uefi \
             --noautoconsole \
-            --wait=-1 > /dev/null 2>&1 &
+            --wait=0 > "$log_dir/$vm_name.log" 2>&1; then
+        cat "$log_dir/$vm_name.log" >&2
+        log "ERROR" "virt-install failed for $vm_name"
+        return 1
+    fi
 }
 
 _wait_for_vms_running() {
@@ -145,7 +150,7 @@ function create_vms() {
 
     # Early SSH connectivity check for remote libvirt to fail fast
     if is_remote_libvirt; then
-        if ! ssh -o ConnectTimeout=5 -o BatchMode=yes "${LIBVIRT_HOST}" true 2>/dev/null; then
+        if ! libvirt_ssh true 2>/dev/null; then
             log "ERROR" "Cannot connect to remote libvirt host: ${LIBVIRT_HOST}"
             return 1
         fi

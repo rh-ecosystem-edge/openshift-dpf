@@ -140,38 +140,18 @@ delete-vms:
 download-day2-iso: create-day2-cluster
 	@$(CLUSTER_SCRIPT) download-day2-iso
 
+# VM worker provisioning owns a separate Assisted Installer InfraEnv per prefix.
 .PHONY: create-worker-vms
-create-worker-vms: download-day2-iso
-	@$(VM_SCRIPT) create-worker-vms
+create-worker-vms:
+	@bash scripts/vm-workers.sh create
 
 .PHONY: delete-worker-vms
 delete-worker-vms:
-	@$(VM_SCRIPT) delete-worker-vms
+	@bash scripts/vm-workers.sh delete
 
 .PHONY: add-vm-workers
 add-vm-workers:
-	@if [ "$(VM_WORKER_COUNT)" = "0" ] || [ -z "$(VM_WORKER_COUNT)" ]; then \
-		echo "VM_WORKER_COUNT=0, skipping VM worker provisioning"; \
-	else \
-		$(MAKE) create-worker-vms; \
-		echo "================================================================================"; \
-		echo "Adding VM worker nodes via Assisted Installer day2 flow..."; \
-		echo "================================================================================"; \
-		$(CLUSTER_SCRIPT) install-day2-hosts; \
-		if [ "$(AUTO_APPROVE_WORKER_CSR)" = "true" ]; then \
-			echo ""; \
-			echo "AUTO_APPROVE_WORKER_CSR=true - Deploying CSR auto-approver CronJob..."; \
-			$(WORKER_SCRIPT) deploy-csr-auto-approver; \
-		else \
-			echo ""; \
-			$(WORKER_SCRIPT) display-manual-csr-instructions; \
-		fi; \
-		echo ""; \
-		echo "================================================================================"; \
-		echo "VM worker node provisioning complete!"; \
-		echo "Run 'make worker-status' to verify nodes joined the cluster."; \
-		echo "================================================================================"; \
-	fi
+	@bash scripts/vm-workers.sh add
 
 .PHONY: install-day2-hosts
 install-day2-hosts:
@@ -560,7 +540,7 @@ help:
 	@echo "  delete-vms        - Delete virtual machines"
 	@echo "  add-vm-workers    - Add VM worker nodes via Assisted Installer day2 flow (full lifecycle)"
 	@echo "  create-worker-vms - Create worker VMs from day2 ISO (idempotent, skips existing VMs)"
-	@echo "  delete-worker-vms - Delete worker VMs"
+	@echo "  delete-worker-vms - Delete worker VMs and their owned day2 artifacts"
 	@echo "  download-day2-iso - Download day2 ISO for worker VMs (depends on create-day2-cluster)"
 	@echo "  install-day2-hosts - Bind and start installation for discovered day2 hosts"
 	@echo ""

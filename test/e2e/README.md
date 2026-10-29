@@ -92,3 +92,18 @@ Before opening a change, confirm:
 - Generated resources and pods are verified by status and identity, not only by object names.
 - The test ends with a meaningful cluster-health assertion.
 - Formatting, compile-only tests, unit tests, vet, and `git diff --check` pass.
+
+## TC-INST-003 VM worker validation
+
+Select `installation-mixed-workers`. The Go test runs in the Prow container and calls `make add-vm-workers` there. If no dedicated Ready non-DPU worker exists, the target provisions one VM through remote libvirt using the cluster profile. The test uses a unique VM prefix, scoped CSR approval, and two ping pods in a test-owned namespace. Cleanup removes its VM, Node, and recorded Assisted Installer resources; an existing non-DPU worker is reused and preserved.
+
+For a fork worktree on the hypervisor, copy `.env.test` and `.env` from the current CI checkout with mode 600; ensure the pull-secret and SSH-public-key paths in `.env` resolve from the new worktree. `KUBECONFIG` in `.env.test` must be an existing absolute management-cluster path. If generating `.env.test`, export that `KUBECONFIG` first. Verify the commit and run in the PR worktree:
+
+```bash
+git -C "$TEST_DIR" log -1 --oneline
+mkdir -p "$TEST_DIR/artifacts"
+ARTIFACT_DIR="$TEST_DIR/artifacts" make -C "$TEST_DIR" test-go-e2e \
+  E2E_GO_LABEL_FILTER=installation-mixed-workers E2E_ENV_FILE="$TEST_DIR/.env.test"
+```
+
+Check afterward that the base Assisted Installer record retains its original status and the temporary VM and Node are absent. This local run exercises local libvirt; Prow validation is required for the cluster-profile path. Offline worker checks: `python3 scripts/tests/test_vm_workers.py`, `bash -n scripts/vm-workers.sh`, and `shellcheck scripts/vm-workers.sh`.

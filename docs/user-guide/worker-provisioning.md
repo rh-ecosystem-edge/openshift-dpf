@@ -234,7 +234,7 @@ For lab and development environments without physical BMC-managed servers, you c
 
 ### How It Works
 
-1. The existing cluster is moved to "day2" mode in Assisted Installer
+1. A separate `<CLUSTER_NAME>-day2` Assisted Installer record is created or reused; the base record is preserved
 2. A day2 ISO is downloaded that contains the worker discovery agent
 3. A libvirt VM is created and booted from this ISO
 4. The VM registers with Assisted Installer as a new host
@@ -265,25 +265,17 @@ Run the full workflow:
 make add-vm-workers
 ```
 
-This single command handles the entire lifecycle: creates the day2 cluster, downloads the day2 ISO, creates the VM(s), waits for host registration, starts the installation, and handles CSR approval.
+This command creates an InfraEnv and ISO for `VM_WORKER_PREFIX`, creates the VMs, assigns their hostnames by MAC address, and installs only those hosts. With `AUTO_APPROVE_WORKER_CSR=true`, it approves only kubelet CSRs whose subject and requester match these VM workers and waits for them to become Ready. With automatic approval disabled, approve their CSRs from another terminal while installation runs.
 
-### Step-by-Step (Manual)
-
-If you prefer to run each step individually:
+### Create VMs before installing
 
 ```bash
-# 1. Move cluster to day2 mode
-make create-day2-cluster
-
-# 2. Download the day2 ISO
-make download-day2-iso
-
-# 3. Create worker VM(s) from the day2 ISO
 make create-worker-vms
-
-# 4. Wait for hosts to register and install (monitor in another terminal)
-make worker-status
+# Finish installation with the same VM_WORKER_PREFIX:
+make add-vm-workers
 ```
+
+Preserve `manifests/generated/vm-workers/` until cleanup: it records resource ownership. In Prow, these targets use the cluster profile's SSH key and remote host, an isolated copy of the hypervisor's Assisted Installer token, and the management cluster's pull secret. Temporary credentials are removed when the command exits. Outside Prow, existing local `aicli` and libvirt configuration is used. Remote libvirt can also use `LIBVIRT_SSH_KEY` with `LIBVIRT_HOST`.
 
 ### Configuration Reference
 
@@ -296,12 +288,12 @@ make worker-status
 | `VM_WORKER_DISK_SIZE1` | Primary disk size in GB | Same as `DISK_SIZE1` |
 | `VM_WORKER_DISK_SIZE2` | Secondary disk size in GB | Same as `DISK_SIZE2` |
 
-After completing the provisioning steps above, your workers are ready for DPU-accelerated workloads on OpenShift.
+These are regular non-DPU workers. Remove their OpenShift Node objects after deleting the VMs; TC-INST-003 performs both steps. Cleanup preserves preexisting day2 records and refuses to delete an InfraEnv whose ID changed. A hard process kill or loss of the ownership records can require manual cleanup.
 
 ### Cleanup
 
 ```bash
-# Delete worker VMs only
+# Delete this prefix's VMs and recorded day2 artifacts
 make delete-worker-vms
 
 # Or delete everything (includes worker VMs and powers off physical workers)

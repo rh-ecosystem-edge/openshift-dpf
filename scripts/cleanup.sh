@@ -16,6 +16,9 @@ source "${SCRIPT_DIR}/env.sh"
 clean_all() {
     local vm_status=0
 
+    # Retain ownership records if this prefix's worker cleanup fails.
+    bash "${SCRIPT_DIR}/vm-workers.sh" delete || return $?
+
     log "INFO" "Destroying libvirt VMs (worker + control-plane; release VIPs, stop BMO)..."
     "${SCRIPT_DIR}/vm.sh" delete || vm_status=$?
 
