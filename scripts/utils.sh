@@ -291,6 +291,41 @@ function check_resource_exists() {
 }
 
 # -----------------------------------------------------------------------------
+# OLM operator removal
+# -----------------------------------------------------------------------------
+
+# Remove an OLM-managed operator: delete the Subscription, then find and delete
+# the associated ClusterServiceVersion. Both steps use soft failure so partial
+# cleanup still progresses.
+#   Usage: delete_olm_operator <namespace> <subscription-name>
+function delete_olm_operator() {
+    local namespace=$1
+    local subscription_name=$2
+
+    log "INFO" "Removing OLM operator ${subscription_name} from ${namespace}..."
+
+    # Delete the Subscription (stops future updates)
+    oc delete subscription -n "${namespace}" "${subscription_name}" --ignore-not-found || {
+        log "WARN" "Failed to delete subscription ${subscription_name} in ${namespace}"
+    }
+
+    # Find and delete the CSV installed by this subscription
+    local csv_name
+    csv_name=$(oc get csv -n "${namespace}" \
+        -l "operators.coreos.com/${subscription_name}.${namespace}=" \
+        -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+
+    if [[ -n "${csv_name}" ]]; then
+        log "INFO" "Deleting CSV ${csv_name} from ${namespace}..."
+        oc delete csv -n "${namespace}" "${csv_name}" --ignore-not-found || {
+            log "WARN" "Failed to delete CSV ${csv_name} in ${namespace}"
+        }
+    else
+        log "INFO" "No CSV found for subscription ${subscription_name} in ${namespace}"
+    fi
+}
+
+# -----------------------------------------------------------------------------
 # Manifest application functions
 # -----------------------------------------------------------------------------
 function apply_manifest() {

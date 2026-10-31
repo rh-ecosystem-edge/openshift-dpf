@@ -330,6 +330,33 @@ update-etc-hosts:
 clean-all:
 	@bash $(CLEANUP_SCRIPT) clean-all
 
+.PHONY: reset-to-base-cluster
+reset-to-base-cluster: undeploy-observability undeploy-ovn-injector undeploy-dpu-services delete-all-workers undeploy-dpf
+	@echo ""
+	@echo "================================================================================"
+	@echo "Cluster reset to compact cluster state complete."
+	@echo "================================================================================"
+
+.PHONY: delete-all-workers
+delete-all-workers:
+	@$(WORKER_SCRIPT) delete-all-workers
+
+.PHONY: undeploy-observability
+undeploy-observability:
+	@$(POST_INSTALL_SCRIPT) undeploy-observability
+
+.PHONY: undeploy-ovn-injector
+undeploy-ovn-injector:
+	@scripts/enable-ovn-injector.sh disable
+
+.PHONY: undeploy-dpu-services
+undeploy-dpu-services:
+	@$(POST_INSTALL_SCRIPT) undeploy-dpu-services
+
+.PHONY: undeploy-dpf
+undeploy-dpf:
+	@$(DPF_SCRIPT) undeploy-dpf
+
 .PHONY: kubeconfig
 kubeconfig:
 	@$(CLUSTER_SCRIPT) get-kubeconfig
@@ -557,6 +584,12 @@ help:
 	@echo "  clean            - Remove generated files"
 	@echo "  clean-all        - Delete libvirt VMs, delete cluster and generated files, power off physical workers (ipmitool)"
 	@echo "                     Set POWER_OFF_WORKERS=false to leave physical workers powered on"
+	@echo "  reset-to-base-cluster  - Remove DPF stack, workers, and return to compact cluster state"
+	@echo "  undeploy-observability - Remove observability stack (Grafana, metrics, dashboards)"
+	@echo "  undeploy-ovn-injector  - Remove OVN resource injector"
+	@echo "  undeploy-dpu-services  - Remove DPU services (DPUDeployment, BFB, configs)"
+	@echo "  delete-all-workers     - Delete all non-control-plane worker nodes"
+	@echo "  undeploy-dpf           - Remove full DPF stack (HyperShift, DPF operator, NFD, ArgoCD, MetalLB, etc.)"
 	@echo ""
 	@echo "VM Management:"
 	@echo "  create-vms        - Create virtual machines for the cluster"

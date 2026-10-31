@@ -1,5 +1,5 @@
 #!/bin/bash
-# enable-ovn-injector.sh - Enable OVN resource injector
+# enable-ovn-injector.sh - Enable/disable OVN resource injector
 
 # Exit on error
 set -e
@@ -10,95 +10,136 @@ source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/cluster.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/tools.sh"
 
-# Set cluster-specific values
-API_SERVER="api.$CLUSTER_NAME.$BASE_DOMAIN:6443"
+function enable() {
+    # Set cluster-specific values
+    API_SERVER="api.$CLUSTER_NAME.$BASE_DOMAIN:6443"
 
-# Get kubeconfig
-get_kubeconfig
+    # Get kubeconfig
+    get_kubeconfig
 
-# Ensure helm is installed
-ensure_helm_installed
+    # Ensure helm is installed
+    ensure_helm_installed
 
-INJECTOR_WEBHOOK_PORT=19443
-INJECTOR_HEALTH_PROBE_PORT=18081
-INJECTOR_METRICS_PORT=29091
+    INJECTOR_WEBHOOK_PORT=19443
+    INJECTOR_HEALTH_PROBE_PORT=18081
+    INJECTOR_METRICS_PORT=29091
 
-log [INFO] "Enabling OVN resource injector (chart ${INJECTOR_CHART_VERSION})..."
+    log [INFO] "Enabling OVN resource injector (chart ${INJECTOR_CHART_VERSION})..."
 
-# --take-ownership: leftover injector objects (SA, etc.) often remain after the
-# helm secret is gone. Without this, install fails with missing
-# meta.helm.sh/release-name on ovn-kubernetes-ovn-kubernetes-resource-injector.
-helm_args=(
-    upgrade --install -n "${OVNK_NAMESPACE}" ovn-kubernetes
-    "${OVN_CHART_URL}/ovn-kubernetes-chart"
-    --version "${INJECTOR_CHART_VERSION}"
-    --take-ownership
-    --set ovn-kubernetes-resource-injector.enabled=true
-    --set ovn-kubernetes-resource-injector.resourceName="${INJECTOR_RESOURCE_NAME}"
-    --set ovn-kubernetes-resource-injector.prioritizeOffloading=false
-    --set ovn-kubernetes-resource-injector.controllerManager.hostNetwork=true
-    --set ovn-kubernetes-resource-injector.controllerManager.webhookPort="${INJECTOR_WEBHOOK_PORT}"
-    --set ovn-kubernetes-resource-injector.controllerManager.healthProbeBindAddress=":${INJECTOR_HEALTH_PROBE_PORT}"
-    --set ovn-kubernetes-resource-injector.controllerManager.webhook.image.pullPolicy=IfNotPresent
-    --set "ovn-kubernetes-resource-injector.controllerManager.webhook.args={--leader-elect,--metrics-bind-address=:${INJECTOR_METRICS_PORT}}"
-    --set-json 'ovn-kubernetes-resource-injector.runtimeClassMappings=[]'
-    --set nodeWithDPUManifests.enabled=false
-    --set nodeWithoutDPUManifests.enabled=false
-    --set dpuManifests.enabled=false
-    --set controlPlaneManifests.enabled=false
-    --set commonManifests.enabled=false
-)
-
-if [ "${KATA_ENABLED}" = "true" ]; then
-    log [INFO] "KATA_ENABLED=true: adding runtime class mapping ${KATA_RUNTIME_CLASS} -> ${KATA_NAD_NAME} (${KATA_INJECTOR_RESOURCE_NAME})"
-    helm_args+=(
-        --set "ovn-kubernetes-resource-injector.runtimeClassMappings[0].runtimeClass=${KATA_RUNTIME_CLASS}"
-        --set "ovn-kubernetes-resource-injector.runtimeClassMappings[0].nadName=${KATA_NAD_NAME}"
-        --set "ovn-kubernetes-resource-injector.runtimeClassMappings[0].resourceName=${KATA_INJECTOR_RESOURCE_NAME}"
+    # --take-ownership: leftover injector objects (SA, etc.) often remain after the
+    # helm secret is gone. Without this, install fails with missing
+    # meta.helm.sh/release-name on ovn-kubernetes-ovn-kubernetes-resource-injector.
+    helm_args=(
+        upgrade --install -n "${OVNK_NAMESPACE}" ovn-kubernetes
+        "${OVN_CHART_URL}/ovn-kubernetes-chart"
+        --version "${INJECTOR_CHART_VERSION}"
+        --take-ownership
+        --set ovn-kubernetes-resource-injector.enabled=true
+        --set ovn-kubernetes-resource-injector.resourceName="${INJECTOR_RESOURCE_NAME}"
+        --set ovn-kubernetes-resource-injector.prioritizeOffloading=false
+        --set ovn-kubernetes-resource-injector.controllerManager.hostNetwork=true
+        --set ovn-kubernetes-resource-injector.controllerManager.webhookPort="${INJECTOR_WEBHOOK_PORT}"
+        --set ovn-kubernetes-resource-injector.controllerManager.healthProbeBindAddress=":${INJECTOR_HEALTH_PROBE_PORT}"
+        --set ovn-kubernetes-resource-injector.controllerManager.webhook.image.pullPolicy=IfNotPresent
+        --set "ovn-kubernetes-resource-injector.controllerManager.webhook.args={--leader-elect,--metrics-bind-address=:${INJECTOR_METRICS_PORT}}"
+        --set-json 'ovn-kubernetes-resource-injector.runtimeClassMappings=[]'
+        --set nodeWithDPUManifests.enabled=false
+        --set nodeWithoutDPUManifests.enabled=false
+        --set dpuManifests.enabled=false
+        --set controlPlaneManifests.enabled=false
+        --set commonManifests.enabled=false
     )
-else
-    log [INFO] "KATA_ENABLED=${KATA_ENABLED:-false}: skipping kata runtime class mapping"
-fi
 
-if ! helm "${helm_args[@]}"; then
-    log [ERROR] "Helm deployment of OVN resource injector failed"
-    exit 1
-fi
-
-# Wait for the webhook deployment to roll out
-log [INFO] "Waiting for OVN resource injector deployment to roll out..."
-if ! oc rollout status deployment/ovn-kubernetes-ovn-kubernetes-resource-injector -n "${OVNK_NAMESPACE}" --timeout=120s; then
-    log [ERROR] "OVN resource injector deployment failed to roll out"
-    exit 1
-fi
-log [INFO] "OVN resource injector deployment rolled out successfully"
-
-# Verify MutatingWebhookConfiguration creation
-log [INFO] "Verifying OVN injector MutatingWebhookConfiguration creation..."
-if oc get mutatingwebhookconfiguration ovn-kubernetes-ovn-kubernetes-resource-injector &>/dev/null; then
-    log [INFO] "MutatingWebhookConfiguration 'ovn-kubernetes-ovn-kubernetes-resource-injector' created successfully"
-else
-    log [ERROR] "MutatingWebhookConfiguration 'ovn-kubernetes-ovn-kubernetes-resource-injector' was not created"
-    exit 1
-fi
-
-# Verify NAD creation
-if oc get net-attach-def -n "${OVNK_NAMESPACE}" dpf-ovn-kubernetes &>/dev/null; then
-    log [INFO] "NetworkAttachmentDefinition 'dpf-ovn-kubernetes' created successfully"
-else
-    log [ERROR] "NetworkAttachmentDefinition 'dpf-ovn-kubernetes' was not created"
-    exit 1
-fi
-
-# Kata NAD exists only when the runtime class mapping was set above.
-if [ "${KATA_ENABLED}" = "true" ]; then
-    if oc get net-attach-def -n "${OVNK_NAMESPACE}" "${KATA_NAD_NAME}" &>/dev/null; then
-        log [INFO] "NetworkAttachmentDefinition '${KATA_NAD_NAME}' created successfully"
+    if [ "${KATA_ENABLED}" = "true" ]; then
+        log [INFO] "KATA_ENABLED=true: adding runtime class mapping ${KATA_RUNTIME_CLASS} -> ${KATA_NAD_NAME} (${KATA_INJECTOR_RESOURCE_NAME})"
+        helm_args+=(
+            --set "ovn-kubernetes-resource-injector.runtimeClassMappings[0].runtimeClass=${KATA_RUNTIME_CLASS}"
+            --set "ovn-kubernetes-resource-injector.runtimeClassMappings[0].nadName=${KATA_NAD_NAME}"
+            --set "ovn-kubernetes-resource-injector.runtimeClassMappings[0].resourceName=${KATA_INJECTOR_RESOURCE_NAME}"
+        )
     else
-        log [ERROR] "NetworkAttachmentDefinition '${KATA_NAD_NAME}' was not created"
+        log [INFO] "KATA_ENABLED=${KATA_ENABLED:-false}: skipping kata runtime class mapping"
+    fi
+
+    if ! helm "${helm_args[@]}"; then
+        log [ERROR] "Helm deployment of OVN resource injector failed"
         exit 1
     fi
-    log [INFO] "OVN resource injector enabled successfully (with Kata runtime class mapping)"
-else
-    log [INFO] "OVN resource injector enabled successfully"
-fi
+
+    # Wait for the webhook deployment to roll out
+    log [INFO] "Waiting for OVN resource injector deployment to roll out..."
+    if ! oc rollout status deployment/ovn-kubernetes-ovn-kubernetes-resource-injector -n "${OVNK_NAMESPACE}" --timeout=120s; then
+        log [ERROR] "OVN resource injector deployment failed to roll out"
+        exit 1
+    fi
+    log [INFO] "OVN resource injector deployment rolled out successfully"
+
+    # Verify MutatingWebhookConfiguration creation
+    log [INFO] "Verifying OVN injector MutatingWebhookConfiguration creation..."
+    if oc get mutatingwebhookconfiguration ovn-kubernetes-ovn-kubernetes-resource-injector &>/dev/null; then
+        log [INFO] "MutatingWebhookConfiguration 'ovn-kubernetes-ovn-kubernetes-resource-injector' created successfully"
+    else
+        log [ERROR] "MutatingWebhookConfiguration 'ovn-kubernetes-ovn-kubernetes-resource-injector' was not created"
+        exit 1
+    fi
+
+    # Verify NAD creation
+    if oc get net-attach-def -n "${OVNK_NAMESPACE}" dpf-ovn-kubernetes &>/dev/null; then
+        log [INFO] "NetworkAttachmentDefinition 'dpf-ovn-kubernetes' created successfully"
+    else
+        log [ERROR] "NetworkAttachmentDefinition 'dpf-ovn-kubernetes' was not created"
+        exit 1
+    fi
+
+    # Kata NAD exists only when the runtime class mapping was set above.
+    if [ "${KATA_ENABLED}" = "true" ]; then
+        if oc get net-attach-def -n "${OVNK_NAMESPACE}" "${KATA_NAD_NAME}" &>/dev/null; then
+            log [INFO] "NetworkAttachmentDefinition '${KATA_NAD_NAME}' created successfully"
+        else
+            log [ERROR] "NetworkAttachmentDefinition '${KATA_NAD_NAME}' was not created"
+            exit 1
+        fi
+        log [INFO] "OVN resource injector enabled successfully (with Kata runtime class mapping)"
+    else
+        log [INFO] "OVN resource injector enabled successfully"
+    fi
+}
+
+function disable() {
+    get_kubeconfig
+    ensure_helm_installed
+
+    log "INFO" "Disabling OVN resource injector..."
+
+    if helm list -n "${OVNK_NAMESPACE}" | grep -q "^ovn-kubernetes[[:space:]]"; then
+        helm uninstall ovn-kubernetes -n "${OVNK_NAMESPACE}" --wait || {
+            log "WARN" "Failed to uninstall ovn-kubernetes helm release"
+        }
+        log "INFO" "OVN resource injector helm release uninstalled"
+    else
+        log "INFO" "ovn-kubernetes helm release not found"
+    fi
+
+    # Verify webhook is gone
+    if oc get mutatingwebhookconfiguration ovn-kubernetes-ovn-kubernetes-resource-injector &>/dev/null 2>&1; then
+        log "WARN" "MutatingWebhookConfiguration still exists; deleting manually..."
+        oc delete mutatingwebhookconfiguration ovn-kubernetes-ovn-kubernetes-resource-injector --ignore-not-found || true
+    fi
+
+    log "INFO" "OVN resource injector disabled"
+}
+
+# Default to enable when no argument given (backwards compatible)
+case "${1:-enable}" in
+    enable)
+        enable
+        ;;
+    disable)
+        disable
+        ;;
+    *)
+        log [ERROR] "Unknown command: $1"
+        log [ERROR] "Available commands: enable, disable"
+        exit 1
+        ;;
+esac

@@ -650,13 +650,35 @@ delete_worker() {
         node_name="$input_name"
         log "INFO" "Identified as Node: $node_name"
 
-        # Find BMH with this hostname in status.hardware (BMH.status.hardware.hostname matches Node name)
+        # Find BMH with this hostname in status.hardware
         bmh_name=$(oc get bmh -n openshift-machine-api -o json 2>/dev/null | \
             jq -r --arg node "$node_name" \
             '.items[] | select(.status.hardware.hostname == $node) | .metadata.name' 2>/dev/null | head -1)
 
+        # Fallback: hostname field can be empty for BMO-provisioned workers.
+        # Look for provisioned BMHs that aren't control-plane VMs (whose names
+        # are MAC addresses like "52-54-00-xx-xx-xx").
         if [[ -z "$bmh_name" ]]; then
-            log "WARN" "Could not find BMH for node: $node_name (may already be deleted)"
+            local candidate_bmhs
+            candidate_bmhs=$(oc get bmh -n openshift-machine-api -o json 2>/dev/null | \
+                jq -r '.items[]
+                    | select(.status.provisioning.state == "provisioned")
+                    | select(.metadata.name | test("^[0-9a-f]{2}-[0-9a-f]{2}-") | not)
+                    | .metadata.name' 2>/dev/null)
+            local candidate_count
+            candidate_count=$(echo "$candidate_bmhs" | grep -c . 2>/dev/null || echo 0)
+            if [[ "$candidate_count" -eq 1 ]]; then
+                bmh_name=$(echo "$candidate_bmhs" | head -1)
+                log "INFO" "BMH hostname not set; matched single non-control-plane BMH: $bmh_name"
+            elif [[ "$candidate_count" -gt 1 ]]; then
+                log "WARN" "Multiple non-control-plane BMHs found; cannot auto-match node $node_name"
+                log "WARN" "Candidates: $(echo "$candidate_bmhs" | tr '\n' ' ')"
+                log "WARN" "Use: make delete-worker WORKER_NAME=<bmh-name>"
+            fi
+        fi
+
+        if [[ -z "$bmh_name" ]]; then
+            log "WARN" "Could not find BMH for node: $node_name"
         fi
 
     else
@@ -664,18 +686,49 @@ delete_worker() {
         return 1
     fi
 
-    [[ -z "$bmh_name" ]] && { log "ERROR" "Could not determine BareMetalHost name"; return 1; }
+    if [[ -n "$bmh_name" ]]; then
+        log "INFO" "Worker mapping - BMH: $bmh_name, Node: ${node_name:-unknown}"
+        log "INFO" "Deleting worker BMH: $bmh_name"
+        delete_bmh_with_cleanup "$bmh_name"
+    fi
 
-    log "INFO" "Worker mapping - BMH: $bmh_name, Node: ${node_name:-unknown}"
+    if [[ -n "$node_name" ]]; then
+        delete_node "$node_name"
+    fi
 
-    # Delete BMH (handles all workers uniformly now — no MachineSet)
-    log "INFO" "Deleting worker: $bmh_name"
-    delete_bmh_with_cleanup "$bmh_name"
+    log "INFO" "Worker ${bmh_name:-$node_name} deletion completed"
+}
 
-    # Delete the node if it exists
-    delete_node "$node_name"
+delete_all_workers() {
+    get_kubeconfig
 
-    log "INFO" "Worker $bmh_name deletion completed"
+    # Only target worker-only nodes (not control-plane/master)
+    local workers
+    workers=$(oc get nodes -l 'node-role.kubernetes.io/worker,!node-role.kubernetes.io/master,!node-role.kubernetes.io/control-plane' \
+        --no-headers -o custom-columns='NAME:.metadata.name' 2>/dev/null || true)
+
+    if [[ -z "$workers" ]]; then
+        log "INFO" "No non-control-plane worker nodes found"
+        return 0
+    fi
+
+    log "INFO" "Deleting all non-control-plane workers: $(echo "$workers" | tr '\n' ' ')"
+
+    local failed=0
+    while IFS= read -r node_name; do
+        [[ -z "$node_name" ]] && continue
+        log "INFO" "Deleting worker: $node_name"
+        if ! delete_worker "$node_name"; then
+            log "WARN" "Failed to delete worker $node_name"
+            failed=$((failed + 1))
+        fi
+    done <<< "$workers"
+
+    if [[ "$failed" -gt 0 ]]; then
+        log "WARN" "${failed} worker(s) failed to delete"
+    else
+        log "INFO" "All workers deleted successfully"
+    fi
 }
 
 # Command dispatcher
@@ -688,12 +741,13 @@ case "${1:-}" in
     deploy-csr-auto-approver) deploy_csr_auto_approver ;;
     delete-csr-auto-approver) delete_csr_auto_approver ;;
     delete-worker) delete_worker "${2:-}" ;;
+    delete-all-workers) delete_all_workers ;;
     shutoff-all-workers) shutoff_all_workers ;;
     poweron-workers) poweron_workers ;;
     poweron-all-workers) poweron_workers false ;;
     wait-for-dpu-redfish) wait_for_zero_trust_dpu_redfish ;;
     *)
-        echo "Usage: $0 {provision-all-workers|approve-worker-csrs|display-worker-status|display-manual-csr-instructions|apply-short-worker-hostnames|deploy-csr-auto-approver|delete-csr-auto-approver|delete-worker <bmh-name|machine-name|node-name>|shutoff-all-workers|poweron-workers|poweron-all-workers|wait-for-dpu-redfish}"
+        echo "Usage: $0 {provision-all-workers|approve-worker-csrs|display-worker-status|display-manual-csr-instructions|apply-short-worker-hostnames|deploy-csr-auto-approver|delete-csr-auto-approver|delete-worker <bmh-name|machine-name|node-name>|delete-all-workers|shutoff-all-workers|poweron-workers|poweron-all-workers|wait-for-dpu-redfish}"
         exit 1
         ;;
 esac

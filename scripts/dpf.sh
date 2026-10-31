@@ -1000,6 +1000,315 @@ function apply_dpf() {
     log [INFO] "DPF deployment complete"
 }
 
+# =============================================================================
+# Undeploy functions (reverse of deploy, for reset-to-base-cluster)
+# =============================================================================
+
+function undeploy_metallb() {
+    log "INFO" "Removing MetalLB..."
+
+    get_kubeconfig
+
+    # Delete MetalLB CR instances
+    if oc get metallb -n openshift-operators metallb &>/dev/null 2>&1; then
+        log "INFO" "Deleting MetalLB CR..."
+        oc delete metallb -n openshift-operators metallb --ignore-not-found --timeout=120s || {
+            log "WARN" "Failed to delete MetalLB CR"
+        }
+    else
+        log "INFO" "MetalLB CR not found"
+    fi
+
+    # Remove OLM operator
+    delete_olm_operator "openshift-operators" "metallb-operator"
+
+    # Delete metallb-system namespace (created by operator, not cleaned up by CSV removal)
+    if oc get namespace metallb-system &>/dev/null 2>&1; then
+        log "INFO" "Deleting metallb-system namespace..."
+        oc delete namespace metallb-system --ignore-not-found --timeout=180s || {
+            log "WARN" "Failed to delete metallb-system namespace"
+        }
+    fi
+
+    log "INFO" "MetalLB removal complete"
+}
+
+function undeploy_nfd() {
+    log "INFO" "Removing NFD..."
+
+    get_kubeconfig
+
+    # Delete NodeFeatureDiscovery CR
+    if oc get nodefeaturediscovery -n openshift-nfd &>/dev/null 2>&1; then
+        log "INFO" "Deleting NodeFeatureDiscovery CRs..."
+        oc delete nodefeaturediscovery --all -n openshift-nfd --ignore-not-found --timeout=120s || {
+            log "WARN" "Failed to delete NodeFeatureDiscovery CRs"
+        }
+    else
+        log "INFO" "No NodeFeatureDiscovery CRs found"
+    fi
+
+    # Remove OLM operator
+    delete_olm_operator "openshift-nfd" "nfd"
+
+    # Delete namespace
+    if oc get namespace openshift-nfd &>/dev/null 2>&1; then
+        log "INFO" "Deleting openshift-nfd namespace..."
+        oc delete namespace openshift-nfd --ignore-not-found --timeout=180s || {
+            log "WARN" "Failed to delete openshift-nfd namespace"
+        }
+    fi
+
+    log "INFO" "NFD removal complete"
+}
+
+function undeploy_argocd() {
+    log "INFO" "Removing GitOps operator and ArgoCD..."
+
+    get_kubeconfig
+
+    # Delete ArgoCD CR from dpf-operator-system
+    if oc get argocd -n dpf-operator-system &>/dev/null 2>&1; then
+        log "INFO" "Deleting ArgoCD CR from dpf-operator-system..."
+        oc delete argocd --all -n dpf-operator-system --ignore-not-found --timeout=120s || {
+            log "WARN" "Failed to delete ArgoCD CRs"
+        }
+    else
+        log "INFO" "No ArgoCD CRs found in dpf-operator-system"
+    fi
+
+    # Remove OLM operator
+    delete_olm_operator "openshift-gitops-operator" "openshift-gitops-operator"
+
+    # Delete the GitOps operator namespace
+    if oc get namespace openshift-gitops-operator &>/dev/null 2>&1; then
+        log "INFO" "Deleting openshift-gitops-operator namespace..."
+        oc delete namespace openshift-gitops-operator --ignore-not-found --timeout=180s || {
+            log "WARN" "Failed to delete openshift-gitops-operator namespace"
+        }
+    fi
+
+    # Delete the openshift-gitops namespace (created by the operator for default instance)
+    if oc get namespace openshift-gitops &>/dev/null 2>&1; then
+        log "INFO" "Deleting openshift-gitops namespace..."
+        oc delete namespace openshift-gitops --ignore-not-found --timeout=180s || {
+            log "WARN" "Failed to delete openshift-gitops namespace"
+        }
+    fi
+
+    log "INFO" "GitOps operator removal complete"
+}
+
+function undeploy_maintenance_operator() {
+    log "INFO" "Removing Maintenance Operator..."
+
+    get_kubeconfig
+    ensure_helm_installed
+
+    if helm list -n dpf-operator-system | grep -q "^maintenance-operator[[:space:]]"; then
+        helm uninstall maintenance-operator -n dpf-operator-system --wait || {
+            log "WARN" "Failed to uninstall maintenance-operator helm release"
+        }
+        log "INFO" "Maintenance Operator helm release uninstalled"
+    else
+        log "INFO" "Maintenance Operator helm release not found"
+    fi
+
+    log "INFO" "Maintenance Operator removal complete"
+}
+
+function undeploy_cert_manager() {
+    log "INFO" "Removing cert-manager..."
+
+    get_kubeconfig
+
+    local cert_manager_file="$GENERATED_DIR/openshift-cert-manager.yaml"
+    if [ -f "$cert_manager_file" ]; then
+        log "INFO" "Deleting cert-manager resources from generated manifest..."
+        oc delete -f "$cert_manager_file" --ignore-not-found --timeout=120s || {
+            log "WARN" "Failed to delete cert-manager resources"
+        }
+    fi
+
+    # Delete cert-manager namespace
+    if oc get namespace cert-manager &>/dev/null 2>&1; then
+        log "INFO" "Deleting cert-manager namespace..."
+        oc delete namespace cert-manager --ignore-not-found --timeout=180s || {
+            log "WARN" "Failed to delete cert-manager namespace"
+        }
+    fi
+
+    log "INFO" "cert-manager removal complete"
+}
+
+function undeploy_hosted_cluster() {
+    log "INFO" "Removing hosted cluster and related components..."
+
+    get_kubeconfig
+    ensure_helm_installed
+
+    # Step 1: Delete DPFHCPProvisioner (cascades to HostedCluster deletion)
+    # Reuse the existing function which handles CRs, secrets, helm release, CRDs, namespace
+    delete_dpf_hcp_provisioner_operator
+
+    # Step 2: Uninstall dpu-worker-config helm release (same namespace, not covered above)
+    if helm list -n "${DPF_HCP_PROVISIONER_OPERATOR_NAMESPACE}" | grep -q "^dpu-worker-config[[:space:]]"; then
+        log "INFO" "Uninstalling dpu-worker-config helm release..."
+        helm uninstall dpu-worker-config -n "${DPF_HCP_PROVISIONER_OPERATOR_NAMESPACE}" --wait || {
+            log "WARN" "Failed to uninstall dpu-worker-config helm release"
+        }
+    else
+        log "INFO" "dpu-worker-config helm release not found"
+    fi
+
+    # Step 3: Wait for HostedCluster to be fully removed
+    if oc get hostedcluster -n "${CLUSTERS_NAMESPACE}" &>/dev/null 2>&1; then
+        log "INFO" "Waiting for HostedCluster resources to be deleted..."
+        oc wait --for=delete hostedcluster --all -n "${CLUSTERS_NAMESPACE}" --timeout=600s || {
+            log "WARN" "Timeout waiting for HostedCluster deletion"
+        }
+    fi
+
+    # Step 4: Clean up hosted cluster kubeconfig
+    local kubeconfig_file="${HOSTED_CLUSTER_NAME}.kubeconfig"
+    if [ -f "${kubeconfig_file}" ]; then
+        log "INFO" "Removing hosted cluster kubeconfig file..."
+        rm -f "${kubeconfig_file}"
+    fi
+
+    # Step 5: Remove HyperShift operator
+    case "${HYPERSHIFT_INSTALL_METHOD}" in
+        binary)
+            log "INFO" "Removing HyperShift operator (binary method)..."
+            if oc get deployment -n hypershift operator &>/dev/null 2>&1; then
+                if command -v hypershift &>/dev/null; then
+                    hypershift install --render 2>/dev/null | oc delete -f - --ignore-not-found || {
+                        log "WARN" "Failed to remove HyperShift via rendered manifests"
+                    }
+                else
+                    log "WARN" "hypershift binary not found; deleting namespace directly"
+                fi
+                if oc get namespace hypershift &>/dev/null 2>&1; then
+                    oc delete namespace hypershift --ignore-not-found --timeout=180s || {
+                        log "WARN" "Failed to delete hypershift namespace"
+                    }
+                fi
+            else
+                log "INFO" "HyperShift operator not found"
+            fi
+            ;;
+        mce)
+            log "INFO" "Removing HyperShift via MCE..."
+            # Disable hypershift component on MCE
+            local mce_name
+            mce_name=$(oc get multiclusterengine -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+            if [ -n "${mce_name}" ]; then
+                oc patch multiclusterengine "${mce_name}" --type=merge \
+                    -p '{"spec":{"overrides":{"components":[{"name":"hypershift","enabled":false}]}}}' || {
+                    log "WARN" "Failed to disable hypershift on MCE"
+                }
+                # Delete the MCE CR
+                log "INFO" "Deleting MultiClusterEngine ${mce_name}..."
+                oc delete multiclusterengine "${mce_name}" --ignore-not-found --timeout=300s || {
+                    log "WARN" "Failed to delete MultiClusterEngine CR"
+                }
+            fi
+            # Remove MCE operator
+            delete_olm_operator "multicluster-engine" "multicluster-engine"
+            if oc get namespace multicluster-engine &>/dev/null 2>&1; then
+                oc delete namespace multicluster-engine --ignore-not-found --timeout=180s || {
+                    log "WARN" "Failed to delete multicluster-engine namespace"
+                }
+            fi
+            ;;
+    esac
+
+    # Step 6: Remove MetalLB
+    undeploy_metallb
+
+    # Step 7: Clean up clusters namespace if empty
+    if oc get namespace "${CLUSTERS_NAMESPACE}" &>/dev/null 2>&1; then
+        local resource_count
+        resource_count=$(oc get all -n "${CLUSTERS_NAMESPACE}" --no-headers 2>/dev/null | wc -l)
+        if [ "${resource_count}" -eq 0 ]; then
+            log "INFO" "Deleting empty ${CLUSTERS_NAMESPACE} namespace..."
+            oc delete namespace "${CLUSTERS_NAMESPACE}" --ignore-not-found --timeout=180s || {
+                log "WARN" "Failed to delete ${CLUSTERS_NAMESPACE} namespace"
+            }
+        else
+            log "INFO" "Namespace ${CLUSTERS_NAMESPACE} still has ${resource_count} resources; not deleting"
+        fi
+    fi
+
+    log "INFO" "Hosted cluster removal complete"
+}
+
+function undeploy_dpf() {
+    log "INFO" "Starting DPF stack removal (reverse of deploy-dpf)..."
+
+    get_kubeconfig
+    ensure_helm_installed
+
+    # Step 1: Remove hosted cluster, HyperShift, MetalLB
+    undeploy_hosted_cluster
+
+    # Step 2: Delete remaining generated CRs (DPFOperatorConfig, etc.)
+    log "INFO" "Deleting generated DPF manifests..."
+    for file in "$GENERATED_DIR"/*.yaml; do
+        if [ -f "$file" ] && \
+           [[ ! "$file" =~ .*(-ns)\.yaml$ ]] && \
+           [[ ! "$file" =~ .*(-crd)\.yaml$ ]] && \
+           [[ "$file" != "$GENERATED_DIR/cert-manager-manifests.yaml" ]]; then
+            log "INFO" "Deleting resources from $(basename "$file")..."
+            oc delete -f "$file" --ignore-not-found --timeout=60s || {
+                log "WARN" "Failed to delete resources from $(basename "$file")"
+            }
+        fi
+    done
+
+    # Step 3: Uninstall DPF operator helm release
+    log "INFO" "Uninstalling DPF Operator helm release..."
+    if helm list -n dpf-operator-system | grep -q "^dpf-operator[[:space:]]"; then
+        helm uninstall dpf-operator -n dpf-operator-system --wait || {
+            log "WARN" "Failed to uninstall dpf-operator helm release"
+        }
+        log "INFO" "DPF Operator helm release uninstalled"
+    else
+        log "INFO" "dpf-operator helm release not found"
+    fi
+
+    # Step 4: Remove cert-manager
+    undeploy_cert_manager
+
+    # Step 5: Remove NFD
+    undeploy_nfd
+
+    # Step 6: Undo IP forwarding patch (restore default Restricted for host-trusted mode)
+    if [ "${DPF_DEPLOYMENT_MODE}" != "zero-trust" ]; then
+        log "INFO" "Restoring IP forwarding to Restricted..."
+        oc patch network.operator.openshift.io cluster --type=merge -p \
+            '{"spec":{"defaultNetwork":{"ovnKubernetesConfig":{"gatewayConfig":{"ipForwarding":"Restricted"}}}}}' || {
+            log "WARN" "Failed to restore IP forwarding setting"
+        }
+    fi
+
+    # Step 7: Remove Maintenance Operator
+    undeploy_maintenance_operator
+
+    # Step 8: Remove ArgoCD / GitOps operator
+    undeploy_argocd
+
+    # Step 9: Delete dpf-operator-system namespace (last, as many components lived here)
+    if oc get namespace dpf-operator-system &>/dev/null 2>&1; then
+        log "INFO" "Deleting dpf-operator-system namespace..."
+        oc delete namespace dpf-operator-system --ignore-not-found --timeout=300s || {
+            log "WARN" "Failed to delete dpf-operator-system namespace"
+        }
+    fi
+
+    log "INFO" "DPF stack removal complete"
+}
+
 function delete_dpf_hcp_provisioner_operator() {
     # Remove DPF HCP Provisioner Operator and all related resources
     log "INFO" "Removing DPF HCP Provisioner Operator..."
@@ -1123,9 +1432,27 @@ function main() {
             create-dpfhcpprovisioner-cr)
                 create_dpfhcpprovisioner_cr
                 ;;
+            undeploy-dpf)
+                undeploy_dpf
+                ;;
+            undeploy-hosted-cluster)
+                undeploy_hosted_cluster
+                ;;
+            undeploy-metallb)
+                undeploy_metallb
+                ;;
+            undeploy-nfd)
+                undeploy_nfd
+                ;;
+            undeploy-argocd)
+                undeploy_argocd
+                ;;
+            undeploy-maintenance-operator)
+                undeploy_maintenance_operator
+                ;;
             *)
                 log [INFO] "Unknown command: $command"
-                log [INFO] "Available commands: deploy-nfd, deploy-metallb, deploy-argocd, deploy-maintenance-operator, apply-dpf, scale-out-zero-trust-dpus, scale-in-zero-trust-dpus, deploy-hypershift, deploy-dpfhcp, deploy-hosted-cluster, deploy-dpf-hcp-provisioner-operator, delete-dpf-hcp-provisioner-operator, create-dpfhcpprovisioner-secrets, create-dpfhcpprovisioner-cr"
+                log [INFO] "Available commands: deploy-nfd, deploy-metallb, deploy-argocd, deploy-maintenance-operator, apply-dpf, scale-out-zero-trust-dpus, scale-in-zero-trust-dpus, deploy-hypershift, deploy-dpfhcp, deploy-hosted-cluster, deploy-dpf-hcp-provisioner-operator, delete-dpf-hcp-provisioner-operator, create-dpfhcpprovisioner-secrets, create-dpfhcpprovisioner-cr, undeploy-dpf, undeploy-hosted-cluster, undeploy-metallb, undeploy-nfd, undeploy-argocd, undeploy-maintenance-operator"
                 exit 1
                 ;;
         esac
