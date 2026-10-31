@@ -13,9 +13,10 @@ spec:
   multus:
     disable: true
   cniInstaller:
-    # CNI installer isn't relevant for the OpenShift use case.
-    # In 25.10 it does not support the RHCOS BFB.
-    disable: true
+    # Required from DPF 26.8+ (26.11): OVS and standard CNI plugins (ovs, rdma, dhcp, …)
+    # are delivered by cni-installer onto overrides.dpuCNIBinPath (/var/lib/cni/bin on RHCOS).
+    # Without it, Multus fails HBN/SFC pods with "failed to find plugin ovs".
+    disable: false
   overrides:
     kubernetesAPIServerVIP: api.<CLUSTER_NAME>.<BASE_DOMAIN>
     kubernetesAPIServerPort: 6443

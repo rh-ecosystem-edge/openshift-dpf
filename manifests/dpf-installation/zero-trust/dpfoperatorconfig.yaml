@@ -12,7 +12,8 @@ spec:
   multus:
     disable: true
   cniInstaller:
-    disable: true
+    # Required from DPF 26.8+ (26.11): ship ovs/rdma/dhcp CNIs to overrides.dpuCNIBinPath.
+    disable: false
   networking:
     highSpeedMTU: <NODES_MTU>
   overrides:
