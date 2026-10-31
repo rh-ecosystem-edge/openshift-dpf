@@ -28,6 +28,9 @@ SANITY_CHECKS_SCRIPT := scripts/dpf-sanity-checks.sh
 # Traffic flow tests script
 TFT_SCRIPT := scripts/traffic-flow-tests.sh
 
+# Stress testing script
+STRESS_SCRIPT := scripts/stress.sh
+
 # Worker provisioning script
 WORKER_SCRIPT := scripts/worker.sh
 
@@ -428,6 +431,23 @@ tft-show-config:
 tft-results:
 	@$(TFT_SCRIPT) show-results
 
+# Stress Testing
+.PHONY: stress-setup
+stress-setup:
+	@$(STRESS_SCRIPT) setup
+
+.PHONY: stress
+stress: stress-setup
+	@$(STRESS_SCRIPT) run
+
+.PHONY: stress-verify
+stress-verify:
+	@$(STRESS_SCRIPT) verify
+
+.PHONY: stress-cleanup
+stress-cleanup:
+	@$(STRESS_SCRIPT) cleanup
+
 .PHONY: add-worker-nodes
 add-worker-nodes:
 	@echo "================================================================================"
@@ -634,6 +654,12 @@ help:
 	@echo "  tft-show-config        - Display current TFT configuration"
 	@echo "  tft-results            - Show results from the most recent test run"
 	@echo ""
+	@echo "Stress Testing:"
+	@echo "  stress-setup           - Set up OVS monitoring infrastructure (ovs-exporter + Prometheus ServiceMonitors)"
+	@echo "  stress                 - Run stress test: iperf traffic + kube-burner-ocp node-density-cni with metrics collection"
+	@echo "  stress-verify          - Check Prometheus targets, OVS memory, and iperf traffic status"
+	@echo "  stress-cleanup         - Remove all stress test resources (monitoring, iperf, ovs-exporter)"
+	@echo ""
 	@echo "Hypershift Management:"
 	@echo "  deploy-mce             - Deploy MultiCluster Engine and enable the HyperShift component"
 	@echo "  deploy-dpfhcp          - Deploy DPU worker config and DPF HCP Provisioner Operator"
@@ -736,3 +762,10 @@ help:
 	@echo "  TFT_KUBECONFIG       - Path to cluster kubeconfig"
 	@echo "  TFT_SERVER_NODE      - K8s node name for server (default: from HBN_HOSTNAME_NODE1)"
 	@echo "  TFT_CLIENT_NODE      - K8s node name for client (default: from HBN_HOSTNAME_NODE2)"
+	@echo ""
+	@echo "Stress Testing Configuration:"
+	@echo "  OPENSEARCH_URL           - OpenSearch URL with credentials for kube-burner indexing (required for stress)"
+	@echo "  STRESS_DURATION          - Test duration (default: 24h)"
+	@echo "  STRESS_PODS_PER_NODE     - Pods per node for node-density-cni (default: 64)"
+	@echo "  STRESS_CHURN_PERCENT     - Percentage of pods churned per cycle (default: 50)"
+	@echo "  STRESS_CHURN_DELAY       - Delay between churn cycles (default: 2m)"
