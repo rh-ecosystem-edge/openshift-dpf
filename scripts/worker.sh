@@ -679,6 +679,17 @@ delete_worker() {
 }
 
 # Command dispatcher
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+if is_day1_assisted; then
+    case "${1:-}" in
+        provision-all-workers)
+            log "ERROR" "day1-assisted workers must be installed through make create-base-cluster, without BMO or a CSR auto-approver"
+            exit 1
+            ;;
+        display-worker-status) exec python3 "${SCRIPT_DIR}/assisted_install.py" status ;;
+        delete-worker) exec python3 "${SCRIPT_DIR}/assisted_install.py" delete-worker "${2:-}" ;;
+    esac
+fi
 case "${1:-}" in
     provision-all-workers) provision_all_workers ;;
     approve-worker-csrs) approve_worker_csrs ;;
@@ -697,3 +708,4 @@ case "${1:-}" in
         exit 1
         ;;
 esac
+fi

@@ -241,6 +241,24 @@ default_worker_is_dpu() {
     fi
 }
 
+is_day1_assisted() {
+    [ "${WORKER_PROVISIONING_MODE:-day2-bmo}" = "day1-assisted" ]
+}
+
+validate_worker_provisioning_mode() {
+    export WORKER_PROVISIONING_MODE=${WORKER_PROVISIONING_MODE:-day2-bmo}
+    case "$WORKER_PROVISIONING_MODE" in
+        day2-bmo) return 0 ;;
+        day1-assisted)
+            python3 "$(dirname "${BASH_SOURCE[0]}")/assisted_install.py" validate
+            ;;
+        *)
+            echo "Error: WORKER_PROVISIONING_MODE must be day2-bmo or day1-assisted" >&2
+            return 1
+            ;;
+    esac
+}
+
 # ODF fallback and ETCD class defaults are DPF-only. NNO has no hosted-cluster
 # etcd. Do not set SKIP_DEPLOY_STORAGE for NNO; that flag means DPF with a
 # user-provided StorageClass and requires ETCD_STORAGE_CLASS.
@@ -515,6 +533,7 @@ else
 fi
 
 validate_deployment_profile
+validate_worker_provisioning_mode || exit 1
 
 # Computed / conditional variables — derived from .env values at runtime.
 # Only evaluate when sourced by other scripts (not when executed directly for
