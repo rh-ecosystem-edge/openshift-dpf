@@ -955,6 +955,7 @@ function install_day2_hosts() {
 # Select day-1 implementations once, also for scripts that source this file.
 # -----------------------------------------------------------------------------
 prepare_cluster_flow() {
+    declare -F is_day1_assisted >/dev/null || return 1
     is_day1_assisted || return 0
 
     _assisted_cluster() { python3 "$(dirname "${BASH_SOURCE[0]}")/assisted_install.py" "$@"; }

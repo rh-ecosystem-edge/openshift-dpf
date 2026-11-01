@@ -200,14 +200,11 @@ def iso_url(value):
 
 
 def run(args, *, data=None, capture=True, timeout=180):
-    child_env = dict(os.environ)
-    # env.sh's guard applies inside one shell, not across subprocess shells.
-    child_env.pop("ENV_SH_SOURCED", None)
     try:
         result = subprocess.run([str(a) for a in args], input=data, text=True,
                                 stdout=subprocess.PIPE if capture else None,
                                 stderr=subprocess.PIPE if capture else None,
-                                timeout=timeout, check=False, env=child_env)
+                                timeout=timeout, check=False)
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise Error(f"{Path(args[0]).name}: command unavailable or timed out") from exc
     if result.returncode:
@@ -298,7 +295,7 @@ class Installer:
     def save(self):
         atomic_bytes(self.path, (json.dumps(self.state, indent=2) + "\n").encode())
 
-    def resolve(self, absent=False):
+    def resolve(self, absent=False, teardown=False):
         clusters = ai_json("list", "clusters")
         pinned = self.state.get("cluster_id")
         candidates = [c for c in clusters if c.get("id") == pinned] if pinned else [
@@ -326,10 +323,10 @@ class Installer:
         self.infra = matches[0] if matches else None
         require(not self.state.get("infra_env_id") or self.infra, "Pinned initial InfraEnv is missing")
         status = cluster["status"]
-        if status not in PRE_INSTALL | INSTALLING | INSTALLED:
+        if not teardown and status not in PRE_INSTALL | INSTALLING | INSTALLED:
             raise Error(f"Cluster {self.cluster['id']} is {status}: {self.cluster.get('status_info', '')}; "
                         "inspect installer diagnostics; no automatic reset or reinstall")
-        if self.state.get("removed") and status in PRE_INSTALL | INSTALLING:
+        if not teardown and self.state.get("removed") and status in PRE_INSTALL | INSTALLING:
             raise Error("A configured initial worker was removed; do not resume installation with a changed inventory")
         return cluster
 
@@ -582,7 +579,7 @@ class Installer:
         self.wait(check, self.env.get("VERIFY_MAX_RETRIES", "60"), self.env.get("VERIFY_SLEEP_SECONDS", "30"))
 
     def cleanup_media(self, only=None, teardown=False):
-        self.resolve()
+        self.resolve(teardown=teardown)
         if not teardown and self.cluster["status"] not in INSTALLED:
             raise Error("Discovery media is still needed; cleanup before installation completes requires explicit teardown")
         for worker in workers(self.env):
@@ -609,6 +606,10 @@ class Installer:
         matches = [w for w in workers(self.env) if name == w["name"]]
         require(len(matches) == 1, "delete-worker requires a configured physical worker name; control-plane targets are forbidden")
         self.resolve()
+        version = json.loads(run(["oc", "get", "clusterversion", "version", "-o", "json"]))
+        require(self.cluster.get("openshift_cluster_id") and
+                version.get("spec", {}).get("clusterID") == self.cluster["openshift_cluster_id"],
+                "Selected kubeconfig does not identify the pinned OpenShift cluster; refusing worker removal")
         mapped = self.mapped(complete=False)
         worker = matches[0]
         nodes = self.nodes()
@@ -627,7 +628,7 @@ class Installer:
         self.save()
 
     def delete_cluster(self):
-        self.resolve()
+        self.resolve(teardown=True)
         self.cleanup_media(teardown=True)
         # Only pinned records are removed. Do not touch same-name day-2 clusters.
         if self.infra:

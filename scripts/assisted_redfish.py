@@ -111,7 +111,11 @@ class Redfish:
                                             400 <= code < 500 and code != 408) else Error
                 raise error(f"{self.worker['name']}: Redfish {method} failed (HTTP {code}, curl {result.returncode}); "
                             "check authentication, TLS, capabilities, or BMC task diagnostics")
-            value = json.loads(payload) if payload.strip() else {}
+            try:
+                value = json.loads(payload) if payload.strip() else {}
+            except json.JSONDecodeError as exc:
+                raise Error(f"{self.worker['name']}: Redfish {method} returned malformed JSON") from exc
+            require(isinstance(value, dict), f"{self.worker['name']}: Redfish {method} returned a non-object response")
             if not task:
                 return code, value
             if code == 202 and task:

@@ -3,11 +3,11 @@
 # Exit on error
 set -e
 
-# Prevent double sourcing
-if [ -n "${ENV_SH_SOURCED:-}" ]; then
+# Prevent double sourcing within this shell; child shells need the functions too.
+if [ "${ENV_SH_SOURCED:-}" = "$$" ]; then
     return 0
 fi
-export ENV_SH_SOURCED=1
+export ENV_SH_SOURCED=$$
 
 # GNU Make's `include .env` leaves surrounding quotes in the value, so
 # KATA_ENABLED="true" is exported as "true" and boolean checks fail.

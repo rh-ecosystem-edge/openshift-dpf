@@ -4,8 +4,6 @@ set -e
 set -o pipefail
 
 ASSISTED_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# This new shell may inherit env.sh's marker without its functions.
-unset ENV_SH_SOURCED
 source "${ASSISTED_SCRIPT_DIR}/env.sh"
 source "${ASSISTED_SCRIPT_DIR}/utils.sh"
 

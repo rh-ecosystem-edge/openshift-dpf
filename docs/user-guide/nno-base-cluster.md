@@ -259,7 +259,8 @@ make clean-all
 
 Status reports Assisted Installer registration and the corresponding node;
 it does not use BMH provisioning status. Removal accepts a configured physical worker
-name, powers it off using the existing IPMI helper, clears owned media, and
+name, first checks that the selected kubeconfig's OpenShift cluster ID matches
+the pinned Assisted record, powers it off using the existing IPMI helper, clears owned media, and
 deletes its node and installer registration. It leaves the installed disk
 contents intact. Reprovisioning and subsequent expansion are separate actions.
 After removal, the initial-install runner will not silently reinstall the
@@ -267,6 +268,8 @@ missing worker. `clean-all` clears owned media before deleting installer state
 and honors the existing `POWER_OFF_WORKERS` policy and VM-deletion failure
 behavior. If media or boot overrides have changed ownership, cleanup fails
 without ejecting them; resolve the conflict before continuing teardown.
+Explicit teardown also permits an owned failed installation; normal startup
+still refuses to reset or reinstall it automatically.
 
 Known registration ownership is checked across the current Assisted Installer
 account. If `KUBECONFIG` exists, BMH ownership must also be inspectable there.
