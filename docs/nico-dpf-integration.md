@@ -60,7 +60,7 @@ The DPF automation still configures the DPF platform and HCP operator in NICo mo
 7. Guard DPF Zero Trust scale helpers and HBN update helpers so they cannot mutate NICo-owned resources.
 8. Keep the hosted-cluster SCC/RBAC authorization path available after NICo and HCP are ready.
 
-No NICo source code is changed by this PR. NICo must be installed/configured after the DPF platform step, using its external-DPF/`--skip-dpf` installation path and `[dpf].enabled=true` so that it creates the workload resources against the already-installed DPF operator.
+The DPF automation PR does not change NICo source code. The companion NICo PR [#8183](https://github.com/dsx-ai-factory/infra-controller/pull/8183) adds `NICO_DPF_EXTERNAL=true`: it keeps `[dpf].enabled=true` and NICo's DPF workload initialization while skipping NICo's DPF platform installation. Until that PR is available in the NICo release being tested, this two-owner handoff is not supported by `setup.sh`.
 
 ## Deployment sequence with NICo mode
 
@@ -68,7 +68,7 @@ The intended sequence is:
 
 1. Prepare the DPF environment with `DPF_DEPLOYMENT_MODE=zero-trust`, `NICO_ENABLED=true`, and a deployment name that matches the NICo configuration.
 2. Run the DPF platform portion (`make all-zt`, or the equivalent existing targets). It installs DPF and HCP prerequisites, creates the DPF configuration and BFB registry settings, and stops before hosted-cluster creation.
-3. Install NICo with the external DPF/`--skip-dpf` option. Enable its DPF integration, set the CoreOS BlueField BFB URL, configure the NICo Zero Trust services/images, and point its DPU deployment name at `NICO_DPU_DEPLOYMENT_NAME`.
+3. Install NICo with `NICO_DPF_EXTERNAL=true` (from NICo PR #8183). Keep `[dpf].enabled=true`, set the CoreOS BlueField BFB URL, configure the NICo Zero Trust services/images, and point its DPU deployment name at `NICO_DPU_DEPLOYMENT_NAME`. Do not use `--skip-dpf`, because that disables NICo DPF integration.
 4. Let NICo register the DPU host/inventory and create the BFB, flavor, service resources, and DPUDeployment. DPF controllers then provision the DPU and reconcile the services.
 5. Run `make deploy-hosted-cluster` after the NICo DPUDeployment exists. The HCP provisioner uses the generated `dpuDeploymentRef` and creates the hosted cluster.
 6. Run `make deploy-zt-dpu-services` after the hosted cluster API is ready. In NICo mode this applies the DPF hosted-cluster authorization and does not recreate NICo's service resources.
