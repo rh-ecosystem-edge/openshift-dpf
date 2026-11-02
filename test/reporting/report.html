@@ -32,14 +32,18 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; background: #f4f6f8; borde
 {{if not .Complete}}<p class="banner"><strong>INCOMPLETE SNAPSHOT</strong> — completed results only. The run may still be active or may have been interrupted.</p>
 {{else if .Report.SuiteSucceeded}}<p class="passed"><strong>Suite passed</strong></p>
 {{else}}<p class="failure"><strong>Suite failed</strong> — expand the failures and suite hooks below.</p>{{end}}
+{{with .Active}}<p class="banner"><strong>ACTIVE WHEN THE SNAPSHOT WAS WRITTEN:</strong> {{.FullText}}<br><span class="location">{{.LeafNodeLocation}}</span></p>{{end}}
 <p class="muted">Started {{.Report.StartTime.Format "2006-01-02 15:04:05 MST"}} · Duration {{duration .Report.RunTime}}<br>
 {{if .Report.PreRunStats.TotalSpecs}}Selected {{.Report.PreRunStats.SpecsThatWillRun}} of {{.Report.PreRunStats.TotalSpecs}} specs · {{end}}Label filter: <code>{{if .Report.SuiteConfig.LabelFilter}}{{.Report.SuiteConfig.LabelFilter}}{{else}}all{{end}}</code> · Random seed: <code>{{.Report.SuiteConfig.RandomSeed}}</code></p>
 {{range .Report.SpecialSuiteFailureReasons}}<p class="banner">{{.}}</p>{{end}}
 <div class="counts">
 <span class="passed"><b>{{.Passed}}</b> passed</span><span class="failure"><b>{{.Failed}}</b> failed specs</span>
 <span><b>{{.Skipped}}</b> skipped / filtered</span><span><b>{{.Pending}}</b> pending</span>
+{{if .Report.PreRunStats.SpecsThatWillRun}}<span><b>{{.Completed}}</b> completed of {{.Report.PreRunStats.SpecsThatWillRun}}</span><span><b>{{.Unreported}}</b> {{if .SetupFailed}}not run (setup failed){{else}}not reported{{end}}</span>{{end}}
 </div>
-<p class="muted">Counts cover test specs; setup and cleanup results appear separately below. Expand a test for its steps, failure location and captured output. Failure groups open first. Serial stdout/stderr remains in the original console log.</p>
+{{if or .PassedHooks .FailedHooks}}<p>Suite hooks: <span class="passed"><b>{{.PassedHooks}}</b> passed</span> · <span class="failure"><b>{{.FailedHooks}}</b> failed</span> (separate from test spec counts).</p>{{end}}
+{{if .SetupFailed}}<p class="banner"><strong>Suite setup failed.</strong> Selected tests could not start. Expand the failed setup hook below.</p>{{end}}
+<p class="muted">{{if .SetupFailed}}Selected specs without results did not run because suite setup failed.{{else}}Not reported means selected specs that had no final result when this snapshot was written; it includes the active spec, if shown.{{end}} Counts cover test specs; setup and cleanup results appear separately below. Expand a test for its steps, failure location and captured output. Failure groups open first. Serial stdout/stderr remains in the original console log.</p>
 {{if .Complete}}<p><a href="report.json">Ginkgo JSON</a> · <a href="junit_e2e.xml">JUnit XML</a></p>{{end}}
 </header>
 <input type="radio" name="state" id="all" checked><label for="all">All results</label>
