@@ -253,6 +253,11 @@ function create_dpfhcpprovisioner_secrets() {
 function create_dpfhcpprovisioner_cr() {
     log [INFO] "Creating DPFHCPProvisioner Custom Resource..."
 
+    local dpu_deployment_name="dpudeployment"
+    if [ "${NICO_ENABLED:-false}" = "true" ]; then
+        dpu_deployment_name="${NICO_DPU_DEPLOYMENT_NAME}"
+    fi
+
     # Ensure generated directory exists
     mkdir -p "${GENERATED_DIR}"
 
@@ -260,8 +265,17 @@ function create_dpfhcpprovisioner_cr() {
     oc create namespace ${CLUSTERS_NAMESPACE} || true
 
     # Check if DPFHCPProvisioner CR already exists
-    if oc get dpfhcpprovisioner -n ${CLUSTERS_NAMESPACE} ${HOSTED_CLUSTER_NAME} &>/dev/null; then
-        log [INFO] "DPFHCPProvisioner CR ${HOSTED_CLUSTER_NAME} already exists. Skipping creation."
+    if oc get dpfhcpprovisioner -n "${CLUSTERS_NAMESPACE}" "${HOSTED_CLUSTER_NAME}" &>/dev/null; then
+        local existing_deployment_name
+        existing_deployment_name=$(oc get dpfhcpprovisioner \
+            -n "${CLUSTERS_NAMESPACE}" "${HOSTED_CLUSTER_NAME}" \
+            -o jsonpath='{.spec.dpuDeploymentRef.name}' 2>/dev/null || true)
+        if [ "${existing_deployment_name}" != "${dpu_deployment_name}" ]; then
+            log [ERROR] "Existing DPFHCPProvisioner references DPUDeployment '${existing_deployment_name}', expected '${dpu_deployment_name}'"
+            log [ERROR] "Update or recreate ${CLUSTERS_NAMESPACE}/${HOSTED_CLUSTER_NAME} before retrying"
+            return 1
+        fi
+        log [INFO] "DPFHCPProvisioner CR ${HOSTED_CLUSTER_NAME} already exists with the expected DPUDeployment reference. Skipping creation."
         return 0
     fi
 
@@ -297,6 +311,7 @@ function create_dpfhcpprovisioner_cr() {
         "<OCP_RELEASE_IMAGE>" "${OCP_RELEASE_IMAGE}" \
         "<DPFHCPPROVISIONER_PULL_SECRET_NAME>" "${DPFHCPPROVISIONER_PULL_SECRET_NAME}" \
         "<DPFHCPPROVISIONER_SSH_SECRET_NAME>" "${DPFHCPPROVISIONER_SSH_SECRET_NAME}" \
+        "<DPU_DEPLOYMENT_NAME>" "${dpu_deployment_name}" \
         "<CONTROL_PLANE_POLICY>" "${control_plane_policy}" \
         "<BLUEFIELD_OCP_MACHINE_OS_BLOCK>" "${machine_os_block}"
 
@@ -387,11 +402,7 @@ function create_hosted_cluster() {
     log [INFO] "================================================================================"
 }
 
-function deploy_hypershift() {
-    log [INFO] "================================================================================"
-    log [INFO] "Deploying Hosted Cluster using DPF HCP Provisioner Operator"
-    log [INFO] "================================================================================"
-
+function ensure_hypershift_operator() {
     if oc get deployment -n hypershift operator &>/dev/null; then
         log [INFO] "Hypershift operator already installed. Skipping deployment."
     else
@@ -411,6 +422,14 @@ function deploy_hypershift() {
                 ;;
         esac
     fi
+}
+
+function deploy_hypershift() {
+    log [INFO] "================================================================================"
+    log [INFO] "Deploying Hosted Cluster using DPF HCP Provisioner Operator"
+    log [INFO] "================================================================================"
+
+    ensure_hypershift_operator
 
     deploy_dpfhcp
     create_hosted_cluster
@@ -685,6 +704,11 @@ function apply_zero_trust_dpunode_reboot_resources() {
 }
 
 function configure_zero_trust_dpu_inventory() {
+    if [ "${NICO_ENABLED:-false}" = "true" ]; then
+        log [INFO] "NICo integration enabled: leaving DPU inventory and reboot resources to NICo"
+        return 0
+    fi
+
     apply_zero_trust_dpunode_reboot_resources || return 1
     apply_zero_trust_dpu_discovery || return 1
     wait_for_zero_trust_dpudevices || return 1
@@ -697,6 +721,11 @@ function configure_zero_trust_dpu_inventory() {
 }
 
 function scale_out_zero_trust_dpus() {
+    if [ "${NICO_ENABLED:-false}" = "true" ]; then
+        log [ERROR] "DPU scale operations are owned by NICo when NICO_ENABLED=true"
+        return 1
+    fi
+
     if [ "${DPF_DEPLOYMENT_MODE}" != "zero-trust" ]; then
         log [ERROR] "DPU scale-out requires DPF_DEPLOYMENT_MODE=zero-trust"
         return 1
@@ -736,6 +765,11 @@ function wait_for_zero_trust_dpu_removal() {
 
 function scale_in_zero_trust_dpus() {
     local node_name="${1:-}"
+
+    if [ "${NICO_ENABLED:-false}" = "true" ]; then
+        log [ERROR] "DPU scale operations are owned by NICo when NICO_ENABLED=true"
+        return 1
+    fi
 
     if [ "${DPF_DEPLOYMENT_MODE}" != "zero-trust" ]; then
         log [ERROR] "DPU scale-in requires DPF_DEPLOYMENT_MODE=zero-trust"
@@ -1024,7 +1058,15 @@ function apply_dpf() {
     
     apply_remaining
     configure_zero_trust_bfb_registry_endpoint
-    deploy_hosted_cluster
+    if [ "${NICO_ENABLED:-false}" = "true" ]; then
+        # DPF installs the platform-side HyperShift and HCP operators. NICo
+        # creates the referenced DPUDeployment before HCP creates the cluster.
+        log [INFO] "NICo integration enabled: installing HCP prerequisites and deferring HostedCluster creation until ${NICO_DPU_DEPLOYMENT_NAME} exists"
+        ensure_hypershift_operator
+        deploy_dpfhcp
+    else
+        deploy_hosted_cluster
+    fi
 
     wait_for_pods "dpf-operator-system" "dpu.nvidia.com/component=dpf-operator-controller-manager" 30 5
     wait_for_dpf_provisioning_api
