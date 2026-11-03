@@ -281,13 +281,15 @@ prepare_dpf_manifests() {
     # Clean up any existing Helm values files that might have been left from previous runs
     find "$GENERATED_DIR" -maxdepth 1 -type f -name "*-values.yaml" -delete 2>/dev/null || true
     
-    # Build list of files to exclude (all Helm values files)
+    # Exclude files handled separately rather than applied as manifests.
     local excluded_files=(
         "*-values.yaml"
         "dpfoperatorconfig.yaml"
+        "kube-apiserver-bootstrap-auth.patch.yaml"
     )
     
-    # Copy all manifests except Helm values files using utility function
+    # The bootstrap-auth merge patch is read directly by dpf.sh via oc patch.
+    # Copy the remaining manifests using the utility function.
     copy_manifests_with_exclusions "$MANIFESTS_DIR/dpf-installation" "$GENERATED_DIR" "${excluded_files[@]}"
 
     # Copy cert-manager manifest (required for DPF deployment)

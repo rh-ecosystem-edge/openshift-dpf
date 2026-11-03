@@ -468,6 +468,13 @@ function configure_hypershift() {
 function apply_remaining() {
     log [INFO] "Applying remaining manifests..."
     for file in "$GENERATED_DIR"/*.yaml; do
+        # Patches are handled explicitly with oc patch, not oc apply.
+        # Also skip copies left in the generated directory by earlier runs.
+        if [[ "$file" == *.patch.yaml ]]; then
+            log [INFO] "Skipping patch file: $file"
+            continue
+        fi
+
         # Skip NFD deployment if DISABLE_NFD is set to true
         if [[ "${DISABLE_NFD}" = "true" && "$file" =~ .*dpf-nfd\.yaml$ ]]; then
             log [INFO] "Skipping NFD deployment (DISABLE_NFD explicitly set to true)"
