@@ -840,10 +840,9 @@ function kube_apiserver_clusteroperator_is_healthy() {
         kube_apiserver_clusteroperator_condition_is Degraded False
 }
 
-function apply_zero_trust_bootstrap_auth() {
-    [ "${DPF_DEPLOYMENT_MODE}" = "zero-trust" ] || return 0
-
-    local bootstrap_auth_patch="${MANIFESTS_DIR}/dpf-installation/zero-trust/kube-apiserver-bootstrap-auth.patch.yaml"
+function apply_dpu_agent_bootstrap_auth() {
+    # DPU agents use a bootstrap-token kubeconfig in both deployment modes.
+    local bootstrap_auth_patch="${MANIFESTS_DIR}/dpf-installation/kube-apiserver-bootstrap-auth.patch.yaml"
     local bootstrap_auth_enabled
     bootstrap_auth_enabled=$(oc get kubeapiserver cluster \
         -o 'jsonpath={.spec.unsupportedConfigOverrides.apiServerArguments.enable-bootstrap-token-auth[0]}' \
@@ -852,7 +851,7 @@ function apply_zero_trust_bootstrap_auth() {
     if [ "${bootstrap_auth_enabled}" = "true" ]; then
         log "INFO" "Kube API bootstrap-token authentication is already enabled"
     else
-        log "INFO" "Enabling kube-apiserver bootstrap-token authentication for Zero Trust DPU agents..."
+        log "INFO" "Enabling kube-apiserver bootstrap-token authentication for DPU agents..."
         if [ ! -f "${bootstrap_auth_patch}" ]; then
             log "ERROR" "Kube API bootstrap-authentication patch not found: ${bootstrap_auth_patch}"
             return 1
@@ -909,9 +908,7 @@ function apply_dpf() {
     apply_namespaces
     deploy_cert_manager
 
-    if [ "${DPF_DEPLOYMENT_MODE}" = "zero-trust" ]; then
-        apply_zero_trust_bootstrap_auth
-    fi
+    apply_dpu_agent_bootstrap_auth
     
     # Install/upgrade DPF Operator using helm (idempotent operation)
     log "INFO" "Installing/upgrading DPF Operator to $DPF_VERSION..."
