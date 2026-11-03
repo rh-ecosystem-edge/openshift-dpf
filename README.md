@@ -88,6 +88,27 @@ The DPU and DPUDeployment waits are `VERIFY_MAX_RETRIES` x
 DPU's phase and failing conditions, and the target fails. Run
 `make verify-zt-deployment` to check an existing deployment.
 
+### Going Back to Host-Trusted After Zero Trust
+
+Zero Trust disables host RShim through each DPU BMC and restricts the host on
+each DPU. Host-trusted installs the DPU OS from the host over RShim, and DPF
+lifts the restriction only after that install, so a host-trusted `make all` on
+hardware that last ran Zero Trust would stall at the DPU OS install.
+
+Keep `WORKER_<N>_DPU_BMC_IPS` and `ZT_DPU_BMC_ROOT_PASSWORD` set when you
+generate the host-trusted `.env`. `make all` then starts with
+`restore-host-trusted-dpus`, which powers on each host listed in
+`WORKER_<N>_DPU_BMC_IPS` (its DPU BMCs are down while it is off) and reads every
+listed DPU BMC. If each one already has host RShim `Enabled` and host privilege
+`Privileged` in force, it stops there. Otherwise it requests both on every DPU
+BMC and powers the hosts off; `add-worker-nodes` powers them on again, which
+applies them. Both apply only at a host power cycle and the BMC cannot show
+whether they are pending, so after Zero Trust the step sends them on every run
+until a power cycle has applied them. The step needs BlueField-3 DPU BMCs. With no
+`WORKER_<N>_DPU_BMC_IPS` set it does nothing. `SKIP_HOST_RSHIM_RESTORE=true`
+skips it, for a DPU BMC that cannot be reached on a setup that is already
+host-trusted.
+
 ### Scaling Out Zero Trust DPUs
 
 Add `WORKER_<N>_DPU_BMC_IPS` for each new host to the inputs used to generate

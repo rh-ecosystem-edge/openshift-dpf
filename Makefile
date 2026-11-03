@@ -39,7 +39,7 @@ all:
 	@mkdir -p logs
 	@bash -o pipefail -c '$(MAKE) _all 2>&1 | tee "logs/make_all_$(shell date +%Y%m%d_%H%M%S).log"'
 
-ALL_STEPS := validate-host-trusted-mode verify-files check-cluster create-vms prepare-manifests cluster-install update-etc-hosts kubeconfig add-worker-nodes deploy-dpf prepare-dpu-files deploy-dpu-services enable-ovn-injector deploy-observability
+ALL_STEPS := validate-host-trusted-mode verify-files restore-host-trusted-dpus check-cluster create-vms prepare-manifests cluster-install update-etc-hosts kubeconfig add-worker-nodes deploy-dpf prepare-dpu-files deploy-dpu-services enable-ovn-injector deploy-observability
 ifeq ($(KATA_ENABLED),true)
 ALL_STEPS += enable-kata
 endif
@@ -342,6 +342,10 @@ kubeadmin-password:
 poweron-workers:
 	@$(WORKER_SCRIPT) poweron-workers
 
+.PHONY: restore-host-trusted-dpus
+restore-host-trusted-dpus:
+	@$(WORKER_SCRIPT) restore-host-trusted-dpus
+
 .PHONY: deploy-nfd
 deploy-nfd:
 	@$(DPF_SCRIPT) deploy-nfd
@@ -606,6 +610,7 @@ help:
 	@echo "  cleanup-kata-vfs  - Rebind stale vfio-pci VFs to mlx5_core on worker-dpu (FORCE=true to skip running-pod check)"
 	@echo "  configure-flannel - Deploy flannel IPAM controller for automatic podCIDR assignment"
 	@echo "  poweron-workers  - Power on physical workers via ipmitool (no-op if WORKER_COUNT=0)"
+	@echo "  restore-host-trusted-dpus - Turn host RShim and host privilege back on through every WORKER_<N>_DPU_BMC_IPS BMC after Zero Trust (part of all)"
 	@echo "  add-worker-nodes  - Provision worker nodes via BMO/Redfish (uses WORKER_* env vars)"
 	@echo "  worker-status     - Display provisioning status for all configured workers"
 	@echo "  delete-worker     - Delete a worker (usage: make delete-worker WORKER_NAME=<name>)"
