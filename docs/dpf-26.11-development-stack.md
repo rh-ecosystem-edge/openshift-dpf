@@ -85,14 +85,14 @@ those overrides select a compatible stack: the migrated manifests are not
 compatible with the previous DPF 26.4 default. Before using deployment targets,
 review the generated configuration, pull secrets, and existing Helm values.
 
-Offline bootstrap-authentication regression tests:
+Offline defaults/override tests and shell syntax validation:
 
 ```bash
 python3 -m unittest discover -s test/scripts -v
 bash -n scripts/dpf.sh
 ```
 
-The tests mock every `oc` invocation and never source the real `.env`.
+The defaults tests never source the real `.env` or invoke cluster commands.
 Publishing these changes does not deploy the chart, roll out operators, modify
 a cluster, or regenerate cached DPU ignition. A deployment must roll out the
 operator and generate fresh ignition/reprovision DPUs to use installer changes.
