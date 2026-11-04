@@ -109,6 +109,18 @@ until a power cycle has applied them. The step needs BlueField-3 DPU BMCs. With 
 skips it, for a DPU BMC that cannot be reached on a setup that is already
 host-trusted.
 
+The host privilege request is the `PrivilegeMode` `Privileged` preset, which
+also sets the granular host privilege controls (`FirmwareUpdate`, `NicReset`,
+`PortAccess` and the rest) to `Enabled`. While one is `Enabled` the DPU rejects
+the host restriction of a Zero Trust install, and the install stays in
+`DPU Config`. A host-trusted DPU install clears them. For a Zero Trust run after
+a restore that no DPU install followed, `make all-zt` and
+`make scale-out-zt-dpus` run `reset-dpu-privilege-controls` after
+`poweron-workers`. On every DPU BMC with a granular control `Enabled`, in force
+or pending, it sets all of them to `Default`. It power cycles only the hosts
+with one `Enabled` in force, so a running Zero Trust host is not touched, and
+then checks that every granular control on them reads `Default` in force.
+
 ### Scaling Out Zero Trust DPUs
 
 Add `WORKER_<N>_DPU_BMC_IPS` for each new host to the inputs used to generate

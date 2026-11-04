@@ -486,7 +486,13 @@ restore_host_trusted_dpus() {
         fi
         mode=$(_dpu_bmc_curl "${curl_config}" "https://${ip}/${HOST_PRIVILEGE_PATH}" \
             | jq -r '.PrivilegeMode // empty' 2>/dev/null) || mode=""
-        log "INFO" "${ip}: HostRshim ${state}, host privilege ${mode:-unknown}"
+        if [ -z "${mode}" ]; then
+            log "ERROR" "${ip}: host privilege reads 'no answer'; no DPU BMC was changed"
+            rm -f "${curl_config}"
+            trap - EXIT
+            return 1
+        fi
+        log "INFO" "${ip}: HostRshim ${state}, host privilege ${mode}"
         if [ "${state}" != "Enabled" ] || [ "${mode}" != "Privileged" ]; then
             trusted=false
         fi
@@ -540,6 +546,158 @@ restore_host_trusted_dpus() {
         log "ERROR" "Could not power off worker(s) ${not_off[*]}; power them off so the next power-on applies host RShim and host privilege"
         return 1
     fi
+}
+
+HOST_PRIVILEGE_DEFAULT_BODY='{"PrivilegeSettings":{"FirmwareUpdate":"Default","FlashAccess":"Default","GlobalParametersAccess":"Default","HostParametersAccess":"Default","InternalCPUAccess":"Default","NicReset":"Default","PccUpdate":"Default","PortAccess":"Default","HostPrivilegeLevel":"Privileged","ManagementInterfaceEnabled":true,"PortOwnerEnabled":true,"ReadCountersEnabled":true,"TracerEnabled":true}}'
+HOST_PRIVILEGE_CONTROLS='["FirmwareUpdate","FlashAccess","GlobalParametersAccess","HostParametersAccess","InternalCPUAccess","NicReset","PccUpdate","PortAccess"]'
+# Print the granular host privilege controls that are Enabled (or, for the
+# second filter, not Default), comma separated, or "none"; print nothing when
+# the answer lacks one of them.
+HOST_PRIVILEGE_ENABLED_JQ="${HOST_PRIVILEGE_CONTROLS}"' as $k | .PrivilegeSettings as $s
+  | if ($s | type) == "object" and all($k[]; ($s[.] | type) == "string")
+    then [$k[] | select($s[.] == "Enabled")] | if length == 0 then "none" else join(",") end
+    else empty end'
+HOST_PRIVILEGE_NOT_DEFAULT_JQ="${HOST_PRIVILEGE_CONTROLS}"' as $k | .PrivilegeSettings as $s
+  | if ($s | type) == "object" and all($k[]; ($s[.] | type) == "string")
+    then [$k[] | select($s[.] != "Default")] | if length == 0 then "none" else join(",") end
+    else empty end'
+
+# Write a curl config with the DPU BMC root credentials and print its path.
+_dpu_bmc_curl_config() {
+    local curl_config escaped_password
+    curl_config=$(mktemp "${TMPDIR:-/tmp}/dpu-redfish-curl.XXXXXX")
+    chmod 600 "${curl_config}"
+    escaped_password="${ZT_DPU_BMC_ROOT_PASSWORD//\\/\\\\}"
+    escaped_password="${escaped_password//\"/\\\"}"
+    printf 'user = "root:%s"\n' "${escaped_password}" > "${curl_config}"
+    echo "${curl_config}"
+}
+
+# The {"PrivilegeMode":"Privileged"} preset restore_host_trusted_dpus sends sets
+# the granular host privilege controls to Enabled. While one is Enabled the DPU
+# rejects the mlxprivhost host restriction of a Zero Trust install, which then
+# stays in DPU Config. A host-trusted DPU install clears them, so they stay
+# Enabled only when no install ran after the restore. Before a Zero Trust
+# install, set them to Default on every DPU BMC whose HostPrivilegeConfig or
+# Settings has one Enabled. Only hosts with one Enabled in force are power
+# cycled, so a running Zero Trust host never is. Runs after poweron-workers,
+# while the DPU BMCs answer.
+reset_dpu_privilege_controls() {
+    if [ "${DPF_DEPLOYMENT_MODE}" != "zero-trust" ]; then
+        return 0
+    fi
+
+    local -a hosts=()
+    mapfile -t hosts < <(list_zero_trust_dpu_hosts)
+    if [ "${#hosts[@]}" -eq 0 ]; then
+        log "INFO" "No WORKER_<N>_DPU_BMC_IPS configured, skipping the host privilege control check"
+        return 0
+    fi
+
+    local curl_config
+    curl_config=$(_dpu_bmc_curl_config)
+    trap 'rm -f "${curl_config}"' EXIT
+
+    local host ip in_force pending
+    local -a reset_ips=() cycle_ips=() cycle_hosts=() failed=()
+    for host in "${hosts[@]}"; do
+        while IFS= read -r ip; do
+            in_force=$(_dpu_bmc_curl "${curl_config}" "https://${ip}/${HOST_PRIVILEGE_PATH}" \
+                | jq -r "${HOST_PRIVILEGE_ENABLED_JQ}" 2>/dev/null) || in_force=""
+            pending=$(_dpu_bmc_curl "${curl_config}" "https://${ip}/${HOST_PRIVILEGE_SETTINGS_PATH}" \
+                | jq -r "${HOST_PRIVILEGE_ENABLED_JQ}" 2>/dev/null) || pending=""
+            if [ -z "${in_force}" ] || [ -z "${pending}" ]; then
+                log "ERROR" "${ip}: host privilege controls are not readable; no DPU BMC was changed"
+                rm -f "${curl_config}"
+                trap - EXIT
+                return 1
+            fi
+            if [ "${in_force}" = "none" ] && [ "${pending}" = "none" ]; then
+                continue
+            fi
+            log "INFO" "${ip}: host privilege controls Enabled in force: ${in_force}, pending: ${pending}"
+            reset_ips+=("${ip}")
+            if [ "${in_force}" != "none" ]; then
+                cycle_ips+=("${ip}")
+                if [ "${#cycle_hosts[@]}" -eq 0 ] || [ "${cycle_hosts[-1]}" != "${host}" ]; then
+                    cycle_hosts+=("${host}")
+                fi
+            fi
+        done < <(list_zero_trust_host_dpu_bmc_ips "${host}")
+    done
+    if [ "${#reset_ips[@]}" -eq 0 ]; then
+        rm -f "${curl_config}"
+        trap - EXIT
+        log "INFO" "No DPU BMC has a granular host privilege control Enabled"
+        return 0
+    fi
+
+    local code
+    for ip in "${reset_ips[@]}"; do
+        code=$(_dpu_bmc_write "${curl_config}" "${ip}" PATCH "${HOST_PRIVILEGE_SETTINGS_PATH}" "${HOST_PRIVILEGE_DEFAULT_BODY}") || code=""
+        if ! [[ "${code}" =~ ^2[0-9]{2}$ ]]; then
+            log "ERROR" "${ip}: PATCH host privilege controls Default returned ${code:-no answer}"
+            failed+=("${ip}")
+            continue
+        fi
+        pending=$(_dpu_bmc_curl "${curl_config}" "https://${ip}/${HOST_PRIVILEGE_SETTINGS_PATH}" \
+            | jq -r "${HOST_PRIVILEGE_NOT_DEFAULT_JQ}" 2>/dev/null) || pending=""
+        if [ "${pending}" != "none" ]; then
+            log "ERROR" "${ip}: host privilege Settings has '${pending:-no answer}' not Default after the PATCH"
+            failed+=("${ip}")
+            continue
+        fi
+        log "INFO" "${ip}: granular host privilege controls Default requested"
+    done
+    rm -f "${curl_config}"
+    trap - EXIT
+    if [ "${#failed[@]}" -gt 0 ]; then
+        log "ERROR" "Could not set the host privilege controls to Default on DPU BMC ${failed[*]}."
+        log "ERROR" "PATCH ${HOST_PRIVILEGE_DEFAULT_BODY} to https://<dpu-bmc>/${HOST_PRIVILEGE_SETTINGS_PATH} on each, then power cycle its host"
+        return 1
+    fi
+    if [ "${#cycle_hosts[@]}" -eq 0 ]; then
+        log "INFO" "No host privilege control is Enabled in force; no power cycle needed"
+        return 0
+    fi
+
+    log "INFO" "Power cycling worker(s) ${cycle_hosts[*]} so the host privilege controls apply"
+    for host in "${cycle_hosts[@]}"; do
+        _shutoff_worker "${host}" || return 1
+    done
+    for host in "${cycle_hosts[@]}"; do
+        _poweron_worker "${host}" || return 1
+    done
+    wait_for_dpu_redfish || return 1
+
+    # Redfish can answer before the NIC record is current, so retry for 2 minutes.
+    local attempt
+    local -a not_applied=()
+    curl_config=$(_dpu_bmc_curl_config)
+    trap 'rm -f "${curl_config}"' EXIT
+    for attempt in 1 2 3 4 5 6; do
+        not_applied=()
+        for ip in "${cycle_ips[@]}"; do
+            in_force=$(_dpu_bmc_curl "${curl_config}" "https://${ip}/${HOST_PRIVILEGE_PATH}" \
+                | jq -r "${HOST_PRIVILEGE_NOT_DEFAULT_JQ}" 2>/dev/null) || in_force=""
+            if [ "${in_force}" != "none" ]; then
+                not_applied+=("${ip} (${in_force:-no answer})")
+            fi
+        done
+        if [ "${#not_applied[@]}" -eq 0 ]; then
+            break
+        fi
+        if [ "${attempt}" -lt 6 ]; then
+            sleep 20
+        fi
+    done
+    rm -f "${curl_config}"
+    trap - EXIT
+    if [ "${#not_applied[@]}" -gt 0 ]; then
+        log "ERROR" "Host privilege controls not Default in force after the power cycle on DPU BMC ${not_applied[*]}; the Zero Trust install would stay in DPU Config"
+        return 1
+    fi
+    log "INFO" "Granular host privilege controls are Default in force on every power cycled DPU BMC"
 }
 
 provision_all_workers() {
@@ -849,8 +1007,9 @@ case "${1:-}" in
     poweron-all-workers) poweron_workers false ;;
     wait-for-dpu-redfish) wait_for_zero_trust_dpu_redfish ;;
     restore-host-trusted-dpus) restore_host_trusted_dpus ;;
+    reset-dpu-privilege-controls) reset_dpu_privilege_controls ;;
     *)
-        echo "Usage: $0 {provision-all-workers|approve-worker-csrs|display-worker-status|display-manual-csr-instructions|apply-short-worker-hostnames|deploy-csr-auto-approver|delete-csr-auto-approver|delete-worker <bmh-name|machine-name|node-name>|shutoff-all-workers|poweron-workers|poweron-all-workers|wait-for-dpu-redfish|restore-host-trusted-dpus}"
+        echo "Usage: $0 {provision-all-workers|approve-worker-csrs|display-worker-status|display-manual-csr-instructions|apply-short-worker-hostnames|deploy-csr-auto-approver|delete-csr-auto-approver|delete-worker <bmh-name|machine-name|node-name>|shutoff-all-workers|poweron-workers|poweron-all-workers|wait-for-dpu-redfish|restore-host-trusted-dpus|reset-dpu-privilege-controls}"
         exit 1
         ;;
 esac
