@@ -5,6 +5,7 @@ metadata:
   namespace: dpf-operator-system
 spec:
   scanInterval: <ZT_DPU_DISCOVERY_SCAN_INTERVAL>
+  workers: 25
   ipRangeSpec:
     ipRange:
       startIP: <ZT_DPU_BMC_IP_RANGE_START>
