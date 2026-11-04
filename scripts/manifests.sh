@@ -93,20 +93,35 @@ function prepare_cluster_manifests() {
 }
 
 # NFD operator without its CR is a partial install and breaks NNO nvidia-ci.
-# DPF still applies the subscription at cluster install; the NodeFeatureDiscovery
-# CR is created later by deploy_nfd. NNO leaves NFD to a later post-install step.
-generate_nfd_subscription() {
-    if [ ! -f "$MANIFESTS_DIR/cluster-installation/nfd-subscription.yaml" ]; then
+# Keep subscription generation and its optional application in one place because
+# cluster preparation and operator-source deployment are independently runnable.
+prepare_nfd_subscription() {
+    local apply_after_generation="${1:-false}"
+    local source_manifest="$MANIFESTS_DIR/cluster-installation/nfd-subscription.yaml"
+    local generated_manifest="$GENERATED_DIR/nfd-subscription.yaml"
+
+    if is_nfd_disabled; then
+        log [INFO] "Skipping NFD subscription because DISABLE_NFD=true"
         return 0
     fi
+
+    if [ ! -f "$source_manifest" ]; then
+        log [INFO] "NFD subscription source manifest not found; skipping generation"
+        return 0
+    fi
+
     update_file_multi_replace \
-        "$MANIFESTS_DIR/cluster-installation/nfd-subscription.yaml" \
-        "$GENERATED_DIR/nfd-subscription.yaml" \
+        "$source_manifest" \
+        "$generated_manifest" \
         "<CATALOG_SOURCE_NAME>" "$CATALOG_SOURCE_NAME"
+
+    if [ "$apply_after_generation" = "true" ]; then
+        apply_manifest "$generated_manifest" true
+    fi
 }
 
 prepare_dpf_cluster_dependencies() {
-    generate_nfd_subscription
+    prepare_nfd_subscription
 
     log [INFO] "Copying Cert-Manager manifest (required for DPF operator)..."
     update_file_multi_replace \
@@ -175,8 +190,7 @@ function deploy_core_operator_sources() {
     mkdir -p "$GENERATED_DIR"
 
     if is_dpf_profile; then
-        generate_nfd_subscription
-        apply_manifest "$GENERATED_DIR/nfd-subscription.yaml" true
+        prepare_nfd_subscription true
     else
         log [INFO] "Skipping NFD operator subscription for ${DEPLOYMENT_PROFILE} profile"
     fi
@@ -281,13 +295,16 @@ prepare_dpf_manifests() {
     # Clean up any existing Helm values files that might have been left from previous runs
     find "$GENERATED_DIR" -maxdepth 1 -type f -name "*-values.yaml" -delete 2>/dev/null || true
     
-    # Build list of files to exclude (all Helm values files)
+    # deploy_nfd owns the complete NFD lifecycle, so its CR must not also be
+    # copied into the generic DPF manifest set and applied by apply_remaining.
     local excluded_files=(
         "*-values.yaml"
         "dpfoperatorconfig.yaml"
+        "nfd-cr-template.yaml"
+        "dpf-nfd.yaml"
     )
-    
-    # Copy all manifests except Helm values files using utility function
+
+    # Copy all manifests except explicitly managed files using utility function
     copy_manifests_with_exclusions "$MANIFESTS_DIR/dpf-installation" "$GENERATED_DIR" "${excluded_files[@]}"
 
     # Copy cert-manager manifest (required for DPF deployment)
