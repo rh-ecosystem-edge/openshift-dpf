@@ -52,10 +52,10 @@ Complete these manual steps on every DPU BMC before running `make all-zt`:
 
 4. Set `ZT_DPU_BMC_IP_RANGE_START` and `ZT_DPU_BMC_IP_RANGE_END`. A
    `DPUDiscovery` scans this inclusive range and creates a `DPUDevice` for
-   every DPU BMC it finds. Scans repeat every three minutes by default;
-   override this with `ZT_DPU_DISCOVERY_SCAN_INTERVAL`. Only one range is
-   supported. The DPU addresses may have gaps within it; every address in the
-   range is scanned.
+   every DPU BMC it finds. Scans use 25 workers. By default, the next scan starts
+   three minutes after the previous scan completes; override the interval with
+   `ZT_DPU_DISCOVERY_SCAN_INTERVAL`. Only one range is supported. The DPU addresses
+   may have gaps within it; every address in the range is scanned.
 5. List the DPU BMC IPs of every host in `WORKER_<N>_DPU_BMC_IPS`,
    comma-separated without spaces, for example
    `WORKER_1_DPU_BMC_IPS=10.6.136.33` or
