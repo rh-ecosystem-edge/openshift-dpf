@@ -1,0 +1,281 @@
+---
+# Hosted cluster (HyperShift) report metrics profile
+# For worker-only clusters where the control plane runs on the management cluster.
+# Omits: API server, etcd, control-plane namespaces, ingress, master/infra nodes.
+
+# Kubelet & CRI-O
+
+- query: avg(avg_over_time(irate(process_cpu_seconds_total{service="kubelet",job="kubelet"}[2m])[{{.elapsed}}:]) and on (node) kube_node_role{role="worker"})
+  metricName: cpu-kubelet
+  instant: true
+
+- query: max(max_over_time(irate(process_cpu_seconds_total{service="kubelet",job="kubelet"}[2m])[{{.elapsed}}:]) and on (node) kube_node_role{role="worker"})
+  metricName: max-cpu-kubelet
+  instant: true
+
+- query: avg(avg_over_time(process_resident_memory_bytes{service="kubelet",job="kubelet"}[{{.elapsed}}:]) and on (node) kube_node_role{role="worker"})
+  metricName: memory-kubelet
+  instant: true
+
+- query: max(max_over_time(process_resident_memory_bytes{service="kubelet",job="kubelet"}[{{.elapsed}}:]) and on (node) kube_node_role{role="worker"})
+  metricName: max-memory-kubelet
+  instant: true
+
+- query: max_over_time(sum(process_resident_memory_bytes{service="kubelet",job="kubelet"} and on (node) kube_node_role{role="worker"})[{{.elapsed}}:])
+  metricName: max-memory-sum-kubelet
+  instant: true
+
+- query: avg(avg_over_time(irate(process_cpu_seconds_total{service="kubelet",job="crio"}[2m])[{{.elapsed}}:]) and on (node) kube_node_role{role="worker"})
+  metricName: cpu-crio
+  instant: true
+
+- query: max(max_over_time(irate(process_cpu_seconds_total{service="kubelet",job="crio"}[2m])[{{.elapsed}}:]) and on (node) kube_node_role{role="worker"})
+  metricName: max-cpu-crio
+  instant: true
+
+- query: avg(avg_over_time(process_resident_memory_bytes{service="kubelet",job="crio"}[{{.elapsed}}:]) and on (node) kube_node_role{role="worker"})
+  metricName: memory-crio
+  instant: true
+
+- query: max(max_over_time(process_resident_memory_bytes{service="kubelet",job="crio"}[{{.elapsed}}:]) and on (node) kube_node_role{role="worker"})
+  metricName: max-memory-crio
+  instant: true
+
+- query: max_over_time(sum(process_resident_memory_bytes{service="kubelet",job="crio"} and on (node) kube_node_role{role="worker"})[{{.elapsed}}:])
+  metricName: max-memory-sum-crio
+  instant: true
+
+# Multus
+
+- query: avg(avg_over_time(irate(container_cpu_usage_seconds_total{name!="", namespace="openshift-multus", pod=~"(multus).+", container!="POD"}[2m])[{{.elapsed}}:])) by (container)
+  metricName: cpu-multus
+  instant: true
+
+- query: max(max_over_time(irate(container_cpu_usage_seconds_total{name!="", namespace="openshift-multus", pod=~"(multus).+", container!="POD"}[2m])[{{.elapsed}}:])) by (container)
+  metricName: max-cpu-multus
+  instant: true
+
+- query: avg(avg_over_time(container_memory_rss{name!="", namespace="openshift-multus", pod=~"(multus).+", container!="POD"}[{{.elapsed}}:])) by (container)
+  metricName: memory-multus
+  instant: true
+
+- query: max(max_over_time(container_memory_rss{name!="", namespace="openshift-multus", pod=~"(multus).+", container!="POD"}[{{.elapsed}}:])) by (container)
+  metricName: max-memory-multus
+  instant: true
+
+# Worker nodes
+
+- query: avg(avg_over_time(sum(irate(node_cpu_seconds_total{mode!="idle", mode!="steal"}[2m]) and on (instance) label_replace(kube_node_role{role="worker"}, "instance", "$1", "node", "(.+)")) by (instance)[{{.elapsed}}:]))
+  metricName: cpu-workers
+  instant: true
+
+- query: max(max_over_time(sum(irate(node_cpu_seconds_total{mode!="idle", mode!="steal"}[2m]) and on (instance) label_replace(kube_node_role{role="worker"}, "instance", "$1", "node", "(.+)")) by (instance)[{{.elapsed}}:]))
+  metricName: max-cpu-workers
+  instant: true
+
+- query: avg(avg_over_time((node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes)[{{.elapsed}}:]) and on (instance) label_replace(kube_node_role{role="worker"}, "instance", "$1", "node", "(.+)"))
+  metricName: memory-workers
+  instant: true
+
+- query: max(max_over_time((node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes)[{{.elapsed}}:]) and on (instance) label_replace(kube_node_role{role="worker"}, "instance", "$1", "node", "(.+)"))
+  metricName: max-memory-workers
+  instant: true
+
+- query: max_over_time(sum((node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) and on (instance) label_replace(kube_node_role{role="worker"}, "instance", "$1", "node", "(.+)"))[{{.elapsed}}:])
+  metricName: max-memory-sum-workers
+  instant: true
+
+- query: sum( (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) and on (instance) label_replace(kube_node_role{role="worker"}, "instance", "$1", "node", "(.+)") )
+  metricName: memory-sum-workers
+  instant: true
+  captureStart: true
+
+# Monitoring
+
+- query: avg(avg_over_time(sum(irate(container_cpu_usage_seconds_total{name!="", namespace="openshift-monitoring", pod=~"prometheus-k8s.+"}[2m])) by (pod)[{{.elapsed}}:]))
+  metricName: cpu-prometheus
+  instant: true
+
+- query: max(max_over_time(sum(irate(container_cpu_usage_seconds_total{name!="", namespace="openshift-monitoring", pod=~"prometheus-k8s.+"}[2m])) by (pod)[{{.elapsed}}:]))
+  metricName: max-cpu-prometheus
+  instant: true
+
+- query: avg(avg_over_time(sum(container_memory_rss{name!="", namespace="openshift-monitoring", pod=~"prometheus-k8s.+"}) by (pod)[{{.elapsed}}:]))
+  metricName: memory-prometheus
+  instant: true
+
+- query: max(max_over_time(sum(container_memory_rss{name!="", namespace="openshift-monitoring", pod=~"prometheus-k8s.+"}) by (pod)[{{.elapsed}}:]))
+  metricName: max-memory-prometheus
+  instant: true
+
+# Cluster
+
+- query: avg_over_time(cluster:memory_usage:ratio[{{.elapsed}}:])
+  metricName: memory-cluster-usage-ratio
+  instant: true
+
+- query: max_over_time(cluster:memory_usage:ratio[{{.elapsed}}:])
+  metricName: max-memory-cluster-usage-ratio
+  instant: true
+
+- query: avg_over_time(cluster:node_cpu:ratio[{{.elapsed}}:])
+  metricName: cpu-cluster-usage-ratio
+  instant: true
+
+- query: max_over_time(cluster:node_cpu:ratio[{{.elapsed}}:])
+  metricName: max-cpu-cluster-usage-ratio
+  instant: true
+
+- query: sum(node_cpu_seconds_total and on (instance) label_replace(kube_node_role{role="worker",role!="infra"}, "instance", "$1", "node", "(.+)")) by (mode)
+  metricName: nodeCPUSeconds-Workers
+  instant: true
+  captureStart: true
+
+- query: sum(container_cpu_usage_seconds_total{id=~"/system.slice|/system.slice/kubelet.service|.*/ovs-vswitchd.service|/system.slice/crio.service|/kubepods.slice"} and on (node) kube_node_role{role="worker",role!="infra"})  by (id)
+  metricName: cgroupCPUSeconds-Workers
+  instant: true
+  captureStart: true
+
+- query: sum (  container_memory_rss {  id =~ "/system.slice|/system.slice/kubelet.service|.*/ovs-vswitchd.service|/system.slice/crio.service|/kubepods.slice" } and on (node) kube_node_role{ role = "worker",role != "infra" } )  by   (   id  )
+  metricName: cgroupMemoryRSS-Workers
+  instant: true
+  captureStart: true
+
+- query: sum(container_cpu_usage_seconds_total{container!~"POD|",namespace=~"openshift-.*"}) by (namespace)
+  metricName: cgroupCPUSeconds-namespaces
+  instant: true
+  captureStart: true
+
+- query: sum( container_memory_rss{container!~"POD|",namespace=~"openshift-.*"} )  by (namespace)
+  metricName: cgroupMemoryRSS-namespaces
+  instant: true
+  captureStart: true
+
+# OVS-DOCA (ovs-vswitchd) - port 9310 sidecar
+
+- query: avg(avg_over_time(irate(ovs_vswitchd_process_cpu_seconds_total{job="ovs-metrics"}[2m])[{{.elapsed}}:]))
+  metricName: cpu-ovs-vswitchd
+  instant: true
+
+- query: max(max_over_time(irate(ovs_vswitchd_process_cpu_seconds_total{job="ovs-metrics"}[2m])[{{.elapsed}}:]))
+  metricName: max-cpu-ovs-vswitchd
+  instant: true
+
+- query: avg(avg_over_time(ovs_vswitchd_process_resident_memory_bytes{job="ovs-metrics"}[{{.elapsed}}:]))
+  metricName: memory-ovs-vswitchd
+  instant: true
+
+- query: max(max_over_time(ovs_vswitchd_process_resident_memory_bytes{job="ovs-metrics"}[{{.elapsed}}:]))
+  metricName: max-memory-ovs-vswitchd
+  instant: true
+
+- query: avg(avg_over_time(ovs_vswitchd_process_open_fds{job="ovs-metrics"}[{{.elapsed}}:]))
+  metricName: open-fds-ovs-vswitchd
+  instant: true
+
+- query: max(max_over_time(ovs_vswitchd_dp_flows_total{job="ovs-metrics"}[{{.elapsed}}:]))
+  metricName: max-dp-flows-ovs
+  instant: true
+
+- query: avg(avg_over_time(irate(ovs_vswitchd_dp_flows_lookup_hit{job="ovs-metrics"}[2m])[{{.elapsed}}:]))
+  metricName: dp-flows-lookup-hit-rate-ovs
+  instant: true
+
+- query: avg(avg_over_time(irate(ovs_vswitchd_dp_flows_lookup_missed{job="ovs-metrics"}[2m])[{{.elapsed}}:]))
+  metricName: dp-flows-lookup-missed-rate-ovs
+  instant: true
+
+- query: avg(avg_over_time(irate(ovs_vswitchd_interface_rx_dropped_total{job="ovs-metrics"}[2m])[{{.elapsed}}:]))
+  metricName: interface-rx-dropped-rate-ovs
+  instant: true
+
+- query: avg(avg_over_time(irate(ovs_vswitchd_interface_tx_dropped_total{job="ovs-metrics"}[2m])[{{.elapsed}}:]))
+  metricName: interface-tx-dropped-rate-ovs
+  instant: true
+
+- query: avg(avg_over_time(irate(ovs_vswitchd_interface_rx_errors_total{job="ovs-metrics"}[2m])[{{.elapsed}}:]))
+  metricName: interface-rx-errors-rate-ovs
+  instant: true
+
+- query: avg(avg_over_time(irate(ovs_vswitchd_interface_tx_errors_total{job="ovs-metrics"}[2m])[{{.elapsed}}:]))
+  metricName: interface-tx-errors-rate-ovs
+  instant: true
+
+# OVS-DOCA (ovs-exporter) - port 6103 detailed metrics
+
+- query: avg(avg_over_time(ovs_vswitchd_memory_rss{job="ovs-exporter"}[{{.elapsed}}:]))
+  metricName: memory-rss-ovs-exporter
+  instant: true
+
+- query: max(max_over_time(ovs_vswitchd_memory_rss{job="ovs-exporter"}[{{.elapsed}}:]))
+  metricName: max-memory-rss-ovs-exporter
+  instant: true
+
+- query: avg(avg_over_time(ovs_vswitchd_memory_hugepage_allocated{job="ovs-exporter"}[{{.elapsed}}:]))
+  metricName: hugepage-allocated-ovs
+  instant: true
+
+- query: max(max_over_time(ovs_vswitchd_memory_hugepage_allocated{job="ovs-exporter"}[{{.elapsed}}:]))
+  metricName: max-hugepage-allocated-ovs
+  instant: true
+
+- query: avg(avg_over_time(ovs_vswitchd_memory_hugepage_free{job="ovs-exporter"}[{{.elapsed}}:]))
+  metricName: hugepage-free-ovs
+  instant: true
+
+- query: avg(avg_over_time(ovs_vswitchd_memory_frag_factor{job="ovs-exporter"}[{{.elapsed}}:]))
+  metricName: memory-frag-factor-ovs
+  instant: true
+
+- query: max(max_over_time(ovs_vswitchd_memory_frag_factor{job="ovs-exporter"}[{{.elapsed}}:]))
+  metricName: max-memory-frag-factor-ovs
+  instant: true
+
+- query: max(max_over_time(ovs_vswitchd_datapath_n_flows{job="ovs-exporter"}[{{.elapsed}}:]))
+  metricName: max-datapath-n-flows-ovs
+  instant: true
+
+- query: max(max_over_time(ovs_vswitchd_datapath_n_offloaded_flows{job="ovs-exporter"}[{{.elapsed}}:]))
+  metricName: max-datapath-n-offloaded-flows-ovs
+  instant: true
+
+- query: max(max_over_time(ovs_vswitchd_conntrack_n_connections{job="ovs-exporter"}[{{.elapsed}}:]))
+  metricName: max-conntrack-connections-ovs
+  instant: true
+
+- query: avg(avg_over_time(irate(ovs_vswitchd_datapath_hit_total{job="ovs-exporter"}[2m])[{{.elapsed}}:]))
+  metricName: datapath-hit-rate-ovs
+  instant: true
+
+- query: avg(avg_over_time(irate(ovs_vswitchd_datapath_missed_total{job="ovs-exporter"}[2m])[{{.elapsed}}:]))
+  metricName: datapath-missed-rate-ovs
+  instant: true
+
+- query: avg(avg_over_time(irate(ovs_vswitchd_datapath_lost_total{job="ovs-exporter"}[2m])[{{.elapsed}}:]))
+  metricName: datapath-lost-rate-ovs
+  instant: true
+
+- query: ovs_vswitchd_datapath_hit_total{job="ovs-exporter"}
+  metricName: datapath-hit-total-ovs
+  instant: true
+  captureStart: true
+
+- query: ovs_vswitchd_datapath_missed_total{job="ovs-exporter"}
+  metricName: datapath-missed-total-ovs
+  instant: true
+  captureStart: true
+
+- query: ovs_vswitchd_datapath_lost_total{job="ovs-exporter"}
+  metricName: datapath-lost-total-ovs
+  instant: true
+  captureStart: true
+
+# HW offload queue latencies (p99)
+
+- query: max(max_over_time(histogram_quantile(0.99, rate(ovs_vswitchd_hw_offload_queue_service_time_buckets{job="ovs-exporter"}[2m]))[{{.elapsed}}:]))
+  metricName: max-99th-hw-offload-queue-service-time-ovs
+  instant: true
+
+- query: max(max_over_time(histogram_quantile(0.99, rate(ovs_vswitchd_hw_offload_queue_wait_time_buckets{job="ovs-exporter"}[2m]))[{{.elapsed}}:]))
+  metricName: max-99th-hw-offload-queue-wait-time-ovs
+  instant: true

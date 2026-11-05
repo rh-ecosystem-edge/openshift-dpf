@@ -1,0 +1,101 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: prometheus-k8s
+  namespace: ${DPF_OPERATOR_NAMESPACE}
+rules:
+- apiGroups: [""]
+  resources: [services, endpoints, pods]
+  verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: prometheus-k8s
+  namespace: ${DPF_OPERATOR_NAMESPACE}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: prometheus-k8s
+subjects:
+- kind: ServiceAccount
+  name: prometheus-k8s
+  namespace: openshift-monitoring
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ovs-metrics
+  namespace: ${DPF_OPERATOR_NAMESPACE}
+  labels:
+    app.kubernetes.io/component: ovs-metrics
+    app.kubernetes.io/name: ovn-kubernetes
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/component: ovnkube-node
+    app.kubernetes.io/name: ovn-kubernetes
+  ports:
+  - name: ovs-metrics
+    port: 9310
+    targetPort: 9310
+    protocol: TCP
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: ovs-metrics
+  namespace: ${DPF_OPERATOR_NAMESPACE}
+  labels:
+    app.kubernetes.io/component: ovs-metrics
+    app.kubernetes.io/name: ovn-kubernetes
+spec:
+  endpoints:
+  - port: ovs-metrics
+    interval: 30s
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: ovs-metrics
+      app.kubernetes.io/name: ovn-kubernetes
+  namespaceSelector:
+    matchNames:
+    - ${DPF_OPERATOR_NAMESPACE}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ovs-exporter
+  namespace: ${DPF_OPERATOR_NAMESPACE}
+  labels:
+    app.kubernetes.io/component: ovs-exporter
+    app.kubernetes.io/name: ovn-kubernetes
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/component: ovnkube-node
+    app.kubernetes.io/name: ovn-kubernetes
+  ports:
+  - name: ovs-exporter
+    port: 6103
+    targetPort: 6103
+    protocol: TCP
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: ovs-exporter
+  namespace: ${DPF_OPERATOR_NAMESPACE}
+  labels:
+    app.kubernetes.io/component: ovs-exporter
+    app.kubernetes.io/name: ovn-kubernetes
+spec:
+  endpoints:
+  - port: ovs-exporter
+    interval: 30s
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: ovs-exporter
+      app.kubernetes.io/name: ovn-kubernetes
+  namespaceSelector:
+    matchNames:
+    - ${DPF_OPERATOR_NAMESPACE}

@@ -1,0 +1,21 @@
+# metrics-endpoint.yaml template for kube-burner-ocp stress tests
+# Generated at runtime by scripts/stress.sh via envsubst.
+# Tokens are created with `oc create token` and expire after STRESS_DURATION + 24h.
+
+# Management cluster Prometheus (alerts + metrics collection)
+- endpoint: "${MGMT_ENDPOINT}"
+  token: "${MGMT_TOKEN}"
+  skipTLSVerify: true
+${METRICS_MGMT}
+  alerts:
+    - ${STRESS_PROFILES_DIR}/alerts.yml
+${INDEXER_MGMT}
+
+# Hosted cluster thanos-querier via NodePort (metrics + alerts)
+- endpoint: "${HOSTED_ENDPOINT}"
+  token: "${HOSTED_TOKEN}"
+  skipTLSVerify: true
+${METRICS_HOSTED}
+  alerts:
+    - ${STRESS_PROFILES_DIR}/alerts.yml
+${INDEXER_HOSTED}

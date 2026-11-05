@@ -71,6 +71,7 @@ make deploy-dpu-services  # Deploy DPU services (HBN, DTS, OVN)
 make worker-status        # Check worker provisioning status
 make run-dpf-sanity       # Run sanity checks
 make verify-deployment    # Full verification (host workers joined → DPU CRs → hosted DPU workers → host workers Ready → DPUDeployment → stable COs)
+make stress               # Set up OVS monitoring + iperf traffic for stress testing
 make clean-all            # Delete cluster, VMs, and all generated files
 make help                 # List all targets with descriptions
 ```
