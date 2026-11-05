@@ -531,7 +531,7 @@ restore_host_trusted_dpus() {
 
     if [ "${#failed[@]}" -gt 0 ]; then
         log "ERROR" "Could not request host RShim and host privilege on DPU BMC ${failed[*]}."
-        log "ERROR" "Make both changes on each listed DPU BMC and power its host off, then rerun with SKIP_HOST_RSHIM_RESTORE=true:"
+        log "ERROR" "Make both changes on each listed DPU BMC while its host is on, then power off every DPU host (worker(s) ${hosts[*]}) and rerun with SKIP_HOST_RSHIM_RESTORE=true:"
         log "ERROR" "  POST {\"HostRshim\":\"Enabled\"} to https://<dpu-bmc>/${HOST_RSHIM_SET_PATH}"
         log "ERROR" "  PATCH {\"PrivilegeMode\":\"Privileged\"} to https://<dpu-bmc>/${HOST_PRIVILEGE_SETTINGS_PATH}"
         return 1
