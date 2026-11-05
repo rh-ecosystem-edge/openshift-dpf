@@ -32,6 +32,12 @@ function install_helm() {
 }
 
 function extract_hypershift_binary() {
+    # Prefer oc image extract: it works without a container runtime and
+    # avoids rootless podman UID/subuid issues in CI pods.
+    if command -v oc &>/dev/null; then
+        oc image extract "$HYPERSHIFT_IMAGE" --path /usr/bin/hypershift:/tmp/ --confirm 2>&1
+        return $?
+    fi
     CONTAINER_COMMAND=${CONTAINER_COMMAND:-podman}
     "$CONTAINER_COMMAND" cp "$("$CONTAINER_COMMAND" create --name hypershift --rm --pull always "$HYPERSHIFT_IMAGE"):/usr/bin/hypershift" /tmp/hypershift 2>&1
     local rc=$?
@@ -77,6 +83,7 @@ function install_hypershift() {
     mkdir -p "$HOME/.local/bin"
     install -m 0755 /tmp/hypershift "$HOME/.local/bin/hypershift"
     rm -f /tmp/hypershift
+    export PATH="$HOME/.local/bin:$PATH"
     log "INFO" "Installed hypershift binary to $HOME/.local/bin/hypershift"
 
     # Install the Hypershift operator
