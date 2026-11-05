@@ -18,6 +18,7 @@ set -o pipefail
 # Source common utilities
 source "$(dirname "${BASH_SOURCE[0]}")/utils.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/update-etc-hosts.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/onprem-ai.sh"
 
 function validate_vips() {
     if [ -z "${API_VIP}" ] || [ "${API_VIP}" = "[]" ]; then
@@ -277,7 +278,11 @@ EOF
 
 function check_create_cluster() {
     log "INFO" "Checking if cluster ${CLUSTER_NAME} exists..."
-    
+
+    if [ -n "${PAYLOAD_URL:-}" ]; then
+        deploy_onprem_ai
+    fi
+
     # First check if cluster is already installed
     if check_cluster_installed; then
         log "INFO" "Cluster is already installed, skipping creation"
@@ -293,9 +298,9 @@ function check_create_cluster() {
 
     if ! aicli info cluster ${CLUSTER_NAME} >/dev/null 2>&1; then
         log "INFO" "Cluster ${CLUSTER_NAME} not found, creating... (arch=${ARCH}, cpu_architecture=$(arch_for_aicli "$ARCH"))"
-        
+
         ensure_ssh_key_in_home || return 1
-        
+
         if [ "$VM_COUNT" -eq 1 ]; then
             log "INFO" "Creating single-node cluster..."
             aicli create cluster \
@@ -324,16 +329,14 @@ function check_create_cluster() {
                 "${paramfile_args[@]}" \
                 "${CLUSTER_NAME}"
         fi
-        
+
         log "INFO" "Cluster ${CLUSTER_NAME} created successfully"
     else
         log "INFO" "Cluster ${CLUSTER_NAME} already exists"
     fi
 }
 
-function delete_cluster() {
-    log "INFO" "Deleting cluster ${CLUSTER_NAME}..."
-
+function _delete_cluster_from_ai() {
     for infraenv_name in \
         "${CLUSTER_NAME}_infra-env" \
         "${CLUSTER_NAME}_infra-env_alt_$(get_alt_arch "$ARCH")"; do
@@ -357,10 +360,28 @@ function delete_cluster() {
     done
 
     if ! aicli delete cluster ${CLUSTER_NAME} -y; then
-        log "WARNING" "Failed to delete cluster ${CLUSTER_NAME}, continuing anyway"
+        log "WARN" "Failed to delete cluster ${CLUSTER_NAME}, continuing anyway"
     else
         log "INFO" "Cluster ${CLUSTER_NAME} deleted successfully"
     fi
+}
+
+function delete_cluster() {
+    log "INFO" "Deleting cluster ${CLUSTER_NAME}..."
+
+    # Try deleting from on-prem AI if it's running (previous deploy may have used it)
+    if podman pod exists assisted-installer 2>/dev/null; then
+        if curl -sf http://127.0.0.1:8090/api/assisted-install/v2/clusters >/dev/null 2>&1; then
+            log "INFO" "On-prem Assisted Installer is running, deleting cluster from it..."
+            AI_URL=http://127.0.0.1:8090 _delete_cluster_from_ai
+        fi
+        log "INFO" "Removing on-prem Assisted Installer pod..."
+        podman pod rm -f assisted-installer || true
+    fi
+
+    # Subshell unsets AI_URL so aicli falls back to the Red Hat console
+    log "INFO" "Deleting cluster from Assisted Installer console..."
+    (unset AI_URL; _delete_cluster_from_ai)
 }
 
 function wait_for_cluster_status() {
@@ -378,9 +399,9 @@ function wait_for_cluster_status() {
             sleep $sleep_time
             continue
         fi
-        # If waiting for 'ready' but status is already 'installed', treat as success
-        if [ "$status" == "ready" ] && [ "$current_status" == "installed" ]; then
-            log "INFO" "Cluster ${CLUSTER_NAME} is already installed. Skipping wait for 'ready'."
+        # If waiting for an intermediate status but cluster is already installed, skip
+        if [ "$current_status" == "installed" ] && [ "$status" != "installed" ]; then
+            log "INFO" "Cluster ${CLUSTER_NAME} is already installed. Skipping wait for '${status}'."
             return 0
         fi
         # 'adding-hosts' implies the cluster is installed and accepting new nodes
