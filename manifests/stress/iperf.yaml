@@ -1,0 +1,111 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: iperf-a
+  namespace: ${IPERF_NAMESPACE}
+spec:
+  selector:
+    app: iperf
+    role: a
+  ports:
+  - port: 5201
+    targetPort: 5201
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: iperf-b
+  namespace: ${IPERF_NAMESPACE}
+spec:
+  selector:
+    app: iperf
+    role: b
+  ports:
+  - port: 5201
+    targetPort: 5201
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iperf-a
+  namespace: ${IPERF_NAMESPACE}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: iperf
+      role: a
+  template:
+    metadata:
+      labels:
+        app: iperf
+        role: a
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: ${NODE_A}
+      containers:
+      - name: server
+        image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+        command: ["/bin/sh", "-c"]
+        args:
+        - microdnf install -y iperf3 && exec iperf3 -s -p 5201
+        ports:
+        - containerPort: 5201
+      - name: client
+        image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          microdnf install -y iperf3
+          echo "Waiting for iperf-b service..."
+          until iperf3 -c iperf-b.${IPERF_NAMESPACE}.svc -p 5201 -t 1 >/dev/null 2>&1; do
+            sleep 5
+          done
+          echo "iperf-b reachable, starting continuous bidir traffic"
+          while true; do
+            iperf3 -c iperf-b.${IPERF_NAMESPACE}.svc -p 5201 --bidir -t 3600
+            sleep 1
+          done
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iperf-b
+  namespace: ${IPERF_NAMESPACE}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: iperf
+      role: b
+  template:
+    metadata:
+      labels:
+        app: iperf
+        role: b
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: ${NODE_B}
+      containers:
+      - name: server
+        image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+        command: ["/bin/sh", "-c"]
+        args:
+        - microdnf install -y iperf3 && exec iperf3 -s -p 5201
+        ports:
+        - containerPort: 5201
+      - name: client
+        image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          microdnf install -y iperf3
+          echo "Waiting for iperf-a service..."
+          until iperf3 -c iperf-a.${IPERF_NAMESPACE}.svc -p 5201 -t 1 >/dev/null 2>&1; do
+            sleep 5
+          done
+          echo "iperf-a reachable, starting continuous bidir traffic"
+          while true; do
+            iperf3 -c iperf-a.${IPERF_NAMESPACE}.svc -p 5201 --bidir -t 3600
+            sleep 1
+          done
