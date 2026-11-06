@@ -332,30 +332,44 @@ wait_for_zero_trust_dpu_redfish() {
     if [ "${DPF_DEPLOYMENT_MODE}" != "zero-trust" ]; then
         return 0
     fi
+    wait_for_dpu_redfish
+}
 
-    local -a bmc_ips=()
+# Print every DPU BMC IP in WORKER_<N>_DPU_BMC_IPS, one per line.
+list_all_dpu_bmc_ips() {
     local host
     while IFS= read -r host; do
-        mapfile -t -O "${#bmc_ips[@]}" bmc_ips < <(list_zero_trust_host_dpu_bmc_ips "${host}")
+        list_zero_trust_host_dpu_bmc_ips "${host}"
     done < <(list_zero_trust_dpu_hosts)
-    local expected="${#bmc_ips[@]}"
-    if [ "${expected}" -eq 0 ]; then
-        log "ERROR" "No WORKER_<N>_DPU_BMC_IPS are configured for Zero Trust Redfish readiness"
-        return 1
+}
+
+# Wait until every DPU BMC in WORKER_<N>_DPU_BMC_IPS answers Redfish, for at
+# most WORKER_POWER_ON_DELAY seconds.
+wait_for_dpu_redfish() (
+    local curl_config="${1:-}"
+    if [ "$#" -gt 0 ]; then
+        shift
     fi
 
-    local curl_config escaped_password
-    curl_config=$(mktemp "${TMPDIR:-/tmp}/dpu-redfish-curl.XXXXXX")
-    chmod 600 "${curl_config}"
-    trap 'rm -f "${curl_config}"' EXIT
-    escaped_password="${ZT_DPU_BMC_ROOT_PASSWORD//\\/\\\\}"
-    escaped_password="${escaped_password//\"/\\\"}"
-    printf 'user = "root:%s"\n' "${escaped_password}" > "${curl_config}"
+    local -a bmc_ips=()
+    if [ "$#" -gt 0 ]; then
+        bmc_ips=("$@")
+    else
+        mapfile -t bmc_ips < <(list_all_dpu_bmc_ips)
+    fi
+    local expected="${#bmc_ips[@]}"
+    if [ "${expected}" -eq 0 ]; then
+        log "ERROR" "No WORKER_<N>_DPU_BMC_IPS are configured for DPU Redfish readiness"
+        return 1
+    fi
+    if [ -z "${curl_config}" ]; then
+        curl_config=$(_dpu_bmc_curl_config) || return 1
+        _dpu_bmc_cleanup_config_on_exit "${curl_config}"
+    fi
 
     local interval=10
     local started_at current_time elapsed reachable ip
     started_at=$(date +%s)
-
     log "INFO" "Waiting up to ${WORKER_POWER_ON_DELAY}s for ${expected} configured DPU Redfish endpoint(s)..."
     while true; do
         reachable=0
@@ -364,10 +378,7 @@ wait_for_zero_trust_dpu_redfish() {
                 reachable=$((reachable + 1))
             fi
         done
-
         if [ "${reachable}" -ge "${expected}" ]; then
-            rm -f "${curl_config}"
-            trap - EXIT
             log "INFO" "All ${expected} configured DPU Redfish endpoint(s) are ready"
             return 0
         fi
@@ -375,16 +386,307 @@ wait_for_zero_trust_dpu_redfish() {
         current_time=$(date +%s)
         elapsed=$((current_time - started_at))
         if [ "${elapsed}" -ge "${WORKER_POWER_ON_DELAY}" ]; then
-            rm -f "${curl_config}"
-            trap - EXIT
             log "ERROR" "Only ${reachable}/${expected} configured DPU Redfish endpoint(s) became ready within ${WORKER_POWER_ON_DELAY}s"
             return 1
         fi
-
         log "INFO" "DPU Redfish readiness: ${reachable}/${expected}; retrying in ${interval}s..."
         sleep "${interval}"
     done
+)
+HOST_RSHIM_PATH="redfish/v1/Systems/Bluefield/Oem/Nvidia"
+HOST_RSHIM_SET_PATH="${HOST_RSHIM_PATH}/Actions/HostRshim.Set"
+HOST_PRIVILEGE_PATH="redfish/v1/Chassis/Card1/NetworkAdapters/NvidiaNetworkAdapter/Oem/Nvidia/HostPrivilegeConfig"
+HOST_PRIVILEGE_SETTINGS_PATH="${HOST_PRIVILEGE_PATH}/Settings"
+
+# Run curl against a DPU BMC with the root credentials in curl_config.
+_dpu_bmc_curl() {
+    local curl_config="$1"
+    shift
+    curl --config "${curl_config}" --insecure --silent --connect-timeout 5 --max-time 20 "$@"
 }
+
+# Send a JSON body with METHOD to a DPU BMC path and print the HTTP status.
+_dpu_bmc_write() {
+    local curl_config="$1" ip="$2" method="$3" path="$4" body="$5"
+    _dpu_bmc_curl "${curl_config}" --output /dev/null --write-out '%{http_code}' \
+        -X "${method}" -H 'Content-Type: application/json' -d "${body}" \
+        "https://${ip}/${path}"
+}
+
+# Zero Trust disables host RShim through the DPU BMC and restricts the host
+# with mlxprivhost on the DPU Arm. Host-trusted installs the DPU OS from the host
+# over RShim, and the DPU agent only lifts the restriction after that install, so
+# before a host-trusted install turn both back on through every DPU BMC in
+# WORKER_<N>_DPU_BMC_IPS (BlueField-3). Both apply at the next host power cycle;
+# until then HostRshim keeps its old value, and HostPrivilegeConfig/Settings can
+# read Privileged while the host is still restricted. So unless every BMC
+# already has both in force, the writes are sent every time. The DPU BMCs are
+# down while their host is off, so each host is powered on first and, after the
+# writes, off again; add-worker-nodes powers it on.
+restore_host_trusted_dpus() (
+    if [ "${DPF_DEPLOYMENT_MODE}" = "zero-trust" ]; then
+        return 0
+    fi
+    if [ "${SKIP_HOST_RSHIM_RESTORE:-false}" = "true" ]; then
+        log "WARN" "SKIP_HOST_RSHIM_RESTORE=true, not turning host RShim back on"
+        return 0
+    fi
+
+    local -a hosts=() bmc_ips=()
+    mapfile -t hosts < <(list_zero_trust_dpu_hosts)
+    mapfile -t bmc_ips < <(list_all_dpu_bmc_ips)
+    if [ "${#bmc_ips[@]}" -eq 0 ]; then
+        log "INFO" "No WORKER_<N>_DPU_BMC_IPS configured, skipping host RShim restore"
+        return 0
+    fi
+    local ip
+    for ip in "${bmc_ips[@]}"; do
+        if ! [[ "${ip}" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]; then
+            log "ERROR" "WORKER_<N>_DPU_BMC_IPS entry '${ip}' is not an IPv4 address"
+            return 1
+        fi
+    done
+    validate_worker_power_on_delay || return 1
+
+    local curl_config
+    curl_config=$(_dpu_bmc_curl_config) || return 1
+    _dpu_bmc_cleanup_config_on_exit "${curl_config}"
+
+    local host
+    for host in "${hosts[@]}"; do
+        _poweron_worker "${host}" || return 1
+    done
+    wait_for_dpu_redfish "${curl_config}" "${bmc_ips[@]}" || return 1
+
+    local state code mode trusted=true
+    local -a failed=()
+    for ip in "${bmc_ips[@]}"; do
+        state=$(_dpu_bmc_get_jq "${curl_config}" "${ip}" "${HOST_RSHIM_PATH}" '.HostRshim // empty') || state=""
+        if [ "${state}" != "Enabled" ] && [ "${state}" != "Disabled" ]; then
+            log "ERROR" "${ip}: HostRshim reads '${state:-no answer}'; no DPU BMC was changed"
+            return 1
+        fi
+        mode=$(_dpu_bmc_get_jq "${curl_config}" "${ip}" "${HOST_PRIVILEGE_PATH}" '.PrivilegeMode // empty') || mode=""
+        if [ -z "${mode}" ]; then
+            log "ERROR" "${ip}: host privilege reads 'no answer'; no DPU BMC was changed"
+            return 1
+        fi
+        log "INFO" "${ip}: HostRshim ${state}, host privilege ${mode}"
+        if [ "${state}" != "Enabled" ] || [ "${mode}" != "Privileged" ]; then
+            trusted=false
+        fi
+    done
+    if [ "${trusted}" = "true" ]; then
+        log "INFO" "Every DPU BMC already has host RShim Enabled and host privilege Privileged in force; nothing to restore"
+        return 0
+    fi
+
+    for ip in "${bmc_ips[@]}"; do
+        code=$(_dpu_bmc_write "${curl_config}" "${ip}" POST "${HOST_RSHIM_SET_PATH}" '{"HostRshim":"Enabled"}') || code=""
+        if ! [[ "${code}" =~ ^2[0-9]{2}$ ]]; then
+            log "ERROR" "${ip}: POST HostRshim.Set Enabled returned ${code:-no answer}"
+            failed+=("${ip}")
+            continue
+        fi
+        code=$(_dpu_bmc_write "${curl_config}" "${ip}" PATCH "${HOST_PRIVILEGE_SETTINGS_PATH}" '{"PrivilegeMode":"Privileged"}') || code=""
+        if ! [[ "${code}" =~ ^2[0-9]{2}$ ]]; then
+            log "ERROR" "${ip}: PATCH host privilege Privileged returned ${code:-no answer}"
+            failed+=("${ip}")
+            continue
+        fi
+        mode=$(_dpu_bmc_get_jq "${curl_config}" "${ip}" "${HOST_PRIVILEGE_SETTINGS_PATH}" '.PrivilegeMode // empty') || mode=""
+        if [ "${mode}" != "Privileged" ]; then
+            log "ERROR" "${ip}: host privilege Settings reads '${mode:-no answer}' after the PATCH"
+            failed+=("${ip}")
+            continue
+        fi
+        log "INFO" "${ip}: host RShim Enabled and host privilege Privileged requested"
+    done
+    if [ "${#failed[@]}" -gt 0 ]; then
+        log "ERROR" "Could not request host RShim and host privilege on DPU BMC ${failed[*]}."
+        log "ERROR" "Make both changes on each listed DPU BMC while its host is on, then power off every DPU host (worker(s) ${hosts[*]}) and rerun with SKIP_HOST_RSHIM_RESTORE=true:"
+        log "ERROR" "  POST {\"HostRshim\":\"Enabled\"} to https://<dpu-bmc>/${HOST_RSHIM_SET_PATH}"
+        log "ERROR" "  PATCH {\"PrivilegeMode\":\"Privileged\"} to https://<dpu-bmc>/${HOST_PRIVILEGE_SETTINGS_PATH}"
+        return 1
+    fi
+
+    log "INFO" "Powering off the DPU hosts so the next power-on applies host RShim and host privilege"
+    local -a not_off=()
+    for host in "${hosts[@]}"; do
+        _shutoff_worker "${host}" || not_off+=("${host}")
+    done
+    if [ "${#not_off[@]}" -gt 0 ]; then
+        log "ERROR" "Could not power off worker(s) ${not_off[*]}; power them off so the next power-on applies host RShim and host privilege"
+        return 1
+    fi
+)
+
+HOST_PRIVILEGE_DEFAULT_BODY='{"PrivilegeSettings":{"FirmwareUpdate":"Default","FlashAccess":"Default","GlobalParametersAccess":"Default","HostParametersAccess":"Default","InternalCPUAccess":"Default","NicReset":"Default","PccUpdate":"Default","PortAccess":"Default","HostPrivilegeLevel":"Privileged","ManagementInterfaceEnabled":true,"PortOwnerEnabled":true,"ReadCountersEnabled":true,"TracerEnabled":true}}'
+HOST_PRIVILEGE_CONTROLS='["FirmwareUpdate","FlashAccess","GlobalParametersAccess","HostParametersAccess","InternalCPUAccess","NicReset","PccUpdate","PortAccess"]'
+# Print the granular host privilege controls that are Enabled (or, for the
+# second filter, not Default), comma separated, or "none"; print nothing when
+# the answer lacks one of them.
+HOST_PRIVILEGE_ENABLED_JQ="${HOST_PRIVILEGE_CONTROLS}"' as $k | .PrivilegeSettings as $s
+  | if ($s | type) == "object" and all($k[]; ($s[.] | type) == "string")
+    then [$k[] | select($s[.] == "Enabled")] | if length == 0 then "none" else join(",") end
+    else empty end'
+HOST_PRIVILEGE_NOT_DEFAULT_JQ="${HOST_PRIVILEGE_CONTROLS}"' as $k | .PrivilegeSettings as $s
+  | if ($s | type) == "object" and all($k[]; ($s[.] | type) == "string")
+    then [$k[] | select($s[.] != "Default")] | if length == 0 then "none" else join(",") end
+    else empty end'
+
+# Write a curl config with the DPU BMC root credentials and print its path.
+_dpu_bmc_curl_config() {
+    local curl_config escaped_password
+    if [ -z "${ZT_DPU_BMC_ROOT_PASSWORD:-}" ]; then
+        log "ERROR" "ZT_DPU_BMC_ROOT_PASSWORD is required for DPU BMC access" >&2
+        return 1
+    fi
+    if [[ "${ZT_DPU_BMC_ROOT_PASSWORD}" == *$'\n'* || "${ZT_DPU_BMC_ROOT_PASSWORD}" == *$'\r'* ]]; then
+        log "ERROR" "ZT_DPU_BMC_ROOT_PASSWORD must not contain a line break" >&2
+        return 1
+    fi
+    curl_config=$(mktemp "${TMPDIR:-/tmp}/dpu-redfish-curl.XXXXXX") || return 1
+    if ! chmod 600 "${curl_config}"; then
+        rm -f "${curl_config}"
+        return 1
+    fi
+    escaped_password="${ZT_DPU_BMC_ROOT_PASSWORD//\\/\\\\}"
+    escaped_password="${escaped_password//\"/\\\"}"
+    if ! printf 'user = "root:%s"\n' "${escaped_password}" > "${curl_config}"; then
+        rm -f "${curl_config}"
+        return 1
+    fi
+    printf '%s\n' "${curl_config}"
+}
+
+_dpu_bmc_cleanup_config_on_exit() {
+    local cleanup_command
+    printf -v cleanup_command 'rm -f -- %q' "$1"
+    trap "${cleanup_command}" EXIT
+}
+
+_dpu_bmc_get_jq() {
+    local curl_config="$1" ip="$2" path="$3" jq_filter="$4"
+    _dpu_bmc_curl "${curl_config}" "https://${ip}/${path}" | jq -r "${jq_filter}" 2>/dev/null
+}
+
+# The {"PrivilegeMode":"Privileged"} preset restore_host_trusted_dpus sends sets
+# the granular host privilege controls to Enabled. While one is Enabled the DPU
+# rejects the mlxprivhost host restriction of a Zero Trust install, which then
+# stays in DPU Config. A host-trusted DPU install clears them, so they stay
+# Enabled only when no install ran after the restore. Before a Zero Trust
+# install, set them to Default on every DPU BMC whose HostPrivilegeConfig or
+# Settings has one Enabled. Only hosts with one Enabled in force are power
+# cycled, so a running Zero Trust host never is. Runs after poweron-workers,
+# while the DPU BMCs answer.
+reset_dpu_privilege_controls() (
+    if [ "${DPF_DEPLOYMENT_MODE}" != "zero-trust" ]; then
+        return 0
+    fi
+
+    local -a hosts=()
+    mapfile -t hosts < <(list_zero_trust_dpu_hosts)
+    if [ "${#hosts[@]}" -eq 0 ]; then
+        log "INFO" "No WORKER_<N>_DPU_BMC_IPS configured, skipping the host privilege control check"
+        return 0
+    fi
+
+    local curl_config
+    curl_config=$(_dpu_bmc_curl_config) || return 1
+    _dpu_bmc_cleanup_config_on_exit "${curl_config}"
+
+    local host ip in_force pending host_needs_cycle
+    local -a reset_ips=() cycle_hosts=() verify_ips=() host_reset_ips=() failed=()
+    for host in "${hosts[@]}"; do
+        host_needs_cycle=false
+        host_reset_ips=()
+        while IFS= read -r ip; do
+            in_force=$(_dpu_bmc_get_jq "${curl_config}" "${ip}" "${HOST_PRIVILEGE_PATH}" "${HOST_PRIVILEGE_ENABLED_JQ}") || in_force=""
+            pending=$(_dpu_bmc_get_jq "${curl_config}" "${ip}" "${HOST_PRIVILEGE_SETTINGS_PATH}" "${HOST_PRIVILEGE_ENABLED_JQ}") || pending=""
+            if [ -z "${in_force}" ] || [ -z "${pending}" ]; then
+                log "ERROR" "${ip}: host privilege controls are not readable; no DPU BMC was changed"
+                return 1
+            fi
+            if [ "${in_force}" = "none" ] && [ "${pending}" = "none" ]; then
+                continue
+            fi
+            log "INFO" "${ip}: host privilege controls Enabled in force: ${in_force}, pending: ${pending}"
+            reset_ips+=("${ip}")
+            host_reset_ips+=("${ip}")
+            if [ "${in_force}" != "none" ]; then
+                host_needs_cycle=true
+            fi
+        done < <(list_zero_trust_host_dpu_bmc_ips "${host}")
+        if [ "${host_needs_cycle}" = "true" ]; then
+            cycle_hosts+=("${host}")
+            verify_ips+=("${host_reset_ips[@]}")
+        fi
+    done
+    if [ "${#reset_ips[@]}" -eq 0 ]; then
+        log "INFO" "No DPU BMC has a granular host privilege control Enabled"
+        return 0
+    fi
+
+    local code
+    for ip in "${reset_ips[@]}"; do
+        code=$(_dpu_bmc_write "${curl_config}" "${ip}" PATCH "${HOST_PRIVILEGE_SETTINGS_PATH}" "${HOST_PRIVILEGE_DEFAULT_BODY}") || code=""
+        if ! [[ "${code}" =~ ^2[0-9]{2}$ ]]; then
+            log "ERROR" "${ip}: PATCH host privilege controls Default returned ${code:-no answer}"
+            failed+=("${ip}")
+            continue
+        fi
+        pending=$(_dpu_bmc_get_jq "${curl_config}" "${ip}" "${HOST_PRIVILEGE_SETTINGS_PATH}" "${HOST_PRIVILEGE_NOT_DEFAULT_JQ}") || pending=""
+        if [ "${pending}" != "none" ]; then
+            log "ERROR" "${ip}: host privilege Settings has '${pending:-no answer}' not Default after the PATCH"
+            failed+=("${ip}")
+            continue
+        fi
+        log "INFO" "${ip}: granular host privilege controls Default requested"
+    done
+    if [ "${#failed[@]}" -gt 0 ]; then
+        log "ERROR" "Could not set the host privilege controls to Default on DPU BMC ${failed[*]}."
+        log "ERROR" "PATCH ${HOST_PRIVILEGE_DEFAULT_BODY} to https://<dpu-bmc>/${HOST_PRIVILEGE_SETTINGS_PATH} on each, then power cycle its host"
+        return 1
+    fi
+    if [ "${#cycle_hosts[@]}" -eq 0 ]; then
+        log "INFO" "No host privilege control is Enabled in force; no power cycle needed"
+        return 0
+    fi
+
+    log "INFO" "Power cycling worker(s) ${cycle_hosts[*]} so the host privilege controls apply"
+    for host in "${cycle_hosts[@]}"; do
+        _shutoff_worker "${host}" || return 1
+    done
+    for host in "${cycle_hosts[@]}"; do
+        _poweron_worker "${host}" || return 1
+    done
+    wait_for_dpu_redfish "${curl_config}" || return 1
+
+    # Redfish can answer before the NIC record is current, so retry for 2 minutes.
+    local attempt
+    local -a not_applied=()
+    for attempt in 1 2 3 4 5 6; do
+        not_applied=()
+        for ip in "${verify_ips[@]}"; do
+            in_force=$(_dpu_bmc_get_jq "${curl_config}" "${ip}" "${HOST_PRIVILEGE_PATH}" "${HOST_PRIVILEGE_NOT_DEFAULT_JQ}") || in_force=""
+            if [ "${in_force}" != "none" ]; then
+                not_applied+=("${ip} (${in_force:-no answer})")
+            fi
+        done
+        if [ "${#not_applied[@]}" -eq 0 ]; then
+            break
+        fi
+        if [ "${attempt}" -lt 6 ]; then
+            sleep 20
+        fi
+    done
+    if [ "${#not_applied[@]}" -gt 0 ]; then
+        log "ERROR" "Host privilege controls not Default in force after the power cycle on DPU BMC ${not_applied[*]}; the Zero Trust install would stay in DPU Config"
+        return 1
+    fi
+    log "INFO" "Granular host privilege controls are Default in force on every power cycled DPU BMC"
+)
 
 provision_all_workers() {
     if [[ "${DPF_DEPLOYMENT_MODE}" == "zero-trust" ]]; then
@@ -692,8 +994,10 @@ case "${1:-}" in
     poweron-workers) poweron_workers ;;
     poweron-all-workers) poweron_workers false ;;
     wait-for-dpu-redfish) wait_for_zero_trust_dpu_redfish ;;
+    restore-host-trusted-dpus) restore_host_trusted_dpus ;;
+    reset-dpu-privilege-controls) reset_dpu_privilege_controls ;;
     *)
-        echo "Usage: $0 {provision-all-workers|approve-worker-csrs|display-worker-status|display-manual-csr-instructions|apply-short-worker-hostnames|deploy-csr-auto-approver|delete-csr-auto-approver|delete-worker <bmh-name|machine-name|node-name>|shutoff-all-workers|poweron-workers|poweron-all-workers|wait-for-dpu-redfish}"
+        echo "Usage: $0 {provision-all-workers|approve-worker-csrs|display-worker-status|display-manual-csr-instructions|apply-short-worker-hostnames|deploy-csr-auto-approver|delete-csr-auto-approver|delete-worker <bmh-name|machine-name|node-name>|shutoff-all-workers|poweron-workers|poweron-all-workers|wait-for-dpu-redfish|restore-host-trusted-dpus|reset-dpu-privilege-controls}"
         exit 1
         ;;
 esac
