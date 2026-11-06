@@ -45,7 +45,7 @@ all:
 	@mkdir -p logs
 	@bash -o pipefail -c '$(MAKE) _all 2>&1 | tee "logs/make_all_$(shell date +%Y%m%d_%H%M%S).log"'
 
-ALL_STEPS := validate-host-trusted-mode verify-files check-cluster create-vms prepare-manifests cluster-install update-etc-hosts kubeconfig add-worker-nodes deploy-dpf prepare-dpu-files deploy-dpu-services enable-ovn-injector deploy-observability
+ALL_STEPS := validate-host-trusted-mode verify-files restore-host-trusted-dpus check-cluster create-vms prepare-manifests cluster-install update-etc-hosts kubeconfig add-worker-nodes deploy-dpf prepare-dpu-files deploy-dpu-services enable-ovn-injector deploy-observability
 ifeq ($(KATA_ENABLED),true)
 ALL_STEPS += enable-kata
 endif
@@ -72,7 +72,7 @@ all-zt:
 # Host worker/BMO provisioning, OVN injection, Kata, and trusted verification
 # are deliberately excluded. With VERIFY_DEPLOYMENT=true it ends by waiting for
 # every listed DPU to be Ready and the cluster operators to be stable.
-ZT_ALL_STEPS := validate-zt-mode verify-files check-cluster create-vms prepare-manifests cluster-install update-etc-hosts kubeconfig poweron-workers deploy-dpf prepare-dpu-files deploy-dpu-services
+ZT_ALL_STEPS := validate-zt-mode verify-files check-cluster create-vms prepare-manifests cluster-install update-etc-hosts kubeconfig poweron-workers reset-dpu-privilege-controls deploy-dpf prepare-dpu-files deploy-dpu-services
 
 .NOTPARALLEL: _all-zt
 .PHONY: _all-zt
@@ -260,6 +260,7 @@ prepare-zt-dpu-services: validate-zt-mode
 .PHONY: scale-out-zt-dpus
 scale-out-zt-dpus: validate-zt-mode prepare-dpf-manifests
 	@$(WORKER_SCRIPT) poweron-workers
+	@$(WORKER_SCRIPT) reset-dpu-privilege-controls
 	@$(DPF_SCRIPT) scale-out-zero-trust-dpus
 	@$(POST_INSTALL_SCRIPT) prepare-zt-services
 	@$(POST_INSTALL_SCRIPT) update-zt-hbn-config
@@ -347,6 +348,14 @@ kubeadmin-password:
 .PHONY: poweron-workers
 poweron-workers:
 	@$(WORKER_SCRIPT) poweron-workers
+
+.PHONY: restore-host-trusted-dpus
+restore-host-trusted-dpus:
+	@$(WORKER_SCRIPT) restore-host-trusted-dpus
+
+.PHONY: reset-dpu-privilege-controls
+reset-dpu-privilege-controls:
+	@$(WORKER_SCRIPT) reset-dpu-privilege-controls
 
 .PHONY: deploy-nfd
 deploy-nfd:
@@ -670,6 +679,8 @@ help:
 	@echo "  cleanup-kata-vfs  - Rebind stale vfio-pci VFs to mlx5_core on worker-dpu (FORCE=true to skip running-pod check)"
 	@echo "  configure-flannel - Deploy flannel IPAM controller for automatic podCIDR assignment"
 	@echo "  poweron-workers  - Power on physical workers via ipmitool (no-op if WORKER_COUNT=0)"
+	@echo "  restore-host-trusted-dpus - Turn host RShim and host privilege back on through every WORKER_<N>_DPU_BMC_IPS BMC after Zero Trust (part of all)"
+	@echo "  reset-dpu-privilege-controls - Set Enabled granular host privilege controls back to Default on every WORKER_<N>_DPU_BMC_IPS BMC before Zero Trust (part of all-zt and scale-out-zt-dpus)"
 	@echo "  add-worker-nodes  - Provision worker nodes via BMO/Redfish (uses WORKER_* env vars)"
 	@echo "  worker-status     - Display provisioning status for all configured workers"
 	@echo "  worker-secure-boot - Read, set, or monitor worker Secure Boot (SECURE_BOOT_ACTION=show|set|wait|all)"
