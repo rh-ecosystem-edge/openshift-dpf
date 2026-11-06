@@ -807,6 +807,130 @@ function apply_observability() {
     log [INFO] "Observability manifest application completed successfully"
 }
 
+# =============================================================================
+# Undeploy functions (reverse of deploy, for reset-to-base-cluster)
+# =============================================================================
+
+function undeploy_dpu_services() {
+    log "INFO" "Removing DPU services..."
+
+    get_kubeconfig
+
+    if [ "${DPF_DEPLOYMENT_MODE}" = "zero-trust" ]; then
+        # Zero-trust mode: delete ZT-specific resources
+        if [ -d "${GENERATED_ZT_SERVICE_DIR}" ]; then
+            log "INFO" "Deleting zero-trust service manifests..."
+            oc delete -f "${GENERATED_ZT_SERVICE_DIR}/" --ignore-not-found --timeout=120s || {
+                log "WARN" "Failed to delete some zero-trust service resources"
+            }
+        fi
+    fi
+
+    # Delete DPUDeployment first (triggers DPU de-provisioning)
+    log "INFO" "Deleting DPUDeployment resources..."
+    if oc get dpudeployment -n dpf-operator-system &>/dev/null 2>&1; then
+        oc delete dpudeployment --all -n dpf-operator-system --ignore-not-found --timeout=600s || {
+            log "WARN" "Failed to delete DPUDeployment resources"
+        }
+
+        # Wait for DPUs to be removed
+        log "INFO" "Waiting for DPU resources to be deleted..."
+        oc wait --for=delete dpu -A --all --timeout=600s 2>/dev/null || {
+            log "WARN" "Timeout waiting for DPU deletion (some may not exist)"
+        }
+    else
+        log "INFO" "No DPUDeployment resources found"
+    fi
+
+    # Delete SCC from hosted cluster (if kubeconfig is available)
+    local scc_file="${GENERATED_POST_INSTALL_DIR}/dpu-services-scc.yaml"
+    if [ -f "${scc_file}" ]; then
+        if ensure_hosted_kubeconfig 2>/dev/null; then
+            log "INFO" "Deleting SCC from hosted cluster..."
+            local saved_kubeconfig="${KUBECONFIG}"
+            export KUBECONFIG="${HOSTED_KUBECONFIG}"
+            oc delete -f "${scc_file}" --ignore-not-found || {
+                log "WARN" "Failed to delete SCC from hosted cluster"
+            }
+            export KUBECONFIG="${saved_kubeconfig}"
+        else
+            log "INFO" "Hosted cluster kubeconfig not available; skipping SCC cleanup"
+        fi
+    fi
+
+    # Delete remaining generated post-install manifests
+    if [ -d "${GENERATED_POST_INSTALL_DIR}" ]; then
+        for file in "${GENERATED_POST_INSTALL_DIR}"/*.yaml; do
+            if [ -f "$file" ]; then
+                local filename
+                filename=$(basename "$file")
+                # Skip SCC (handled above with hosted kubeconfig) and already-deleted dpudeployment
+                if [[ "${filename}" != "dpu-services-scc.yaml" && "${filename}" != "dpudeployment.yaml" ]]; then
+                    log "INFO" "Deleting resources from ${filename}..."
+                    oc delete -f "$file" --ignore-not-found --timeout=60s || {
+                        log "WARN" "Failed to delete resources from ${filename}"
+                    }
+                fi
+            fi
+        done
+    fi
+
+    # Clean generated post-install directory
+    if [ -d "${GENERATED_POST_INSTALL_DIR}" ]; then
+        log "INFO" "Cleaning generated post-install directory..."
+        rm -rf "${GENERATED_POST_INSTALL_DIR}"
+    fi
+    if [ -d "${GENERATED_ZT_SERVICE_DIR}" ]; then
+        rm -rf "${GENERATED_ZT_SERVICE_DIR}"
+    fi
+
+    log "INFO" "DPU services removal complete"
+}
+
+function undeploy_observability() {
+    log "INFO" "Removing observability stack..."
+
+    get_kubeconfig
+
+    # Delete Argus Grafana resources (if present)
+    if [ -d "${OBSERVABILITY_DIR}/argus" ]; then
+        log "INFO" "Deleting Argus Grafana resources..."
+        oc delete -f "${OBSERVABILITY_DIR}/argus/" --ignore-not-found || {
+            log "WARN" "Failed to delete Argus Grafana resources"
+        }
+    fi
+
+    # Delete OpenShift console dashboards
+    if [ -d "${OBSERVABILITY_DIR}/console-dashboards" ]; then
+        log "INFO" "Deleting OpenShift console dashboards..."
+        oc delete -f "${OBSERVABILITY_DIR}/console-dashboards/" --ignore-not-found || {
+            log "WARN" "Failed to delete console dashboards"
+        }
+    fi
+
+    # Delete Grafana CRs, dashboards, datasource, RBAC
+    if [ -d "${OBSERVABILITY_DIR}/grafana" ]; then
+        log "INFO" "Deleting Grafana resources..."
+        oc delete -f "${OBSERVABILITY_DIR}/grafana/" --ignore-not-found || {
+            log "WARN" "Failed to delete Grafana resources"
+        }
+    fi
+
+    # Delete DPF metrics (PodMonitors, kube-state-metrics, RBAC)
+    if [ -d "${OBSERVABILITY_DIR}/dpf-metrics" ]; then
+        log "INFO" "Deleting DPF metrics resources..."
+        oc delete -f "${OBSERVABILITY_DIR}/dpf-metrics/" --ignore-not-found || {
+            log "WARN" "Failed to delete DPF metrics resources"
+        }
+    fi
+
+    # Remove Grafana operator
+    log "INFO" "Removing Grafana operator..."
+    delete_olm_operator "openshift-operators" "grafana-operator"
+
+    log "INFO" "Observability stack removal complete"
+}
+
 function redeploy() {
     log [INFO] "Redeploying DPU..."
     prepare_post_installation
@@ -865,9 +989,15 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         generate-overrides)
             generate_dpuservicetemplate_overrides
             ;;
+        undeploy-dpu-services)
+            undeploy_dpu_services
+            ;;
+        undeploy-observability)
+            undeploy_observability
+            ;;
         *)
             log [ERROR] "Unknown command: $1"
-            log [ERROR] "Available commands: prepare, apply, prepare-zt-services, apply-zt-services, update-zt-hbn-config, print-zt-provisioning-instructions, redeploy, observability, generate-overrides"
+            log [ERROR] "Available commands: prepare, apply, prepare-zt-services, apply-zt-services, update-zt-hbn-config, print-zt-provisioning-instructions, redeploy, observability, generate-overrides, undeploy-dpu-services, undeploy-observability"
             exit 1
             ;;
     esac
