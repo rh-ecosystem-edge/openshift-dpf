@@ -24,10 +24,19 @@ var _ = ReportBeforeSuite(func(report Report) {
 	executionReportDir, err = filepath.Abs(filepath.Join(base, "e2e"))
 	Expect(err).NotTo(HaveOccurred())
 	executionReport = report
-	if err := reporting.WriteHTML(filepath.Join(executionReportDir, "report.html"), report, false); err != nil {
+	if err := reporting.WriteHTML(filepath.Join(executionReportDir, "report.html"), report, false, nil); err != nil {
 		fmt.Fprintf(GinkgoWriter, "WARNING: writing initial E2E HTML log: %v\n", err)
 	} else {
 		fmt.Fprintf(GinkgoWriter, "E2E HTML log: %s\n", filepath.Join(executionReportDir, "report.html"))
+	}
+})
+
+var _ = ReportBeforeEach(func(spec SpecReport) {
+	if GinkgoParallelProcess() != 1 {
+		return
+	}
+	if err := reporting.WriteHTML(filepath.Join(executionReportDir, "report.html"), executionReport, false, &spec); err != nil {
+		fmt.Fprintf(GinkgoWriter, "WARNING: updating active spec in E2E HTML log: %v\n", err)
 	}
 })
 
@@ -39,7 +48,7 @@ var _ = ReportAfterEach(func(spec SpecReport) {
 	executionReport.SpecReports = append(executionReport.SpecReports, spec)
 	executionReport.EndTime = time.Now()
 	executionReport.RunTime = executionReport.EndTime.Sub(executionReport.StartTime)
-	if err := reporting.WriteHTML(filepath.Join(executionReportDir, "report.html"), executionReport, false); err != nil {
+	if err := reporting.WriteHTML(filepath.Join(executionReportDir, "report.html"), executionReport, false, nil); err != nil {
 		fmt.Fprintf(GinkgoWriter, "WARNING: updating E2E HTML log: %v\n", err)
 	}
 })
@@ -54,6 +63,6 @@ var _ = ReportAfterSuite("Write E2E execution reports", func(report Report) {
 			break
 		}
 	}
-	Expect(reporting.WriteHTML(filepath.Join(executionReportDir, "report.html"), report, complete)).To(Succeed())
+	Expect(reporting.WriteHTML(filepath.Join(executionReportDir, "report.html"), report, complete, nil)).To(Succeed())
 	fmt.Printf("E2E reports: %s\n", executionReportDir)
 })

@@ -103,9 +103,12 @@ labels, failure locations, and captured output. The status controls work without
 JavaScript or external assets. Captured output comes from GinkgoWriter; serial
 stdout/stderr remains in the original Prow/terminal log.
 
-The HTML is updated atomically after each completed spec. An interrupted run
-retains an explicitly incomplete snapshot; an active or hard-killed spec may not
-appear. During parallel runs, snapshots include process 1 only until Ginkgo
-aggregates the final result. A normally completed run also writes `report.json`
-and `junit_e2e.xml`, including suite setup and cleanup results. Report hooks do
-not change test selection, assertions, timeouts, or cluster cleanup.
+The HTML is updated atomically before and after each spec. An interrupted run
+retains an explicitly incomplete snapshot that names the active spec and counts
+selected specs without a final result as not reported. During parallel runs,
+snapshots include process 1 only until Ginkgo aggregates the final result. A
+normally completed run also writes `report.json` and `junit_e2e.xml`, including
+suite setup and cleanup results. Hook counts are separate from test spec counts;
+if suite setup fails, selected specs without results are shown as not run because
+setup failed. Report hooks do not change test selection,
+assertions, timeouts, or cluster cleanup.
