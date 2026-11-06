@@ -99,3 +99,9 @@ This is an ownership mode for a fresh or deliberately migrated deployment. `crea
 - NICo can create its DPF objects without a competing DPF apply from this automation.
 - DPF creates the DPU and reconciles NICo's DPU services after the DPU is reachable.
 - Hosted-cluster creation succeeds after the NICo deployment exists, and hosted-cluster DPF authorization can be applied afterward.
+
+For a DPU stuck in `Node Effect Removal`, see [Zero Trust DPU readiness recovery](zero-trust-dpu-readiness-recovery.md). The documented live-resource edits are for lab diagnosis only; the DPF controller fix is intended to make this retry automatic when the maintenance requestors clear.
+
+## Required controller changes
+
+The deployment automation and operator behavior are separate. The standalone DPF Zero Trust flavor already carries DPF's supported `skip-bfcfg-size-check` annotation. NICo creates its own flavor, so the HCP provisioner must add that annotation to its referenced flavor in Zero Trust mode. DPF also needs to watch applied/updated `DPUNodeMaintenance` objects, release ready-service requestors, and resume a DPU only when a `NodeEffectRemovalTimeout` has cleared. These companion changes belong in the HCP provisioner and DPF operator repositories; shell automation alone cannot make the controllers recover reliably.
