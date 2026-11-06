@@ -6,7 +6,7 @@ This runbook records the lab recovery used when a DPU timed out in `Node Effect 
 
 ```bash
 NS=dpf-operator-system
-DPU=<dpu-object-name>
+DPU="replace-with-dpu-object-name"
 oc get dpu "$DPU" -n "$NS" -o yaml
 oc get dpunodemaintenance -n "$NS" -o wide
 oc get dpunode -n "$NS" -o wide
@@ -19,8 +19,8 @@ Compare `DPU.spec.dpuNodeName` with the maintenance object's `spec.dpuNodeName` 
 In the recovered lab incident, the maintenance object referenced the x86 host instead of the DPUNode. After confirming the actual DPUNode, the live maintenance spec was corrected:
 
 ```bash
-MAINT=<dpunodemaintenance-object-name>
-DPUNODE=<actual-dpunode-name>
+MAINT="replace-with-dpunodemaintenance-object-name"
+DPUNODE="replace-with-actual-dpunode-name"
 oc patch dpunodemaintenance "$MAINT" -n "$NS" --type=merge \
   -p "{\"spec\":{\"dpuNodeName\":\"$DPUNODE\"}}"
 ```
