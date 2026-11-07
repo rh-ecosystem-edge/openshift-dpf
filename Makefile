@@ -81,7 +81,11 @@ _all-zt: $(ZT_ALL_STEPS)
 	@echo "================================================================================"
 	@echo "Zero Trust DPF, hosted-cluster, and DPU service configuration complete"
 	@echo "================================================================================"
+ifeq ($(NICO_ENABLED),true)
+	@echo "NICo handoff mode: create the DPUDeployment with NICo, then run make deploy-hosted-cluster"
+else
 	@$(VERIFY_SCRIPT) verify-zt-deployment
+endif
 
 .PHONY: validate-zt-mode
 validate-zt-mode:

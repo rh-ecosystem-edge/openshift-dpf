@@ -413,12 +413,53 @@ validate_zero_trust_redfish_configuration() {
         return 1
     fi
 
+    # NICo supplies DPU inventory and host reboot details. DPF still needs the
+    # shared DPU BMC credential for the platform configuration.
+    if [ "${NICO_ENABLED:-false}" = "true" ]; then
+        return 0
+    fi
+
     validate_worker_power_on_delay || return 1
     validate_zero_trust_dpu_inventory || return 1
 }
 
+validate_nico_configuration() {
+    local deployment_name="${NICO_DPU_DEPLOYMENT_NAME:-dpudeployment}"
+    local label
+
+    case "${NICO_ENABLED:-false}" in
+        true|false)
+            ;;
+        *)
+            echo "ERROR: NICO_ENABLED must be 'true' or 'false'" >&2
+            return 1
+            ;;
+    esac
+
+    if [ "${#deployment_name}" -gt 253 ] || [ -z "${deployment_name}" ]; then
+        echo "ERROR: NICO_DPU_DEPLOYMENT_NAME must be a valid Kubernetes DNS name" >&2
+        return 1
+    fi
+    IFS='.' read -ra labels <<< "${deployment_name}"
+    for label in "${labels[@]}"; do
+        if [ -z "${label}" ] || [ "${#label}" -gt 63 ] ||
+           ! [[ "${label}" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]]; then
+            echo "ERROR: NICO_DPU_DEPLOYMENT_NAME must contain valid Kubernetes DNS labels" >&2
+            return 1
+        fi
+    done
+
+    if [ "${NICO_ENABLED:-false}" = "true" ] &&
+       [ "${DPF_DEPLOYMENT_MODE:-}" != "zero-trust" ]; then
+        echo "ERROR: NICO_ENABLED=true currently requires DPF_DEPLOYMENT_MODE=zero-trust" >&2
+        return 1
+    fi
+}
+
 validate_zero_trust_mode() {
     local variable
+
+    validate_nico_configuration || return 1
 
     if [ "${DPF_DEPLOYMENT_MODE:-}" != "zero-trust" ]; then
         echo "ERROR: Zero Trust validation requires DPF_DEPLOYMENT_MODE=zero-trust" >&2
@@ -430,16 +471,21 @@ validate_zero_trust_mode() {
     fi
     validate_zero_trust_redfish_configuration || return 1
 
-    for variable in \
-        BFB_URL \
-        ZT_BFB_REGISTRY_PORT \
-        ZT_DPU_REBOOT_IMAGE; do
+    for variable in ZT_BFB_REGISTRY_PORT; do
         if [ -z "${!variable:-}" ]; then
             echo "ERROR: Zero Trust installation requires ${variable}" >&2
             return 1
         fi
     done
-    if [ -z "${ZT_DPU_DISCOVERY_NAME:-}" ]; then
+    if [ "${NICO_ENABLED:-false}" != "true" ]; then
+        for variable in BFB_URL ZT_DPU_REBOOT_IMAGE; do
+            if [ -z "${!variable:-}" ]; then
+                echo "ERROR: Zero Trust installation requires ${variable}" >&2
+                return 1
+            fi
+        done
+    fi
+    if [ "${NICO_ENABLED:-false}" != "true" ] && [ -z "${ZT_DPU_DISCOVERY_NAME:-}" ]; then
         echo "ERROR: Zero Trust installation requires ZT_DPU_DISCOVERY_NAME" >&2
         return 1
     fi
@@ -563,6 +609,8 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     # Compatibility default for .env files generated before deployment profiles
     # were introduced.
     DPF_DEPLOYMENT_MODE=${DPF_DEPLOYMENT_MODE:-host-trusted}
+    NICO_ENABLED=${NICO_ENABLED:-false}
+    NICO_DPU_DEPLOYMENT_NAME=${NICO_DPU_DEPLOYMENT_NAME:-dpudeployment}
     case "${DPF_DEPLOYMENT_MODE}" in
         host-trusted|zero-trust)
             ;;
@@ -571,6 +619,8 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
             exit 1
             ;;
     esac
+
+    validate_nico_configuration || exit 1
 
     if [ "${DPF_DEPLOYMENT_MODE}" = "zero-trust" ]; then
         if [ "${VM_COUNT}" -eq 1 ]; then
