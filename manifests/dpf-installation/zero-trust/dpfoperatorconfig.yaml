@@ -4,6 +4,7 @@ metadata:
   name: dpfoperatorconfig
   namespace: dpf-operator-system
 spec:
+  deploymentMode: zero-trust
   <FLANNEL_CONFIG>
   dpuDetector:
     disable: true
@@ -12,7 +13,8 @@ spec:
   multus:
     disable: true
   cniInstaller:
-    disable: true
+    # Required from DPF 26.8+ (26.11): ship ovs/rdma/dhcp CNIs to overrides.dpuCNIBinPath.
+    disable: false
   networking:
     highSpeedMTU: <NODES_MTU>
   overrides:
