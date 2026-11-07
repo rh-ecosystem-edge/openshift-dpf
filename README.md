@@ -169,6 +169,25 @@ preparation resolves `HOST_CLUSTER_API` to the SNO management-node address
 after `make update-etc-hosts`. Multi-node deployments use
 `HYPERSHIFT_API_IP` for the registry address.
 
+### Network Paths for the Zero Trust Automation
+
+These are the network paths this automation (`make all-zt`) needs. They
+describe the automation's lab flow, not the requirements of a production Zero
+Trust deployment.
+
+- The machine running `make` reaches each host BMC (`WORKER_<N>_BMC_IP`) over
+  IPMI (UDP 623), to power the hosts on in `all-zt` and off in `clean-all`.
+- The machine running `make` reaches each DPU BMC over Redfish (HTTPS), to wait
+  for the DPU BMCs after power-on.
+- The management cluster reaches each DPU BMC over Redfish (HTTPS), for DPU
+  discovery and the BFB install.
+- Management cluster pods, on any node, reach each host BMC over IPMI
+  (UDP 623): the reboot Job resets or power-cycles the host.
+- Each DPU BMC reaches the BFB registry over HTTP at `HYPERSHIFT_API_IP` (SNO:
+  the management node address), port `ZT_BFB_REGISTRY_PORT` (default 8086), to
+  download the BFB.
+- The DPUs reach the container image registries over HTTPS.
+
 ## 🏃 Quick Start
 
 ### 1. Clone and Setup
