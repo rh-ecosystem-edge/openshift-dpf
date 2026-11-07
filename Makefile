@@ -10,6 +10,20 @@ KATA_ENABLED := $(patsubst "%",%,$(KATA_ENABLED))
 KATA_ENABLED := $(patsubst '%',%,$(KATA_ENABLED))
 export KATA_ENABLED
 
+# Old generated environments omit this setting. Match env.sh's compatibility default.
+WORKER_PROVISIONING_MODE := $(patsubst "%",%,$(WORKER_PROVISIONING_MODE))
+WORKER_PROVISIONING_MODE := $(patsubst '%',%,$(WORKER_PROVISIONING_MODE))
+ifeq ($(strip $(WORKER_PROVISIONING_MODE)),)
+WORKER_PROVISIONING_MODE := day2-bmo
+endif
+export WORKER_PROVISIONING_MODE
+# Parse-time guard runs before any parallel prerequisite can mutate a cluster.
+ifneq ($(filter all _all all-zt _all-zt,$(or $(MAKECMDGOALS),all)),)
+ifneq ($(WORKER_PROVISIONING_MODE),day2-bmo)
+$(error make all/all-zt requires WORKER_PROVISIONING_MODE=day2-bmo; use create-base-cluster for NNO day1-assisted)
+endif
+endif
+
 # Script paths
 CLUSTER_SCRIPT := scripts/cluster.sh
 MANIFESTS_SCRIPT := scripts/manifests.sh
@@ -61,7 +75,12 @@ _all: $(ALL_STEPS)
 	@$(VERIFY_SCRIPT) verify-deployment
 
 .PHONY: create-base-cluster
+ifeq ($(WORKER_PROVISIONING_MODE),day1-assisted)
+create-base-cluster:
+	@scripts/assisted-cluster.sh run
+else
 create-base-cluster: verify-files check-cluster create-vms prepare-manifests cluster-install update-etc-hosts kubeconfig poweron-workers add-worker-nodes verify-workers
+endif
 
 .PHONY: all-zt
 all-zt:
@@ -610,6 +629,7 @@ help:
 	@echo "Cluster Management:"
 	@echo "  all               - Complete setup: verify, create cluster, VMs, install, and wait for completion (enable-kata last if KATA_ENABLED=true)"
 	@echo "  create-base-cluster - Create and install a base OpenShift cluster through worker provisioning"
+	@echo "    NNO opt-in: WORKER_PROVISIONING_MODE=day1-assisted (default: day2-bmo)"
 	@echo "  all-zt            - Zero Trust setup through DPU services and hosted-cluster authorization"
 	@echo "  create-cluster    - Create a new cluster"
 	@echo "  create-day2-cluster - Create a day2 cluster for worker nodes with DPUs"

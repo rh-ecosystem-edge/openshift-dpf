@@ -666,6 +666,9 @@ LIBVIRT_URI=$(libvirt_uri)
 if [ -z "${ARCH:-}" ]; then
     ARCH=$(libvirt_host_cmd uname -m)
 fi
+if is_day1_assisted; then
+    export ARCH
+fi
 
 generate_mac_from_machine_id() {
     local vm_name="$1"
