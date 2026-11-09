@@ -250,6 +250,30 @@ function create_dpfhcpprovisioner_secrets() {
     log [INFO] "Secrets created successfully in ${CLUSTERS_NAMESPACE} namespace"
 }
 
+function validate_bluefield_ocp_image() {
+    [ -n "${BLUEFIELD_OCP_IMAGE:-}" ] || return 0
+
+    local -a registry_flags=()
+    if [ -f "${OPENSHIFT_PULL_SECRET:-}" ]; then
+        registry_flags=(--registry-config="${OPENSHIFT_PULL_SECRET}")
+    fi
+    local release_version bluefield_version
+    if ! release_version=$(oc adm release info "${registry_flags[@]}" "${OCP_RELEASE_IMAGE}" -o json |
+        jq -er '.metadata.version | select(type == "string" and length > 0)'); then
+        log "ERROR" "Cannot determine hosted OCP version from ${OCP_RELEASE_IMAGE}"
+        return 1
+    fi
+    if ! bluefield_version=$(oc image info "${registry_flags[@]}" --filter-by-os=linux/arm64 "${BLUEFIELD_OCP_IMAGE}" -o json |
+        jq -er '.config.config.Labels["OCP.version"] | select(type == "string" and length > 0)'); then
+        log "ERROR" "Cannot determine OCP.version from BLUEFIELD_OCP_IMAGE=${BLUEFIELD_OCP_IMAGE}"
+        return 1
+    fi
+    if [ "${release_version}" != "${bluefield_version}" ]; then
+        log "ERROR" "Hosted OCP ${release_version} does not match BLUEFIELD_OCP_IMAGE ${BLUEFIELD_OCP_IMAGE} (OCP ${bluefield_version}). Set matching images or clear BLUEFIELD_OCP_IMAGE for operator lookup."
+        return 1
+    fi
+}
+
 function create_dpfhcpprovisioner_cr() {
     log [INFO] "Creating DPFHCPProvisioner Custom Resource..."
 
@@ -264,6 +288,8 @@ function create_dpfhcpprovisioner_cr() {
         log [INFO] "DPFHCPProvisioner CR ${HOSTED_CLUSTER_NAME} already exists. Skipping creation."
         return 0
     fi
+
+    validate_bluefield_ocp_image || return 1
 
     # Determine control plane availability policy based on VM_COUNT
     local control_plane_policy

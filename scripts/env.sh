@@ -505,8 +505,7 @@ validate_aicli() {
     fi
 }
 
-# When PAYLOAD_URL is set (e.g. by Prow), derive OPENSHIFT_VERSION and
-# OCP_RELEASE_IMAGE from the release payload instead of using .env defaults.
+# When PAYLOAD_URL is set (e.g. by Prow), derive OPENSHIFT_VERSION from it.
 resolve_payload() {
     export AI_URL="${AI_URL:-http://127.0.0.1:8090}"
     if ! command -v oc &>/dev/null; then
@@ -530,12 +529,15 @@ resolve_payload() {
         exit 1
     fi
     export OPENSHIFT_VERSION="$_payload_version"
-    local _multi_image="quay.io/openshift-release-dev/ocp-release:${_payload_version}-multi"
-    if oc adm release info "${_oc_registry_flags[@]}" "$_multi_image" &>/dev/null; then
-        export OCP_RELEASE_IMAGE="$_multi_image"
-    else
-        export OCP_RELEASE_IMAGE="$PAYLOAD_URL"
-    fi
+    # Restore this selection when NVIDIA-1612 can choose an available BlueField OCP layer:
+    # local _multi_image="quay.io/openshift-release-dev/ocp-release:${_payload_version}-multi"
+    # if oc adm release info "${_oc_registry_flags[@]}" "$_multi_image" &>/dev/null; then
+    #     export OCP_RELEASE_IMAGE="$_multi_image"
+    # else
+    #     export OCP_RELEASE_IMAGE="$PAYLOAD_URL"
+    # fi
+    # WA: pin hosted OCP until CI selects the latest matching BlueField layer (NVIDIA-1612).
+    export OCP_RELEASE_IMAGE="${OCP_RELEASE_IMAGE:-quay.io/openshift-release-dev/ocp-release:4.22.19-multi}"
     echo "PAYLOAD_URL set: OPENSHIFT_VERSION=${OPENSHIFT_VERSION}, OCP_RELEASE_IMAGE=${OCP_RELEASE_IMAGE}"
 }
 
