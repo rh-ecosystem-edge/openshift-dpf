@@ -196,22 +196,6 @@ function deploy_core_operator_sources() {
 }
 
 # Function to prepare DPF manifests
-resolve_zero_trust_bfb_registry_host() {
-    local -n resolved_host=$1
-
-    if [ "${VM_COUNT}" -gt 1 ]; then
-        resolved_host="${HYPERSHIFT_API_IP}"
-        return 0
-    fi
-
-    if ! resolved_host=$(resolve_sno_management_ip); then
-        log "ERROR" "Unable to resolve the SNO management address for the Zero Trust BFB registry"
-        return 1
-    fi
-
-    log "INFO" "Zero Trust SNO: using ${resolved_host} for the BFB registry"
-}
-
 prepare_zero_trust_objects() {
     local flannel_config="$1"
     local bfb_registry_host
@@ -235,6 +219,11 @@ prepare_zero_trust_objects() {
 
     mkdir -p "${inventory_dir}"
     find "${inventory_dir}" -maxdepth 1 -type f -name "*.yaml" -delete
+
+    if [ "${NICO_ENABLED:-false}" = "true" ]; then
+        log [INFO] "NICo integration enabled: leaving DPUDevice/DPUNode inventory to NICo"
+        return
+    fi
 
     # DPUNodes list DPUDevice names, which discovery derives from the DPU
     # serials, so dpf.sh renders them after discovery.

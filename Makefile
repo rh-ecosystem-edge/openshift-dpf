@@ -10,6 +10,11 @@ KATA_ENABLED := $(patsubst "%",%,$(KATA_ENABLED))
 KATA_ENABLED := $(patsubst '%',%,$(KATA_ENABLED))
 export KATA_ENABLED
 
+# Match the shell environment loader for quoted .env values.
+NICO_ENABLED := $(patsubst "%",%,$(NICO_ENABLED))
+NICO_ENABLED := $(patsubst '%',%,$(NICO_ENABLED))
+export NICO_ENABLED
+
 # Script paths
 CLUSTER_SCRIPT := scripts/cluster.sh
 MANIFESTS_SCRIPT := scripts/manifests.sh
@@ -72,7 +77,11 @@ all-zt:
 # Host worker/BMO provisioning, OVN injection, Kata, and trusted verification
 # are deliberately excluded. With VERIFY_DEPLOYMENT=true it ends by waiting for
 # every listed DPU to be Ready and the hosted cluster operators to be stable.
-ZT_ALL_STEPS := validate-zt-mode verify-files check-cluster create-vms prepare-manifests cluster-install update-etc-hosts kubeconfig poweron-workers deploy-dpf prepare-dpu-files deploy-dpu-services
+ZT_ALL_STEPS := validate-zt-mode verify-files check-cluster create-vms prepare-manifests cluster-install update-etc-hosts kubeconfig
+ifneq ($(NICO_ENABLED),true)
+ZT_ALL_STEPS += poweron-workers
+endif
+ZT_ALL_STEPS += deploy-dpf prepare-dpu-files deploy-dpu-services
 
 .NOTPARALLEL: _all-zt
 .PHONY: _all-zt
@@ -81,7 +90,11 @@ _all-zt: $(ZT_ALL_STEPS)
 	@echo "================================================================================"
 	@echo "Zero Trust DPF, hosted-cluster, and DPU service configuration complete"
 	@echo "================================================================================"
+ifeq ($(NICO_ENABLED),true)
+	@echo "NICo handoff mode: create the DPUDeployment with NICo, then run make deploy-hosted-cluster"
+else
 	@$(VERIFY_SCRIPT) verify-zt-deployment
+endif
 
 .PHONY: validate-zt-mode
 validate-zt-mode:
