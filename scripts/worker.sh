@@ -655,12 +655,22 @@ reset_dpu_privilege_controls() (
     fi
 
     log "INFO" "Power cycling worker(s) ${cycle_hosts[*]} so the host privilege controls apply"
+    local -a not_off=() not_on=()
     for host in "${cycle_hosts[@]}"; do
-        _shutoff_worker "${host}" || return 1
+        _shutoff_worker "${host}" || not_off+=("${host}")
     done
     for host in "${cycle_hosts[@]}"; do
-        _poweron_worker "${host}" || return 1
+        _poweron_worker "${host}" || not_on+=("${host}")
     done
+    if [ "${#not_off[@]}" -gt 0 ]; then
+        log "ERROR" "Could not confirm worker(s) ${not_off[*]} powered off, so their host privilege controls may not have applied; rerun reset-dpu-privilege-controls"
+    fi
+    if [ "${#not_on[@]}" -gt 0 ]; then
+        log "ERROR" "Could not power on worker(s) ${not_on[*]}; power them on and rerun reset-dpu-privilege-controls"
+    fi
+    if [ "${#not_off[@]}" -gt 0 ] || [ "${#not_on[@]}" -gt 0 ]; then
+        return 1
+    fi
     wait_for_dpu_redfish "${curl_config}" || return 1
 
     # Redfish can answer before the NIC record is current, so retry for 2 minutes.
