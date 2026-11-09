@@ -10,6 +10,11 @@ KATA_ENABLED := $(patsubst "%",%,$(KATA_ENABLED))
 KATA_ENABLED := $(patsubst '%',%,$(KATA_ENABLED))
 export KATA_ENABLED
 
+# Match the shell environment loader for quoted .env values.
+NICO_ENABLED := $(patsubst "%",%,$(NICO_ENABLED))
+NICO_ENABLED := $(patsubst '%',%,$(NICO_ENABLED))
+export NICO_ENABLED
+
 # Script paths
 CLUSTER_SCRIPT := scripts/cluster.sh
 MANIFESTS_SCRIPT := scripts/manifests.sh
@@ -81,7 +86,11 @@ _all-zt: $(ZT_ALL_STEPS)
 	@echo "================================================================================"
 	@echo "Zero Trust DPF, hosted-cluster, and DPU service configuration complete"
 	@echo "================================================================================"
+ifeq ($(NICO_ENABLED),true)
+	@echo "NICo handoff mode: create the DPUDeployment with NICo, then run make deploy-hosted-cluster"
+else
 	@$(VERIFY_SCRIPT) verify-zt-deployment
+endif
 
 .PHONY: validate-zt-mode
 validate-zt-mode:

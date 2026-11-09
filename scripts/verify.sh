@@ -23,7 +23,11 @@ source "${SCRIPT_DIR}/utils.sh"
 VERIFY_MAX_RETRIES="${VERIFY_MAX_RETRIES:-60}"
 VERIFY_SLEEP_SECONDS="${VERIFY_SLEEP_SECONDS:-30}"
 DPF_OPERATOR_NAMESPACE="${DPF_OPERATOR_NAMESPACE:-dpf-operator-system}"
-DPU_DEPLOYMENT_NAME="${DPU_DEPLOYMENT_NAME:-dpudeployment}"
+if [[ "${NICO_ENABLED:-false}" == "true" ]]; then
+    DPU_DEPLOYMENT_NAME="${NICO_DPU_DEPLOYMENT_NAME:-dpudeployment}"
+else
+    DPU_DEPLOYMENT_NAME="${DPU_DEPLOYMENT_NAME:-dpudeployment}"
+fi
 
 # Ordered verify-deployment steps and failures (for end summary).
 VERIFY_DEPLOYMENT_STEPS=(
@@ -161,15 +165,19 @@ check_dpudeployment_ready() {
     [[ "$ready_status" == "True" ]]
 }
 
-# Print the state of every DPU listed in WORKER_<N>_DPU_BMC_IPS. Succeeds when
-# each DPU is in phase Ready and its hosted Node, which has the DPU's name, is Ready.
+# Print the state of every DPU listed in WORKER_<N>_DPU_BMC_IPS. Succeeds only
+# when the DPU and its services, DPUNode references, and hosted Node are ready.
 check_zt_dpus_ready() {
     local namespace="${1:-$DPF_OPERATOR_NAMESPACE}"
-    local devices dpus nodes host bmc_ip device dpu phase node_ready
+    local devices dpus dpunodes maintenances nodes
+    local host bmc_ip device dpu phase ready operational_ready node_ready
+    local dpu_node_name maintenance_mismatch dpu_node_exists
     local not_ready=0
 
     devices=$(oc get dpudevices.provisioning.dpu.nvidia.com -n "$namespace" -o json 2>/dev/null) || return 1
     dpus=$(oc get dpus.provisioning.dpu.nvidia.com -n "$namespace" -o json 2>/dev/null) || return 1
+    dpunodes=$(oc get dpunodes.provisioning.dpu.nvidia.com -n "$namespace" -o json 2>/dev/null) || return 1
+    maintenances=$(oc get dpunodemaintenances.provisioning.dpu.nvidia.com -n "$namespace" -o json 2>/dev/null) || return 1
     nodes=$(KUBECONFIG="$HOSTED_KUBECONFIG" oc get nodes -o json 2>/dev/null) || nodes='{"items":[]}'
 
     while IFS= read -r host; do
@@ -180,10 +188,26 @@ check_zt_dpus_ready() {
                 'first(.items[] | select($d != "" and .spec.dpuDeviceName == $d) | .metadata.name) // ""' <<< "$dpus")
             phase=$(jq -r --arg n "$dpu" \
                 'first(.items[] | select(.metadata.name == $n) | .status.phase) // "none"' <<< "$dpus")
+            ready=$(jq -r --arg n "$dpu" \
+                'first(.items[] | select(.metadata.name == $n) | .status.conditions[]? | select(.type == "Ready") | .status) // "missing"' <<< "$dpus")
+            operational_ready=$(jq -r --arg n "$dpu" \
+                'first(.items[] | select(.metadata.name == $n) | .status.operationalConditions[]? | select(.type == "OperationalReady") | .status) // "missing"' <<< "$dpus")
             node_ready=$(jq -r --arg n "$dpu" \
                 'first(.items[] | select(.metadata.name == $n) | .status.conditions[]? | select(.type == "Ready") | .status) // "missing"' <<< "$nodes")
-            echo "WORKER_${host} DPU BMC ${bmc_ip}: DPU ${dpu:-missing}, phase ${phase}, hosted Node Ready=${node_ready}"
-            [[ "$phase" == "Ready" && "$node_ready" == "True" ]] || not_ready=1
+            dpu_node_name=$(jq -r --arg n "$dpu" \
+                'first(.items[] | select(.metadata.name == $n) | .spec.dpuNodeName) // ""' <<< "$dpus")
+            dpu_node_exists=$(jq -r --arg n "$dpu_node_name" \
+                'any(.items[]; .metadata.name == $n)' <<< "$dpunodes")
+            maintenance_mismatch=$(jq -r --arg dpu "$dpu" --arg node "$dpu_node_name" \
+                '[.items[] | select((.spec.requestor // []) | index($dpu)) | select(.spec.dpuNodeName != $node) | .metadata.name] | join(",")' <<< "$maintenances")
+            echo "WORKER_${host} DPU BMC ${bmc_ip}: DPU ${dpu:-missing}, phase ${phase}, Ready=${ready}, OperationalReady=${operational_ready}, hosted Node Ready=${node_ready}"
+            [[ "$phase" == "Ready" && "$ready" == "True" && "$operational_ready" == "True" && "$node_ready" == "True" && "$dpu_node_exists" == "true" && -z "$maintenance_mismatch" ]] || not_ready=1
+            if [[ "$dpu_node_exists" != "true" ]]; then
+                echo "  DPUNode ${dpu_node_name:-missing} does not exist in ${namespace}"
+            fi
+            if [[ -n "$maintenance_mismatch" ]]; then
+                echo "  DPUNodeMaintenance references the wrong DPUNode for this DPU: ${maintenance_mismatch} (expected ${dpu_node_name})"
+            fi
         done < <(list_zero_trust_host_dpu_bmc_ips "$host")
     done < <(list_zero_trust_dpu_hosts)
 
