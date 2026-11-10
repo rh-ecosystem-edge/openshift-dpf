@@ -75,6 +75,11 @@ resolve_kubeconfig() {
 discover_tft_nodes() {
     local kubeconfig_path="$1"
 
+    if [[ -n "${TFT_SERVER_NODE}" ]] && [[ -n "${TFT_CLIENT_NODE}" ]]; then
+        log "INFO" "Using explicitly set TFT nodes: server=${TFT_SERVER_NODE}, client=${TFT_CLIENT_NODE}"
+        return 0
+    fi
+
     if ! command -v oc &>/dev/null; then
         log "ERROR" "oc is required to discover TFT nodes from the cluster"
         return 1
@@ -97,11 +102,6 @@ discover_tft_nodes() {
 
     log "INFO" "Found ${#workers[@]} Ready DPU worker(s): ${workers[*]}"
     TFT_DPU_WORKER_COUNT=${#workers[@]}
-
-    if [[ -n "${TFT_SERVER_NODE}" ]] && [[ -n "${TFT_CLIENT_NODE}" ]]; then
-        log "INFO" "Using explicitly set TFT nodes: server=${TFT_SERVER_NODE}, client=${TFT_CLIENT_NODE}"
-        return 0
-    fi
 
     if [[ -z "${TFT_SERVER_NODE}" ]]; then
         TFT_SERVER_NODE="${workers[0]}"
