@@ -448,42 +448,6 @@ function start_cluster_installation() {
     ensure_cluster_storage || return 1
 }
 
-function get_kubeconfig() {
-    log "INFO" "Getting kubeconfig..."
-    
-    # Determine the kubeconfig path (from environment or env.sh)
-    local kubeconfig_path="${KUBECONFIG:-}"
-    
-    if [ -z "${kubeconfig_path}" ]; then
-        log "INFO" "KUBECONFIG not set in environment, checking env.sh..."
-        source "$(dirname "$0")/env.sh"
-        kubeconfig_path="${KUBECONFIG:-}"
-    fi
-
-    # Trim whitespace using a more readable approach
-    kubeconfig_path=$(echo "$kubeconfig_path" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-
-    echo "KUBECONFIG: $kubeconfig_path"
-    if [ ! -f "$kubeconfig_path" ]; then
-        log "INFO" "Downloading kubeconfig for $CLUSTER_NAME"
-        (umask 077; aicli download kubeconfig "$CLUSTER_NAME")
-        chmod 600 "kubeconfig.$CLUSTER_NAME" 2>/dev/null || true
-        copy_error=$(umask 077; cp "kubeconfig.$CLUSTER_NAME" "$kubeconfig_path" 2>&1) || true
-        log "INFO" "Kubeconfig downloaded to $KUBECONFIG"
-    else
-        log "INFO" "Using existing kubeconfig at: $KUBECONFIG"
-    fi
-    # Validate the kubeconfig path
-    if [ -n "${kubeconfig_path}" ] && [ -f "${kubeconfig_path}" ] && [ -r "${kubeconfig_path}" ]; then
-        log "INFO" "Using KUBECONFIG: ${kubeconfig_path}"
-        export KUBECONFIG="${kubeconfig_path}"
-        return 0
-    else
-        log "ERROR" "KUBECONFIG file not found or inaccessible: ${kubeconfig_path}${copy_error:+ (Copy error: $copy_error)}"
-        exit 1
-    fi
-}
-
 function get_kubeadmin_password() {
     log "INFO" "Downloading kubeadmin password for cluster ${CLUSTER_NAME}..."
     

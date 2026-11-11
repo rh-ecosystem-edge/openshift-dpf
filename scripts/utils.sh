@@ -124,6 +124,82 @@ function wait_for_secret_with_data() {
     ' _ "$namespace" "$secret_name" "$key"
 }
 
+# DPFHCPProvisioner reached its terminal success state.
+dpfhcp_provisioner_is_ready() {
+    local namespace="$1"
+    local name="$2"
+    local phase
+
+    phase=$(oc get dpfhcpprovisioner.provisioning.dpu.hcp.io "${name}" \
+        -n "${namespace}" -o jsonpath='{.status.phase}' 2>/dev/null || true)
+    [ "${phase}" = "Ready" ]
+}
+
+# Wait for the DPFHCPProvisioner that backs the DPU HostedCluster. Outside Zero
+# Trust it is not installed, and its absence is not an error.
+function wait_for_dpfhcp_provisioner_ready() {
+    local get_output
+    if ! get_output=$(oc get dpfhcpprovisioner.provisioning.dpu.hcp.io \
+        "${HOSTED_CLUSTER_NAME}" \
+        -n "${CLUSTERS_NAMESPACE}" -o name 2>&1); then
+        if ! grep -Eq 'NotFound|not found|doesn.t have a resource type' <<< "${get_output}"; then
+            log [ERROR] "Failed to query DPFHCPProvisioner: ${get_output}"
+            return 1
+        fi
+        if [ "${DPF_DEPLOYMENT_MODE}" = "zero-trust" ]; then
+            log [ERROR] "DPFHCPProvisioner ${CLUSTERS_NAMESPACE}/${HOSTED_CLUSTER_NAME} was not found"
+            return 1
+        fi
+        log [INFO] "DPFHCPProvisioner is not configured; skipping its readiness check"
+        return 0
+    fi
+
+    log [INFO] "Waiting for DPFHCPProvisioner ${CLUSTERS_NAMESPACE}/${HOSTED_CLUSTER_NAME} to become Ready..."
+    if ! retry 180 10 dpfhcp_provisioner_is_ready "${CLUSTERS_NAMESPACE}" "${HOSTED_CLUSTER_NAME}"; then
+        log [ERROR] "DPFHCPProvisioner ${HOSTED_CLUSTER_NAME} did not become Ready within 30 minutes"
+        oc get dpfhcpprovisioner.provisioning.dpu.hcp.io "${HOSTED_CLUSTER_NAME}" \
+            -n "${CLUSTERS_NAMESPACE}" -o yaml || true
+        oc get dpucluster.provisioning.dpu.nvidia.com "${HOSTED_CLUSTER_NAME}" \
+            -n dpf-operator-system -o yaml || true
+        return 1
+    fi
+
+    oc get dpfhcpprovisioner.provisioning.dpu.hcp.io \
+        "${HOSTED_CLUSTER_NAME}" -n "${CLUSTERS_NAMESPACE}"
+}
+
+# Management-cluster kubeconfig: use KUBECONFIG from env, or download via aicli when missing.
+get_kubeconfig() {
+    local kubeconfig_path copy_error=""
+    log "INFO" "Getting kubeconfig..."
+
+    kubeconfig_path="${KUBECONFIG:-}"
+    if [ -z "${kubeconfig_path}" ]; then
+        log "INFO" "KUBECONFIG not set in environment"
+        kubeconfig_path="${KUBECONFIG:-}"
+    fi
+
+    kubeconfig_path=$(echo "$kubeconfig_path" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+
+    if [ -n "${kubeconfig_path}" ] && [ ! -f "$kubeconfig_path" ]; then
+        log "INFO" "Downloading kubeconfig for ${CLUSTER_NAME}"
+        (umask 077; aicli download kubeconfig "$CLUSTER_NAME")
+        chmod 600 "kubeconfig.${CLUSTER_NAME}" 2>/dev/null || true
+        copy_error=$(umask 077; cp "kubeconfig.${CLUSTER_NAME}" "$kubeconfig_path" 2>&1) || true
+    elif [ -n "${kubeconfig_path}" ]; then
+        log "INFO" "Using existing kubeconfig at: ${kubeconfig_path}"
+    fi
+
+    if [ -n "${kubeconfig_path}" ] && [ -f "${kubeconfig_path}" ] && [ -r "${kubeconfig_path}" ]; then
+        export KUBECONFIG="${kubeconfig_path}"
+        log "INFO" "Using KUBECONFIG: ${KUBECONFIG}"
+        return 0
+    fi
+
+    log "ERROR" "KUBECONFIG file not found or inaccessible: ${kubeconfig_path}${copy_error:+ (Copy error: ${copy_error})}"
+    return 1
+}
+
 # Returns 0 on success, 1 if secret missing (skip hosted checks), 2 on error.
 ensure_hosted_kubeconfig() {
     if [[ -f "$HOSTED_KUBECONFIG" ]] && [[ -s "$HOSTED_KUBECONFIG" ]]; then
