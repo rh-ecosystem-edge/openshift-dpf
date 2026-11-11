@@ -127,9 +127,12 @@ func runStandaloneDPFCTLSOSReports(ctx context.Context, runner commandRunner, ma
 		result := runWithTimeout(ctx, runner, binaryPath, task.Args, env)
 
 		// dpfctl can emit benign warnings on stderr, including a missing optional
-		// /etc/dpf-defaults.yaml. Only the process exit status and archive validation
-		// determine whether this task failed.
+		// /etc/dpf-defaults.yaml. collect v26.4.0 can also return success after an
+		// init-container failure, so include its reported failure in the test error.
 		taskErr := result.Err
+		if failure := sosCollectionFailure(result.Stdout + "\n" + result.Stderr); failure != "" {
+			taskErr = errors.Join(taskErr, fmt.Errorf("dpfctl collect reported: %s", failure))
+		}
 		if err := writeCommandLog(filepath.Join(task.ArtifactDir, "command.log"), result); err != nil {
 			taskErr = errors.Join(taskErr, err)
 		}
@@ -148,7 +151,8 @@ func runStandaloneDPFCTLSOSReports(ctx context.Context, runner commandRunner, ma
 			}
 		}
 
-		// --cleanup=false keeps failed pods available for the diagnostic above.
+		// collect v26.4.0 can remove failed pods despite --cleanup=false;
+		// command.log retains the reported failure when pod diagnostics are unavailable.
 		// Cleanup is always scoped by this task's unique case ID; target arguments
 		// further restrict DPU cases to the hosted cluster.
 		cleanupResult := runWithTimeout(ctx, runner, binaryPath, task.CleanupArgs, env)
@@ -210,14 +214,14 @@ func captureSOSFailureDiagnostics(ctx context.Context, runner commandRunner, kub
 }
 
 func buildSOSReportTasks(hostNodes, dpuNodes []string, artifactDir, runID string) []sosReportTask {
-	newTask := func(name, caseID, caseArtifactDir, diagnosticTarget, reportTimeout string, targetArgs []string) sosReportTask {
+	newTask := func(name, caseID, caseArtifactDir, diagnosticTarget, reportTimeout, memoryLimit string, targetArgs []string) sosReportTask {
 		outputDir := filepath.Join(caseArtifactDir, "reports")
 		args := []string{"sosreport", "collect"}
 		args = append(args, targetArgs...)
 		args = append(args,
 			"--case-id", caseID,
 			"--timeout", reportTimeout,
-			"--limits.memory", dpfctlSOSMemoryLimit,
+			"--limits.memory", memoryLimit,
 			"--cleanup=false",
 			"--archive",
 			"--archive-only",
@@ -242,6 +246,7 @@ func buildSOSReportTasks(hostNodes, dpuNodes []string, artifactDir, runID string
 			filepath.Join(artifactDir, "no-target-host", node),
 			"host",
 			dpfctlSOSHostTimeout,
+			dpfctlSOSMemoryLimit,
 			[]string{"--nodes", node},
 		))
 	}
@@ -252,6 +257,7 @@ func buildSOSReportTasks(hostNodes, dpuNodes []string, artifactDir, runID string
 			filepath.Join(artifactDir, "target-dpu", node),
 			"dpu",
 			dpfctlSOSDPUTimeout,
+			dpfctlSOSDPUMemoryLimit,
 			[]string{"--target", "dpu", "--nodes", node},
 		))
 	}
