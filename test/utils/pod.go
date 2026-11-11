@@ -121,7 +121,7 @@ func GetRunningPods(ctx context.Context, c client.Client, namespace string, labe
 
 	var running []corev1.Pod
 	for _, pod := range podList.Items {
-		if pod.Status.Phase == corev1.PodRunning {
+		if pod.Status.Phase == corev1.PodRunning && pod.DeletionTimestamp == nil {
 			running = append(running, pod)
 		}
 	}
