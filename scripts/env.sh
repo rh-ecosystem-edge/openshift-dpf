@@ -3,8 +3,8 @@
 # Exit on error
 set -e
 
-# Prevent double sourcing
-if [ -n "${ENV_SH_SOURCED:-}" ]; then
+# Prevent double sourcing (return only when sourced; direct invocations still run subcommands)
+if [ -n "${ENV_SH_SOURCED:-}" ] && [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     return 0
 fi
 export ENV_SH_SOURCED=1
@@ -265,6 +265,26 @@ resolve_dpf_storage_class() {
     fi
 }
 
+# Canonicalize a path portably: `readlink -m` is GNU-only (BSD readlink and
+# realpath on macOS reject it and require the file to exist). Resolve the file
+# when it exists, else canonicalize its parent directory.
+canonical_path() {
+    local p="$1" dir
+    if [ -e "${p}" ]; then
+        readlink -f "${p}" 2>/dev/null && return 0
+    fi
+    case "${p}" in
+        /*) ;;
+        *) p="${PWD}/${p}" ;;
+    esac
+    dir="$(dirname "${p}")"
+    if [ -d "${dir}" ]; then
+        dir="$(cd "${dir}" && pwd -P)"
+        p="${dir%/}/$(basename "${p}")"
+    fi
+    printf '%s\n' "${p}"
+}
+
 # Print the indexes of the hosts whose WORKER_<N>_DPU_BMC_IPS lists at least one
 # DPU, in numeric order. Additional numbered variables can be supplied through
 # .env, the process environment, or the make command line.
@@ -417,6 +437,256 @@ validate_zero_trust_redfish_configuration() {
     validate_zero_trust_dpu_inventory || return 1
 }
 
+# -----------------------------------------------------------------------------
+# Zero Trust tenant HostedCluster (make deploy-zt-tenant-cluster)
+# -----------------------------------------------------------------------------
+
+is_valid_dns_label() {
+    local value="$1"
+    [ "${#value}" -le 63 ] && [[ "${value}" =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]]
+}
+
+is_valid_dns_subdomain() {
+    local value="$1"
+    [ "${#value}" -le 253 ] &&
+        [[ "${value}" =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$ ]]
+}
+
+is_valid_ipv4_cidr() {
+    local cidr="$1" prefix
+    case "${cidr}" in
+        */*) ;;
+        *) return 1 ;;
+    esac
+    prefix="${cidr##*/}"
+    [[ "${prefix}" =~ ^[0-9]{1,2}$ ]] || return 1
+    [ "$((10#${prefix}))" -le 32 ] || return 1
+    _ipv4_to_integer "${cidr%/*}" >/dev/null
+}
+
+# Resolve the SSH public key used as InfraEnv.sshAuthorizedKey. Echoes the path
+# on success; the diagnostic goes to stderr because callers capture stdout.
+_tenant_ssh_key_path() {
+    local key_path="${SSH_PUBLIC_KEY_FILE:-${SSH_KEY:-}}"
+    # Tilde is not expanded for quoted values sourced from .env.
+    key_path="${key_path/#\~/${HOME}}"
+    if [ -z "${key_path}" ] || [ ! -f "${key_path}" ]; then
+        echo "ERROR: SSH public key not found (set SSH_KEY or SSH_PUBLIC_KEY_FILE to a .pub path)" >&2
+        return 1
+    fi
+    if [[ "${key_path}" != *.pub ]]; then
+        # Same rule as ensure_ssh_key_in_home: this file becomes InfraEnv
+        # sshAuthorizedKey, so a private key must never be used here.
+        echo "ERROR: SSH key '${key_path}' is not a .pub file (set SSH_KEY or SSH_PUBLIC_KEY_FILE to the public key)" >&2
+        return 1
+    fi
+    echo "${key_path}"
+}
+
+# Two kubeconfigs that resolve to the same file would clobber each other, so
+# every derived cluster needs its own path.
+_require_distinct_kubeconfigs() {
+    local a="$1" a_label="$2" b="$3" b_label="$4"
+    [ -n "${a}" ] && [ -n "${b}" ] || return 0
+    if [ "$(canonical_path "${a}")" = "$(canonical_path "${b}")" ]; then
+        echo "Error: ${a_label} '${a}' must differ from ${b_label} '${b}'" >&2
+        return 1
+    fi
+}
+
+# Assisted Installer RHCOS artifacts for the tenant InfraEnv. Defaults and
+# validation live here; zt-tenant-cluster.sh only consumes the values.
+# Only x86_64 and aarch64 are supported: there is no multi-arch RHCOS live ISO
+# for Assisted discovery, and the tenant workers are one of those two builds.
+_tenant_resolve_rhcos_artifacts() {
+    local mirror_arch
+
+    case "${ZT_TENANT_RHCOS_CPU_ARCHITECTURE}" in
+        x86_64 | amd64)
+            ZT_TENANT_RHCOS_OSIMAGE_ARCH=x86_64
+            ZT_TENANT_NODEPOOL_ARCH=amd64
+            mirror_arch=x86_64
+            ;;
+        aarch64 | arm64)
+            ZT_TENANT_RHCOS_OSIMAGE_ARCH=arm64
+            ZT_TENANT_NODEPOOL_ARCH=arm64
+            mirror_arch=aarch64
+            ;;
+        *)
+            # validate_zt_tenant_configuration reports the invalid value.
+            ZT_TENANT_RHCOS_OSIMAGE_ARCH=""
+            ZT_TENANT_NODEPOOL_ARCH=""
+            return 0
+            ;;
+    esac
+
+    # AgentServiceConfig osImages.openshiftVersion is major.minor (e.g. 4.22).
+    ZT_TENANT_OPENSHIFT_VERSION_MINOR="${ZT_TENANT_OPENSHIFT_VERSION_MINOR%%-multi}"
+    ZT_TENANT_OPENSHIFT_VERSION_MINOR="$(echo "${ZT_TENANT_OPENSHIFT_VERSION_MINOR}" | awk -F. '{if (NF >= 2) print $1"."$2; else print $0}')"
+
+    if [ -n "${ZT_TENANT_RHCOS_ISO_URL}" ] || [ -n "${ZT_TENANT_RHCOS_ROOTFS_URL}" ] ||
+        [ -n "${ZT_TENANT_RHCOS_VERSION}" ]; then
+        if [ -z "${ZT_TENANT_RHCOS_ISO_URL}" ] || [ -z "${ZT_TENANT_RHCOS_ROOTFS_URL}" ] ||
+            [ -z "${ZT_TENANT_RHCOS_VERSION}" ]; then
+            echo "Error: ZT_TENANT_RHCOS_ISO_URL, ZT_TENANT_RHCOS_ROOTFS_URL and ZT_TENANT_RHCOS_VERSION must be set together" >&2
+            return 1
+        fi
+        return 0
+    fi
+
+    # Only the tenant flow needs the mirror lookups; other targets must not
+    # pay for them.
+    [ "$(basename "${0:-}")" = "zt-tenant-cluster.sh" ] || return 0
+
+    # The mirror publishes the RHEL 9 based RHCOS under the plain minor
+    # (<minor>/latest). The 4.22-el10 tree is the RHEL 10 variant and is not
+    # what the tenant cluster runs.
+    local base
+    base="https://mirror.openshift.com/pub/openshift-v4/${mirror_arch}/dependencies/rhcos/${ZT_TENANT_OPENSHIFT_VERSION_MINOR}/latest"
+
+    ZT_TENANT_RHCOS_ISO_URL="${base}/rhcos-live-iso.${mirror_arch}.iso"
+    ZT_TENANT_RHCOS_ROOTFS_URL="${base}/rhcos-live-rootfs.${mirror_arch}.img"
+    ZT_TENANT_RHCOS_VERSION="$(curl -fsSL "${base}/rhcos-id.txt" 2>/dev/null | tr -d '[:space:]' || true)"
+    [ -n "${ZT_TENANT_RHCOS_VERSION}" ] || ZT_TENANT_RHCOS_VERSION="${ZT_TENANT_OPENSHIFT_VERSION_MINOR}"
+    echo "Using mirror RHCOS for Assisted: ${ZT_TENANT_RHCOS_VERSION} (${ZT_TENANT_RHCOS_ISO_URL})"
+}
+
+# Offline check of everything the tenant HostedCluster flow consumes, run at the
+# start of `make deploy-zt-tenant-cluster` before any cluster calls are made.
+validate_zt_tenant_configuration() {
+    local host dpu_count variable kc_dir
+
+    if [ "${DPF_DEPLOYMENT_MODE:-}" != "zero-trust" ]; then
+        echo "ERROR: deploy-zt-tenant-cluster requires DPF_DEPLOYMENT_MODE=zero-trust" >&2
+        return 1
+    fi
+    if [ "${HYPERSHIFT_INSTALL_METHOD:-}" != "mce" ]; then
+        echo "ERROR: deploy-zt-tenant-cluster requires HYPERSHIFT_INSTALL_METHOD=mce (shared MCE HyperShift + Assisted)" >&2
+        return 1
+    fi
+
+    # Names: they become namespaces, object names and label values. HyperShift
+    # prefixes the API/ingress hosts with the cluster name, so the tenant base
+    # domain may equal BASE_DOMAIN.
+    if ! is_valid_dns_label "${ZT_TENANT_CLUSTER_NAME:-}"; then
+        echo "ERROR: ZT_TENANT_CLUSTER_NAME '${ZT_TENANT_CLUSTER_NAME:-}' must be a lowercase DNS-1123 label (<=63 chars); it is used in the agent namespace ${CLUSTERS_NAMESPACE}-<name>" >&2
+        return 1
+    fi
+    if [ "${ZT_TENANT_CLUSTER_NAME}" = "${HOSTED_CLUSTER_NAME:-}" ]; then
+        echo "ERROR: ZT_TENANT_CLUSTER_NAME must differ from HOSTED_CLUSTER_NAME '${HOSTED_CLUSTER_NAME:-}' (namespace and kubeconfig collision)" >&2
+        return 1
+    fi
+    if ! is_valid_dns_subdomain "${ZT_TENANT_BASE_DOMAIN:-}"; then
+        echo "ERROR: ZT_TENANT_BASE_DOMAIN '${ZT_TENANT_BASE_DOMAIN:-}' must be a lowercase DNS name without a scheme or trailing dot" >&2
+        return 1
+    fi
+    for variable in ZT_TENANT_PULL_SECRET_NAME ZT_TENANT_NODEPOOL_NAME ZT_TENANT_INFRAENV_NAME; do
+        if ! is_valid_dns_label "${!variable:-}"; then
+            echo "ERROR: ${variable} '${!variable:-}' must be a lowercase DNS-1123 label (<=63 chars)" >&2
+            return 1
+        fi
+    done
+    # Label keys may omit the DNS prefix (default here includes one).
+    if [[ ! "${ZT_TENANT_AGENT_LABEL_KEY:-}" =~ ^([a-z0-9]([-a-z0-9.]{0,251}[a-z0-9])?/)?[A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$ ]]; then
+        echo "ERROR: ZT_TENANT_AGENT_LABEL_KEY '${ZT_TENANT_AGENT_LABEL_KEY:-}' must be a valid label key (name or prefix/name, e.g. openshift-dpf.io/zt-tenant-cluster)" >&2
+        return 1
+    fi
+
+    for variable in ZT_TENANT_CLUSTER_NETWORK_CIDR ZT_TENANT_SERVICE_NETWORK_CIDR; do
+        if ! is_valid_ipv4_cidr "${!variable:-}"; then
+            echo "ERROR: ${variable} '${!variable:-}' must be a valid IPv4 CIDR (e.g. 10.128.0.0/14)" >&2
+            return 1
+        fi
+    done
+
+    # Only the two architectures with public RHCOS live ISO artifacts are
+    # supported; there is no multi-arch discovery image.
+    case "${ZT_TENANT_RHCOS_CPU_ARCHITECTURE}" in
+        x86_64 | amd64 | aarch64 | arm64) ;;
+        *)
+            echo "ERROR: ZT_TENANT_RHCOS_CPU_ARCHITECTURE '${ZT_TENANT_RHCOS_CPU_ARCHITECTURE}' must be x86_64 or aarch64 (arm64)" >&2
+            return 1
+            ;;
+    esac
+
+    # env.sh trims an explicit value to major.minor (4.22.0 -> 4.22).
+    if [ -n "${ZT_TENANT_OPENSHIFT_VERSION_MINOR:-}" ] &&
+        [[ ! "${ZT_TENANT_OPENSHIFT_VERSION_MINOR}" =~ ^[0-9]+\.[0-9]+$ ]]; then
+        echo "ERROR: ZT_TENANT_OPENSHIFT_VERSION_MINOR '${ZT_TENANT_OPENSHIFT_VERSION_MINOR}' must be major.minor (e.g. 4.22)" >&2
+        return 1
+    fi
+
+    for variable in ZT_TENANT_RHCOS_ISO_URL ZT_TENANT_RHCOS_ROOTFS_URL; do
+        if [ -n "${!variable:-}" ] && [[ ! "${!variable}" =~ ^https?:// ]]; then
+            echo "ERROR: ${variable} '${!variable}' must be an http(s) URL" >&2
+            return 1
+        fi
+    done
+
+    # The AgentServiceConfig osImage needs all four; env.sh fills them from the
+    # mirror for make deploy-zt-tenant-cluster when none are set in .env.
+    for variable in ZT_TENANT_RHCOS_ISO_URL ZT_TENANT_RHCOS_ROOTFS_URL ZT_TENANT_RHCOS_VERSION ZT_TENANT_OPENSHIFT_VERSION_MINOR; do
+        if [ -z "${!variable:-}" ]; then
+            echo "ERROR: ${variable} is required for the tenant AgentServiceConfig osImage (no mirror autofill for architecture '${ZT_TENANT_RHCOS_CPU_ARCHITECTURE}')" >&2
+            return 1
+        fi
+    done
+
+    export ZT_TENANT_OCP_RELEASE_IMAGE="${ZT_TENANT_OCP_RELEASE_IMAGE:-${OCP_RELEASE_IMAGE}}"
+    if [ -z "${ZT_TENANT_OCP_RELEASE_IMAGE:-}" ]; then
+        echo "ERROR: OCP_RELEASE_IMAGE is required for tenant HostedCluster (set OPENSHIFT_VERSION, PAYLOAD_URL, or OCP_RELEASE_IMAGE in .env)" >&2
+        return 1
+    fi
+
+    if [ -z "${ETCD_STORAGE_CLASS:-}" ]; then
+        echo "ERROR: ETCD_STORAGE_CLASS is required for the tenant HostedCluster etcd (resolved from STORAGE_TYPE; set it explicitly when SKIP_DEPLOY_STORAGE=true)" >&2
+        return 1
+    fi
+
+    if [ -z "${ZT_TENANT_KUBECONFIG:-}" ]; then
+        echo "ERROR: ZT_TENANT_KUBECONFIG is required (path the tenant kubeconfig is written to)" >&2
+        return 1
+    fi
+    if [ -d "${ZT_TENANT_KUBECONFIG}" ]; then
+        echo "ERROR: ZT_TENANT_KUBECONFIG '${ZT_TENANT_KUBECONFIG}' is a directory" >&2
+        return 1
+    fi
+    kc_dir="$(dirname "${ZT_TENANT_KUBECONFIG}")"
+    if [ ! -d "${kc_dir}" ]; then
+        echo "ERROR: ZT_TENANT_KUBECONFIG directory '${kc_dir}' does not exist (the tenant kubeconfig is written there at the end of the install)" >&2
+        return 1
+    fi
+    if [ ! -w "${kc_dir}" ]; then
+        echo "ERROR: ZT_TENANT_KUBECONFIG directory '${kc_dir}' is not writable" >&2
+        return 1
+    fi
+
+    dpu_count=0
+    while IFS= read -r host; do
+        dpu_count=$((dpu_count + 1))
+    done < <(list_zero_trust_dpu_hosts)
+
+    if [ "${dpu_count}" -lt 1 ]; then
+        echo "ERROR: No Zero Trust DPU hosts (WORKER_<N>_DPU_BMC_IPS); cannot derive tenant worker count" >&2
+        return 1
+    fi
+
+    while IFS= read -r host; do
+        for variable in "WORKER_${host}_BMC_IP" "WORKER_${host}_BMC_USER" "WORKER_${host}_BMC_PASSWORD" "WORKER_${host}_BOOT_MAC" "WORKER_${host}_ROOT_DEVICE"; do
+            if [ -z "${!variable:-}" ]; then
+                echo "ERROR: Missing ${variable} for tenant BareMetalHost (same BMC as DPU host ${host})" >&2
+                return 1
+            fi
+        done
+    done < <(list_zero_trust_dpu_hosts)
+
+    # The InfraEnv/HostedCluster needs an SSH public key; fail here instead of
+    # after the control plane has been created.
+    _tenant_ssh_key_path >/dev/null || return 1
+
+    echo "OK  Tenant cluster configuration validation passed"
+}
+
 validate_zero_trust_mode() {
     local variable
 
@@ -424,10 +694,14 @@ validate_zero_trust_mode() {
         echo "ERROR: Zero Trust validation requires DPF_DEPLOYMENT_MODE=zero-trust" >&2
         return 1
     fi
-    if [ "${HYPERSHIFT_INSTALL_METHOD:-}" != "binary" ]; then
-        echo "ERROR: Zero Trust installation requires HYPERSHIFT_INSTALL_METHOD=binary" >&2
-        return 1
-    fi
+    case "${HYPERSHIFT_INSTALL_METHOD:-}" in
+        binary|mce)
+            ;;
+        *)
+            echo "ERROR: Zero Trust installation requires HYPERSHIFT_INSTALL_METHOD=binary or mce (got '${HYPERSHIFT_INSTALL_METHOD:-}')" >&2
+            return 1
+            ;;
+    esac
     validate_zero_trust_redfish_configuration || return 1
 
     for variable in \
@@ -574,6 +848,12 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
             ;;
     esac
 
+    # Apply the documented default at runtime, not only in env.defaults: an
+    # .env generated before HYPERSHIFT_INSTALL_METHOD existed leaves it empty,
+    # which validate_zero_trust_mode would reject as an invalid value.
+    HYPERSHIFT_INSTALL_METHOD="${HYPERSHIFT_INSTALL_METHOD:-binary}"
+    export HYPERSHIFT_INSTALL_METHOD
+
     if [ "${DPF_DEPLOYMENT_MODE}" = "zero-trust" ]; then
         if [ "${VM_COUNT}" -eq 1 ]; then
             HYPERSHIFT_API_IP=""
@@ -584,6 +864,8 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     fi
 
     MANIFESTS_DIR=${MANIFESTS_DIR:-manifests}
+    GENERATED_DIR=${GENERATED_DIR:-"${MANIFESTS_DIR}/generated"}
+    CLUSTERS_NAMESPACE=${CLUSTERS_NAMESPACE:-clusters}
     POST_INSTALL_DIR="${MANIFESTS_DIR}/post-installation"
     COMMON_POST_INSTALL_DIR="${POST_INSTALL_DIR}/common"
     HOST_TRUSTED_POST_INSTALL_DIR="${POST_INSTALL_DIR}/host-trusted"
@@ -595,14 +877,39 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     HOSTED_CONTROL_PLANE_NAMESPACE=${HOSTED_CONTROL_PLANE_NAMESPACE:-"${CLUSTERS_NAMESPACE}-${HOSTED_CLUSTER_NAME}"}
     HOSTED_KUBECONFIG="${HOSTED_CLUSTER_NAME}.kubeconfig"
 
-    if [ "$(readlink -m "${KUBECONFIG}")" = "$(readlink -m "${HOSTED_KUBECONFIG}")" ]; then
-        echo "Error: Management KUBECONFIG '${KUBECONFIG}' must differ from hosted-cluster kubeconfig '${HOSTED_KUBECONFIG}'" >&2
-        exit 1
-    fi
+    # Tenant HostedCluster (physical workers); used by make deploy-zt-tenant-cluster
+    ZT_TENANT_CLUSTER_NAME=${ZT_TENANT_CLUSTER_NAME:-tenant}
+    ZT_TENANT_KUBECONFIG=${ZT_TENANT_KUBECONFIG:-tenant.kubeconfig}
+    ZT_TENANT_GENERATED_DIR="${GENERATED_DIR}/zt-tenant"
+    # Runtime defaults mirror ci/env.defaults, so a .env generated before a
+    # ZT_TENANT_* variable existed still validates and deploys.
+    ZT_TENANT_CLUSTER_NETWORK_CIDR=${ZT_TENANT_CLUSTER_NETWORK_CIDR:-10.128.0.0/14}
+    ZT_TENANT_SERVICE_NETWORK_CIDR=${ZT_TENANT_SERVICE_NETWORK_CIDR:-172.30.0.0/16}
+    ZT_TENANT_OPENSHIFT_VERSION_MINOR=${ZT_TENANT_OPENSHIFT_VERSION_MINOR:-${OPENSHIFT_VERSION%%-*}}
+    ZT_TENANT_RHCOS_CPU_ARCHITECTURE=${ZT_TENANT_RHCOS_CPU_ARCHITECTURE:-x86_64}
+    ZT_TENANT_PULL_SECRET_NAME=${ZT_TENANT_PULL_SECRET_NAME:-zt-tenant-pull-secret}
+    ZT_TENANT_NODEPOOL_NAME=${ZT_TENANT_NODEPOOL_NAME:-tenant-workers}
+    ZT_TENANT_INFRAENV_NAME=${ZT_TENANT_INFRAENV_NAME:-zt-tenant-infraenv}
+    ZT_TENANT_AGENT_LABEL_KEY=${ZT_TENANT_AGENT_LABEL_KEY:-openshift-dpf.io/zt-tenant-cluster}
+
+    _require_distinct_kubeconfigs "${KUBECONFIG}" "Management KUBECONFIG" \
+        "${HOSTED_KUBECONFIG}" "hosted-cluster kubeconfig" || exit 1
+    _require_distinct_kubeconfigs "${KUBECONFIG}" "Management KUBECONFIG" \
+        "${ZT_TENANT_KUBECONFIG}" "tenant kubeconfig" || exit 1
+    _require_distinct_kubeconfigs "${HOSTED_KUBECONFIG}" "DPU hosted kubeconfig" \
+        "${ZT_TENANT_KUBECONFIG}" "tenant kubeconfig" || exit 1
 
     if [ -n "${PAYLOAD_URL:-}" ]; then
         resolve_payload
     fi
+
+    # Tenant HostedCluster release matches hub OCP unless overridden manually in .env
+    export ZT_TENANT_OCP_RELEASE_IMAGE="${ZT_TENANT_OCP_RELEASE_IMAGE:-${OCP_RELEASE_IMAGE}}"
+
+    _tenant_resolve_rhcos_artifacts || exit 1
+    export ZT_TENANT_GENERATED_DIR ZT_TENANT_OPENSHIFT_VERSION_MINOR ZT_TENANT_RHCOS_CPU_ARCHITECTURE
+    export ZT_TENANT_RHCOS_ISO_URL ZT_TENANT_RHCOS_ROOTFS_URL ZT_TENANT_RHCOS_VERSION
+    export ZT_TENANT_RHCOS_OSIMAGE_ARCH ZT_TENANT_NODEPOOL_ARCH
 
     # OLM Catalog Source — when OLM_WORKAROUND=true, use the previous OCP
     # minor version's catalog (e.g. 4.20→4.19, 4.22→4.21).
