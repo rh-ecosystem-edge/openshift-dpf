@@ -8,34 +8,77 @@ both modes before undrafting or merging.
 
 ## Selected artifacts
 
-`ci/env.defaults` selects these artifacts unless the user overrides them:
+`ci/env.defaults` and `manifests/helm-charts-values/dpf-operator-values.yaml`
+select these artifacts:
 
 | Component | Reference |
 | --- | --- |
 | DPF operator chart | `oci://quay.io/itsoiref/dpf-operator`, version `v26.11.0-main.8c18ca7.jsonfix.1` |
-| DMS/hostdriver, selected by embedded defaults | `quay.io/itsoiref/hostdriver:v26.11.0-main.8c18ca7.jsonfix.1` |
+| DPF operator/system image override | `quay.io/itsoiref/dpf-system:v26.11.0-main.81164ef.hostname-jsonfix.2` |
+| DMS/hostdriver, selected by embedded defaults | `quay.io/itsoiref/hostdriver:v26.11.0-main.81164ef.hostname-jsonfix.1` |
 | HCP operator chart | `oci://quay.io/redhat-user-workloads/dpu-kit-for-nvidia-operator-tenant/chart`, version `0.1.398+a2ea697` |
 | HCP operator image override | `quay.io/itsoiref/dpf-hcp-provisioner-operator:pr334-pr348-pr350-pr352-a2ea697d-v1` |
 
-### Fresh runtime release
+### Hostname-only runtime refresh
 
-All seven runtime images and three charts were rebuilt from NVIDIA/doca-platform
+The selected images use NVIDIA/doca-platform `public-main` baseline
+`81164ef7ebf6f0f5603841d88de4e4ec2d3d85df` plus signed-off hostname-only fix
+`567c087d621915319473923c5bfee6b7a1333c1d`. This removes the `net.ParseIP`
+rejection in `resolveBFBRegistry`: explicit registry LB still wins, IP or
+hostname VIP becomes an HTTPS base, and existing downstream logic appends the
+NodePort. Empty VIP still errors; host-trusted behavior is unchanged.
+**NVIDIA PR #72 and its empty-VIP discovery/fallback are not included.**
+API bootstrap kubeconfig, certificate SAN generation and the production address
+utility are unchanged from that upstream baseline.
+
+| Selected image | Platforms | Published manifest/index digest |
+| --- | --- | --- |
+| `dpf-system:v26.11.0-main.81164ef.hostname-jsonfix.2` | linux/amd64, linux/arm64 | `sha256:58b7ce29801309ec454eaf9be04ce96566d2e304a3a9c67eedb5b7ea79c3436f` |
+| `hostdriver:v26.11.0-main.81164ef.hostname-jsonfix.1` | linux/amd64 | `sha256:94d51cbbb0e4e3b4bc1d857fe728ca56d8fdf7cf39c013bc281ab574d1b30ae4` |
+
+The hostdriver integration source is
+`1469d830ee0bb2f650f4605b6fbdd1b46d84622a`; the multiarch system integration is
+`1dbffe57b743b761567b657933ed5e3241696fc2`, whose only additional change is its
+self-image default. These signed-off source integrations remain local; no
+source branch was pushed to NVIDIA or the doca-platform fork.
+
+The existing chart's supported `controllerManager.image.repository/tag` values
+select the multiarch operator image. Its embedded `/etc/dpf-defaults.yaml`
+selects the same `.2` system image for management and ARM64 DPU components and
+the `.1` hostdriver. The initially published amd64-only system `.1` image remains
+available but is **not selected**: SFC and SR-IOV config-init also use
+`dpfSystemImage` on ARM64 DPUs. Other runtime images and the networking chart
+retain the published `v26.11.0-main.8c18ca7.jsonfix.1` references below.
+No charts, HCP, OVN, HBN or ancillary runtime images were rebuilt for this
+hostname refresh, and no existing registry tag was overwritten.
+
+This remains the repository's **BlueField-3 development stack**. The retained
+8c18ca7 operator chart does not contain the newer upstream BlueField-4
+`BMC Force Restart` phase enum/status field. Do not use this chart/image
+combination for BF4 PLDM provisioning; that requires a matching updated CRD/chart
+and separate validation.
+
+### Retained charts and ancillary runtime release
+
+The earlier seven runtime images and three charts were rebuilt from NVIDIA/doca-platform
 `public-main` baseline `8c18ca7f82acfbe6c97c98493ab632ca7c007094`, with local
 signed-off integration commit `1d8f7a5c834cec21054c9e444b348b9cfd80b894`.
 The source integration is local, not pushed to NVIDIA or the source fork.
 This is a snapshot of that baseline, not a moving upstream-head reference.
 
 Unlike the previous custom chart, this source-built release uses the stock
-operator chart and `/etc/dpf-defaults.yaml` embedded in the fresh `dpf-system`
-image. There is **no custom component-defaults ConfigMap mount or checksum
-restart patch**. Embedded defaults and chart image defaults select the new tag,
-not the old reused images or digest overrides. The table below records immutable
-registry digests for audit; the effective defaults select versioned tags.
+operator chart and `/etc/dpf-defaults.yaml` embedded in `dpf-system`. There is
+**no custom component-defaults ConfigMap mount or checksum restart patch**.
+The current Helm image override and embedded defaults select the hostname-only
+pair above; the other references remain from this earlier release. The table
+below preserves the original full-release inventory for audit/rollback, not a
+claim that its old system/hostdriver images are still selected. Effective image
+defaults use versioned tags; the recorded digests are immutable audit references.
 The DMS image is also used by generated hostagent containers. Explicit image
 overrides in `DPFOperatorConfig` take precedence; review existing overrides
 before deployment.
 
-All images use repository prefix `quay.io/itsoiref/` and tag
+The original release images use repository prefix `quay.io/itsoiref/` and tag
 `v26.11.0-main.8c18ca7.jsonfix.1`:
 
 | Image | Platforms | Published manifest digest |
@@ -63,10 +106,10 @@ the existing HCP selection below is unchanged.
 
 ### DMS JSON fix
 
-The fixed hostdriver's readable tag is:
+The selected fixed hostdriver's readable tag is:
 
 ```text
-quay.io/itsoiref/hostdriver:v26.11.0-main.8c18ca7.jsonfix.1
+quay.io/itsoiref/hostdriver:v26.11.0-main.81164ef.hostname-jsonfix.1
 ```
 
 It contains doca-installer **2.2.3**, JSON-fix revision
@@ -125,12 +168,37 @@ make validate-env-files
 ```
 
 Do not hand-edit generated `.env`. A caller-supplied `DPF_VERSION`,
-`DPF_HELM_REPO_URL`, or HCP chart/image override still takes precedence. Ensure
-those overrides select a compatible stack: the migrated manifests are not
-compatible with the previous DPF 26.4 default. Before using deployment targets,
+`DPF_HELM_REPO_URL`, or HCP chart/image override still selects those inputs.
+`DPF_VERSION` controls the chart version, **not** the explicit system-image
+selection in `manifests/helm-charts-values/dpf-operator-values.yaml`. Changing
+charts alone does not remove that override; review it together with embedded
+component defaults and any DPFOperatorConfig overrides. These values are passed
+directly to Helm, not environment-substituted. Ensure overrides select a
+compatible stack: the migrated manifests are not compatible with DPF 26.4. Before using deployment targets,
 review the generated configuration, pull secrets, and existing Helm values.
 
-Release verification completed before selecting these references:
+Hostname-only verification:
+
+- Original pair and new multiarch system builds/pushes passed. Pinned registry
+  pullbacks verified source/version labels, exact source/default bytes and
+  representative ELF architectures. Both system platforms include correctly
+  built operator, provisioning, SFC and SR-IOV config-init binaries; offline
+  provisioning help passed on both architectures.
+- Exact saved JSON installer/helper bytes, executable modes, sidecars and the
+  packaged-installer backup were verified in the published hostdriver.
+- Focused provisioning, address utility and cloud-init tests and independent
+  read-only review passed. Additional release-default and provisioning tests
+  passed after the one-line multiarch self-image update.
+- Full source `make lint` passed with zero issues in both tool modules and all
+  three main linters. The full native macOS `make test` **failed (exit 2)**:
+  nine bluefieldsoftware/state Unix-socket listener tests (`bind: invalid argument`),
+  seven reboot specs needing Linux `/proc/.../boot_id`, one unsupported netlink
+  hostagent-util spec, and eight Linux-only build failures. All failing packages
+  and module definitions are unchanged from upstream. No full Linux-suite pass
+  or unrelated test repair is claimed.
+
+Earlier full-release verification (8c18ca7; not a claim of all checks rerun for
+the hostname-only refresh):
 
 - Full `make generate` and full `make lint` passed in the source clone.
 - All seven images passed remote platform, version/source-label and
@@ -157,8 +225,11 @@ operator and generate fresh ignition/reprovision DPUs to use installer changes.
 ## Limitations and rollback
 
 - The fixed hostdriver and combined HCP image are **linux/amd64 only**. Use
-  x86 management/host nodes; ARM64 DPU-side operands remain separately selected
-  by the DPF chart. These defaults are not suitable for an ARM64-only host fleet.
+  x86 management/host nodes. The selected system image supports both amd64 and
+  arm64, including the DPU-side SFC/config-init operands; CNI/other ARM64 operands
+  retain their prior published references. These defaults are not suitable for
+  an ARM64-only host fleet. The retained CRDs do not support the new BF4 BMC
+  restart phase; this remains BF3-scoped as described above.
 - Custom images/charts are hosted in a personal Quay namespace, not supported
   release repositories. Registry access and pull credentials remain required.
 - The hostdriver lacks `bfb-tool` for deferred bundle repacking.
@@ -167,7 +238,10 @@ operator and generate fresh ignition/reprovision DPUs to use installer changes.
   not rerun. Remain draft until both trust modes are validated.
 - The registry-dependent zero-trust hostagent installation path still requires
   validation; no complete end-to-end success is claimed by this branch.
-- Previous PR head `0bd6c0b82ab1f2b0932bb6ae4f09eb2dc64e4e4b` and artifacts
+- Immediate previous head `eee3472a646b4100d7b03f506959c695d06b8b66` retains
+  the original full 8c18ca7 release with no system-image override. Its chart and
+  image tags remain intact for coordinated rollback.
+- Earlier PR head `0bd6c0b82ab1f2b0932bb6ae4f09eb2dc64e4e4b` and artifacts
   remain available for coordinated rollback: DPF operator chart version
   `26.11.0-jsonfix.50d5103.1`, OCI digest
   `sha256:b087f07a46f987ab974ec3f4a23fd72d75a71426fe7c395645b669f6f98eea2c`,
