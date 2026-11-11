@@ -527,23 +527,35 @@ echo -e "\nChecking if workload namespace exists on admin cluster, otherwise cre
 if oc get namespace "${SANITY_TESTS_WORKLOAD_NAMESPACE}" --kubeconfig="${mgmt_kubecfg}" >/dev/null 2>&1; then
   echo "✅ Namespace '${SANITY_TESTS_WORKLOAD_NAMESPACE}' exists."
   echo -e "Checking if workload sriov test pods have already been deployed on admin cluster" 
+
+  # Existing namespace: reuse deployed workloads and reconcile their replica counts.
+  echo "Scaling worker workloads to ${dpu_host_worker_count} DPU host worker(s)"
+  if ! oc scale deployment sriov-test-worker sriov-test-worker-hostnetwork \
+    --replicas="${dpu_host_worker_count}" -n "${SANITY_TESTS_WORKLOAD_NAMESPACE}" \
+    --kubeconfig="${mgmt_kubecfg}"; then
+    echo "❌ Failed to scale worker workload deployments."
+    exit 1
+  fi
 else
   echo "❌ Namespace '${SANITY_TESTS_WORKLOAD_NAMESPACE}' does NOT exist."
   echo "Creating namespace '${SANITY_TESTS_WORKLOAD_NAMESPACE}' and applying the yaml file '${SANITY_TESTS_PODS_WORKLOAD_FILE}'"
 
   # Note: the workload.yaml file also creates the workload namesace and resources it needs
-  if oc apply -f "${SANITY_TESTS_PODS_WORKLOAD_FILE}" --kubeconfig="${mgmt_kubecfg}" >/dev/null 2>&1; then
+  # New namespace: set replica counts before creating the worker deployments.
+  if sed "s/replicas: 2/replicas: ${dpu_host_worker_count}/g" "${SANITY_TESTS_PODS_WORKLOAD_FILE}" \
+    | oc apply -f - --kubeconfig="${mgmt_kubecfg}" >/dev/null 2>&1; then
     echo "✅ Namespace '${SANITY_TESTS_WORKLOAD_NAMESPACE}' and workload.yaml file applied successfully."
-
-    echo "Waiting up to 5 mins for deployments to be ready..."
-    oc wait --for=condition=available --timeout=300s \
-      deployment --all -n "${SANITY_TESTS_WORKLOAD_NAMESPACE}" \
-      --kubeconfig="${mgmt_kubecfg}"
-
   else
     echo "❌ Failed to create namespace '${SANITY_TESTS_WORKLOAD_NAMESPACE}' and applying '${SANITY_TESTS_PODS_WORKLOAD_FILE}' file."
     exit 1
   fi
+fi
+
+echo "Waiting up to 5 mins for workload deployments to finish rolling out..."
+if ! oc rollout status deployment -n "${SANITY_TESTS_WORKLOAD_NAMESPACE}" \
+  --timeout=300s --kubeconfig="${mgmt_kubecfg}"; then
+  echo "❌ Workload deployments did not finish rolling out."
+  exit 1
 fi
 
 # Check that all the pods are running in the '${SANITY_TESTS_WORKLOAD_NAMESPACE}' namespace, otherwise exit:

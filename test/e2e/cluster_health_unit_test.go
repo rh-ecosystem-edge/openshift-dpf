@@ -1,14 +1,19 @@
 package e2e
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/openshift-dpf/test/utils"
 
 	dpuservicev1 "github.com/nvidia/doca-platform/api/dpuservice/v1alpha1"
 	provisioningv1 "github.com/nvidia/doca-platform/api/provisioning/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 func TestFilterDPUWorkersByDeployment(t *testing.T) {
@@ -138,5 +143,40 @@ func TestOVNKPodReadinessProblems(t *testing.T) {
 				t.Fatalf("problems %v do not contain %q", problems, tt.wantProblem)
 			}
 		})
+	}
+}
+
+// TestGetRunningPodsExcludesTerminatingPods guards against future removal of the
+// deletion-timestamp filter. It recreates the old failure without needing a cluster.
+func TestGetRunningPodsExcludesTerminatingPods(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	now := metav1.Now()
+	terminating := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "a-terminating", Namespace: "workload",
+			Labels:            map[string]string{"app": "sriov-test-worker"},
+			DeletionTimestamp: &now,
+			Finalizers:        []string{"test/retain-terminating-pod"},
+		},
+		Spec:   corev1.PodSpec{NodeName: "worker"},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+	}
+	surviving := terminating.DeepCopy()
+	surviving.Name = "b-surviving"
+	surviving.DeletionTimestamp = nil
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(terminating, surviving).Build()
+
+	pods, err := utils.GetRunningPods(context.Background(), c, "workload", map[string]string{"app": "sriov-test-worker"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pods) != 1 {
+		t.Fatalf("expected only the surviving replica, got %d pods", len(pods))
+	}
+	if selected := utils.FindPodOnNode(pods, "worker"); selected == nil || selected.Name != surviving.Name {
+		t.Fatal("pod discovery did not select the surviving replica")
 	}
 }
