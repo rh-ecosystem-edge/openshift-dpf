@@ -21,6 +21,7 @@ POST_INSTALL_SCRIPT := scripts/post-install.sh
 CUSTOM_POSTINSTALL_RUNNER := scripts/custom-postinstall-script.sh
 VERIFY_SCRIPT := scripts/verify.sh
 ENV_SCRIPT := scripts/env.sh
+ENV_VALIDATION_SCRIPT := scripts/validate-env.sh
 
 # Sanity tests script:
 SANITY_CHECKS_SCRIPT := scripts/dpf-sanity-checks.sh
@@ -41,7 +42,7 @@ WORKER_SECURE_BOOT_SCRIPT := scripts/worker-secure-boot.sh
 CLEANUP_SCRIPT := scripts/cleanup.sh
 
 .PHONY: all
-all:
+all: validate-environment
 	@mkdir -p logs
 	@bash -o pipefail -c '$(MAKE) _all 2>&1 | tee "logs/make_all_$(shell date +%Y%m%d_%H%M%S).log"'
 
@@ -61,10 +62,12 @@ _all: $(ALL_STEPS)
 	@$(VERIFY_SCRIPT) verify-deployment
 
 .PHONY: create-base-cluster
-create-base-cluster: verify-files check-cluster create-vms prepare-manifests cluster-install update-etc-hosts kubeconfig poweron-workers add-worker-nodes verify-workers
+create-base-cluster: validate-environment verify-files check-cluster create-vms prepare-manifests cluster-install update-etc-hosts kubeconfig _poweron-workers add-worker-nodes verify-workers
+.NOTPARALLEL: create-base-cluster
 
 .PHONY: all-zt
-all-zt:
+all-zt: DPF_DEPLOYMENT_MODE = zero-trust
+all-zt: validate-environment
 	@mkdir -p logs
 	@bash -o pipefail -c '$(MAKE) _all-zt DPF_DEPLOYMENT_MODE=zero-trust 2>&1 | tee "logs/make_all_zt_$(shell date +%Y%m%d_%H%M%S).log"'
 
@@ -72,7 +75,7 @@ all-zt:
 # Host worker/BMO provisioning, OVN injection, Kata, and trusted verification
 # are deliberately excluded. With VERIFY_DEPLOYMENT=true it ends by waiting for
 # every listed DPU to be Ready and the hosted cluster operators to be stable.
-ZT_ALL_STEPS := validate-zt-mode verify-files check-cluster create-vms prepare-manifests cluster-install update-etc-hosts kubeconfig poweron-workers deploy-dpf prepare-dpu-files deploy-dpu-services
+ZT_ALL_STEPS := validate-zt-mode verify-files check-cluster create-vms prepare-manifests cluster-install update-etc-hosts kubeconfig _poweron-workers deploy-dpf prepare-dpu-files deploy-dpu-services
 
 .NOTPARALLEL: _all-zt
 .PHONY: _all-zt
@@ -85,11 +88,22 @@ _all-zt: $(ZT_ALL_STEPS)
 
 .PHONY: validate-zt-mode
 validate-zt-mode:
-	@$(ENV_SCRIPT) validate-zt-mode
+	@$(ENV_VALIDATION_SCRIPT) validate-zt-mode
 
 .PHONY: validate-host-trusted-mode
 validate-host-trusted-mode:
-	@$(ENV_SCRIPT) validate-host-trusted-mode
+	@$(ENV_VALIDATION_SCRIPT) validate-host-trusted-mode
+
+.PHONY: validate-environment
+validate-environment:
+	@$(ENV_VALIDATION_SCRIPT) preflight
+
+# Full workflows validate before their steps. Keep their internal power-on
+# invocation free of a second validation pass; the standalone target validates
+# through scripts/validate-env.sh.
+.PHONY: _poweron-workers
+_poweron-workers:
+	@$(WORKER_SCRIPT) poweron-workers
 
 .PHONY: verify-files
 verify-files:
@@ -346,8 +360,12 @@ kubeadmin-password:
 	@$(CLUSTER_SCRIPT) get-kubeadmin-password
 
 .PHONY: poweron-workers
-poweron-workers:
+poweron-workers: validate-worker-power-on
 	@$(WORKER_SCRIPT) poweron-workers
+
+.PHONY: validate-worker-power-on
+validate-worker-power-on:
+	@$(ENV_VALIDATION_SCRIPT) validate-worker-power-on
 
 .PHONY: deploy-nfd
 deploy-nfd:
@@ -593,7 +611,7 @@ verify-dpudeployment:
 
 .PHONY: validate-env-files
 validate-env-files:
-	@$(ENV_SCRIPT) validate-env-files
+	@$(ENV_VALIDATION_SCRIPT) validate-env-files
 
 FORCE ?= false
 .PHONY: generate-env
@@ -602,7 +620,7 @@ generate-env: validate-env-files
 
 .PHONY: validate-env-test-files
 validate-env-test-files:
-	@$(ENV_SCRIPT) validate-env-test-files
+	@$(ENV_VALIDATION_SCRIPT) validate-env-test-files
 
 .PHONY: generate-env-test
 generate-env-test: validate-env-test-files
@@ -611,6 +629,10 @@ generate-env-test: validate-env-test-files
 .PHONY: help
 help:
 	@echo "Available targets:"
+	@echo "Environment Validation:"
+	@echo "  validate-environment - Run configuration preflight checks once before a deployment workflow"
+	@echo "  validate-env-files   - Check ci/env.defaults and ci/env.template consistency"
+	@echo ""
 	@echo "Cluster Management:"
 	@echo "  all               - Complete setup: verify, create cluster, VMs, install, and wait for completion (enable-kata last if KATA_ENABLED=true)"
 	@echo "  create-base-cluster - Create and install a base OpenShift cluster through worker provisioning"

@@ -281,10 +281,14 @@ result of your overrides + the defaults. This is consumed by `make` and `scripts
 
 ```bash
 make validate-env-files
+make validate-environment
 ```
 
 Checks that every variable in `ci/env.defaults` has a corresponding entry in
 `ci/env.template` so nothing is silently dropped, and report template-only variables that have no default.
+`make validate-environment` runs deployment configuration checks; `make all`,
+`make all-zt`, and `make create-base-cluster` run this preflight once before
+their deployment steps.
 
 ### Deployment profiles
 
