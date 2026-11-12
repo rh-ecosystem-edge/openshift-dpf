@@ -71,7 +71,7 @@ all-zt:
 # Zero Trust installation through DPU services and authorization.
 # Host worker/BMO provisioning, OVN injection, Kata, and trusted verification
 # are deliberately excluded. With VERIFY_DEPLOYMENT=true it ends by waiting for
-# every listed DPU to be Ready and the cluster operators to be stable.
+# every listed DPU to be Ready and the hosted cluster operators to be stable.
 ZT_ALL_STEPS := validate-zt-mode verify-files check-cluster create-vms prepare-manifests cluster-install update-etc-hosts kubeconfig poweron-workers deploy-dpf prepare-dpu-files deploy-dpu-services
 
 .NOTPARALLEL: _all-zt
@@ -690,7 +690,7 @@ help:
 	@echo ""
 	@echo "Verification:"
 	@echo "  verify-deployment     - Full verification: workers + DPU nodes + DPUDeployment"
-	@echo "  verify-zt-deployment  - Zero Trust: listed DPUs and their hosted Nodes + DPUDeployment + stable operators"
+	@echo "  verify-zt-deployment  - Zero Trust: listed DPUs + hosted Nodes + DPUDeployment + hosted cluster operators"
 	@echo "  verify-workers        - Wait for worker nodes to be Ready in host cluster"
 	@echo "  verify-dpu-nodes      - Wait for DPU nodes to be Ready in DPUCluster"
 	@echo "  verify-dpudeployment  - Wait for DPUDeployment to be Ready"

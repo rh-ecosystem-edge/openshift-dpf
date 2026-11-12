@@ -7,11 +7,15 @@
 # 3. DPU worker nodes are Ready on the hosted cluster
 # 4. Management (host) cluster worker nodes are Ready
 # 5. DPUDeployment is Ready
+# 6. Management and hosted cluster operators are stable
 #
 # Zero Trust (verify-zt-deployment) has no host workers and verifies:
 # 1. Every DPU listed in WORKER_<N>_DPU_BMC_IPS is Ready and its hosted Node is Ready
 # 2. DPUDeployment is Ready
-# 3. Management and hosted cluster operators are stable
+# 3. Hosted cluster operators are stable
+#
+# The management cluster is not part of the Zero Trust logic, so its cluster
+# operators are not checked there.
 
 set -e
 set -o pipefail
@@ -38,7 +42,6 @@ VERIFY_DEPLOYMENT_STEPS=(
 VERIFY_ZT_DEPLOYMENT_STEPS=(
     verify_zt_dpus
     verify_zt_dpudeployment
-    verify_management_cluster_stable
     verify_hosted_cluster_stable
 )
 VERIFY_FAILED_STEPS=()
