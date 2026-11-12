@@ -17,6 +17,11 @@ ETCD_STORAGE_CLASS=${ETCD_STORAGE_CLASS:-"ocs-storagecluster-ceph-rbd"}
 # DPF deployment functions
 # -----------------------------------------------------------------------------
 function deploy_nfd() {
+    if is_nfd_disabled; then
+        log [INFO] "Skipping NFD deployment because DISABLE_NFD=true"
+        return 0
+    fi
+
     log [INFO] "Managing NFD deployment..."
 
     get_kubeconfig
@@ -494,9 +499,10 @@ function configure_hypershift() {
 function apply_remaining() {
     log [INFO] "Applying remaining manifests..."
     for file in "$GENERATED_DIR"/*.yaml; do
-        # Skip NFD deployment if DISABLE_NFD is set to true
-        if [[ "${DISABLE_NFD}" = "true" && "$file" =~ .*dpf-nfd\.yaml$ ]]; then
-            log [INFO] "Skipping NFD deployment (DISABLE_NFD explicitly set to true)"
+        # deploy_nfd and prepare_nfd_subscription own these resources. Never
+        # apply them a second time through the generic manifest path.
+        if [[ "$file" =~ /(nfd-subscription|nfd-cr-template|dpf-nfd)\.yaml$ ]]; then
+            log [INFO] "Skipping explicitly managed NFD manifest: ${file}"
             continue
         fi
 
@@ -908,7 +914,6 @@ function apply_zero_trust_bootstrap_auth() {
 function apply_dpf() {
     log "INFO" "Starting DPF deployment sequence..."
     log "INFO" "Provided kubeconfig ${KUBECONFIG}"
-    log "INFO" "NFD deployment is $([ "${DISABLE_NFD}" = "true" ] && echo "disabled" || echo "enabled")"
     
     get_kubeconfig
     

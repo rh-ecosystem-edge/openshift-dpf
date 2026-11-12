@@ -160,6 +160,10 @@ _do_generate_env() {
         source "$defaults_file"
         set +a
         source "$required_file"
+        if [ "${DPF_DEPLOYMENT_MODE:-}" = "zero-trust" ]; then
+            DISABLE_NFD=true
+            export DISABLE_NFD
+        fi
         if [ "$(basename "${required_file}")" = "env.required" ] &&
            [ "${DPF_DEPLOYMENT_MODE:-}" = "zero-trust" ]; then
             validate_zero_trust_mode
@@ -229,6 +233,10 @@ is_dpf_profile() {
 
 is_nno_profile() {
     [ "${DEPLOYMENT_PROFILE:-dpf}" = "nno" ]
+}
+
+is_nfd_disabled() {
+    [ "${DISABLE_NFD:-false}" = "true" ]
 }
 
 # DPF workers are DPU hosts unless WORKER_n_DPU=false.
@@ -573,6 +581,14 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
             exit 1
             ;;
     esac
+
+    # Zero Trust labels DPUNode resources directly and does not use NFD.
+    # Keep DISABLE_NFD as the single switch used by all NFD lifecycle stages.
+    DISABLE_NFD=${DISABLE_NFD:-false}
+    if [ "${DPF_DEPLOYMENT_MODE}" = "zero-trust" ]; then
+        DISABLE_NFD=true
+    fi
+    export DISABLE_NFD
 
     if [ "${DPF_DEPLOYMENT_MODE}" = "zero-trust" ]; then
         if [ "${VM_COUNT}" -eq 1 ]; then

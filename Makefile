@@ -727,7 +727,7 @@ help:
 	@echo "  KUBECONFIG       - Path to kubeconfig file (default: $(KUBECONFIG))"
 	@echo ""
 	@echo "Feature Configuration:"
-	@echo "  DISABLE_NFD       - Skip NFD deployment (default: $(DISABLE_NFD))"
+	@echo "  DISABLE_NFD       - Skip NFD deployment (default: false; always true for Zero Trust)"
 	@echo ""
 	@echo "Hypershift Configuration:"
 	@echo "  HYPERSHIFT_INSTALL_METHOD - How to install HyperShift operator: 'binary' (default) or 'mce' (via MultiCluster Engine)"
