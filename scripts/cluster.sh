@@ -80,6 +80,25 @@ function resolve_sno_management_ip() {
     echo "${ip}"
 }
 
+# resolve_zero_trust_bfb_registry_host sets the registry hostname used by the
+# Zero Trust BFB endpoint. SNO uses the management address; multi-VM clusters
+# use the configured HyperShift API address.
+function resolve_zero_trust_bfb_registry_host() {
+    local -n resolved_host=$1
+
+    if [ "${VM_COUNT}" -gt 1 ]; then
+        resolved_host="${HYPERSHIFT_API_IP}"
+        return 0
+    fi
+
+    if ! resolved_host=$(resolve_sno_management_ip); then
+        log "ERROR" "Unable to resolve the SNO management address for the Zero Trust BFB registry"
+        return 1
+    fi
+
+    log "INFO" "Zero Trust SNO: using ${resolved_host} for the BFB registry"
+}
+
 # -----------------------------------------------------------------------------
 # Cluster management functions
 # -----------------------------------------------------------------------------
