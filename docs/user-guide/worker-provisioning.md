@@ -2,6 +2,20 @@
 
 Add physical servers as OpenShift worker nodes using automated bare metal provisioning with NVIDIA DPUs.
 
+This guide describes the default `WORKER_PROVISIONING_MODE=day2-bmo` path.
+For a new NNO cluster, the optional
+[day1-assisted initial installation](nno-base-cluster.md#optional-initial-installation-with-physical-workers)
+boots regular physical workers into the same initial discovery environment as
+the control-plane VMs. It uses `make create-base-cluster`, without BMO worker
+provisioning or a worker CSR approver; `make add-worker-nodes` rejects that mode. The existing DPF
+flow and its startup command remain unchanged.
+
+In day1-assisted mode, `make worker-status` shows installer/node status, and
+`make delete-worker WORKER_NAME=<configured-worker-name>` powers off the worker,
+cleans owned virtual media, and removes its node and installer registration.
+Evacuate workloads first. Removal preserves disk contents and is not an
+automatic reprovision or expansion operation.
+
 ## Quick Start
 
 ### 1. Prerequisites
