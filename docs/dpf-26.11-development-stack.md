@@ -16,8 +16,8 @@ select these artifacts:
 | DPF operator chart | `oci://quay.io/itsoiref/dpf-operator`, version `v26.11.0-main.8c18ca7.jsonfix.1` |
 | DPF operator/system image override | `quay.io/itsoiref/dpf-system:v26.11.0-main.81164ef.hostname-jsonfix.2` |
 | DMS/hostdriver, selected by embedded defaults | `quay.io/itsoiref/hostdriver:v26.11.0-main.81164ef.hostname-jsonfix.1` |
-| HCP operator chart | `oci://quay.io/itsoiref/dpf-hcp-provisioner-chart`, version `0.1.398-ca.4a977e5.1` |
-| HCP operator image override | `quay.io/itsoiref/dpf-hcp-provisioner-operator:pr334-pr348-pr350-pr352-pr358-a2ea697d-v1` |
+| HCP operator chart | `oci://quay.io/itsoiref/dpf-hcp-provisioner-chart`, version `0.1.398-main.41d8dcf.no334.1`, OCI digest `sha256:658efd6508d0947472a383c86541ef62f85332a2856fd68337a1106e5e069b03` |
+| HCP operator image override | `quay.io/itsoiref/dpf-hcp-provisioner-operator:main-41d8dcf-stack-no334-v1`, linux/amd64 digest `sha256:1427cf6424df594827f4d08d16f2bb2568741165e2f107d382cb35364d5bb5b6` |
 
 ### Hostname-only runtime refresh
 
@@ -127,61 +127,92 @@ The packaged installer 2.0.3 is preserved as
 `/usr/bin/doca-installer.before-jsonfix`; the active installer is 2.2.3.
 Latest-source hostagent/DPUagent binaries are retained.
 
-### Combined HCP image and CA-trust refresh
+### Current HCP no-#334 image and CA-trust refresh
 
-The new Linux/amd64 image digest is `sha256:7ddb3b7de9a936749ea25a9a5a221b59b7e8edbc29f7d7bafebd9d2fcc6d6122`.
-Its matching chart has OCI digest `sha256:23e8543729dd3b39c8a42b5cefe0ef573d67f7d9097e7988fb1635afb9c69118`.
-The source is signed-off integration `518c57bd0c6fe4f2bb2e7b2789897934e2121590`,
-based exactly on the previous combined runtime `2eace0eff9bc418d19a69ea169c950c23ec7b1b5`
-(upstream `a2ea697d`). It includes:
+The selected Linux/amd64 image is
+`quay.io/itsoiref/dpf-hcp-provisioner-operator:main-41d8dcf-stack-no334-v1`,
+published manifest digest `sha256:1427cf6424df594827f4d08d16f2bb2568741165e2f107d382cb35364d5bb5b6`.
+Its matching chart is `oci://quay.io/itsoiref/dpf-hcp-provisioner-chart`,
+version `0.1.398-main.41d8dcf.no334.1`, OCI digest
+`sha256:658efd6508d0947472a383c86541ef62f85332a2856fd68337a1106e5e069b03`
+and audited archive SHA256
+`e502e7067445b02de4cd67cd19a58a15c700b825ae3cb4f69cb3843385d81a9b`.
+The chart selects the versioned image tag and deliberately leaves
+`image.digest` empty so existing caller repository/tag overrides continue to
+work. These digests are immutable audit references, not chart defaults.
 
-- [#334](https://github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/pull/334): preserve the live installation journal in installed RHCOS.
-- [#348](https://github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/pull/348): provide `BFBRegistryURL` only for Redfish installation.
-- [#350](https://github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/pull/350): provide bootstrap kubeconfig in all DPU security modes.
-- [#352](https://github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/pull/352): keep routine installer logs out of the limited rshim boot-log buffer.
-- Draft [#358](https://github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/pull/358), head `4a977e567279510aa579ef023a8d6136f5c95ec9`: carry the public BFB-registry CA from live to target ignition.
+The signed-off image source is
+`e82406d0e4e579d5c981548fb97cbc744b5b679d`, six commits above HCP
+upstream `main` `41d8dcff84604790c7b3f54dd48060bbfb36a8cb`. That baseline
+includes merged #338 (DOCA-aware OCP image lookup) and #361 (skip target
+ignition files already present). The selected PR changes comprise:
 
-It retains automatic reboot, `bfupsignal.sh`, and `dpu_agent update-time`.
-It does **not** include the experimental explicit OSInstalled-reporting path,
-the separate local hostagent OSInstalled-promotion fallback, or PR #338's
-DOCA-aware OCP image lookup.
+- [#350](https://github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/pull/350),
+  [#351](https://github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/pull/351),
+  [#348](https://github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/pull/348),
+  and draft [#358](https://github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/pull/358),
+  stacked in that order, with #358's CA work kept in one commit.
+- [#352](https://github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/pull/352),
+  two commits on the same upstream main.
 
-Only #358's CA patch and its follow-up removing redundant installer trust-refresh
-commands were cherry-picked; current main was not merged. A test-only adaptation
-preserves transport-aware signatures and existing bootstrap assertions. The only
-production changes from the previous combined source are live CA-file definition
-and byte-preserving target-ignition copy. Both installer units and the installer,
-journal and signaling scripts are byte-identical to the previous combined build.
+Rebased source heads are #350 `f12a28f7500236a93c8ea8fcbc91ea63f81dde77`,
+#351 `1aeb185574eaa051d2284ce563b93e351827e560`,
+#348 `429b0e3b3a0dd709b672184ea71f8b0a6f47466c`,
+#358 `db91d04663ecf68fe6ab5844e0b3bafef61da8f1`, and
+#352 `5d2298cdad5da19bd6fb24317f2075ab6f79db02`.
 
-The CA is delivered under `/etc/pki/ca-trust/source/anchors/dpf-ca.crt` in both
-security modes, independent of transport. It uses DPF's raw `CATrustBundle` via
-`b64enc`; a nonempty bundle replaces only that owned target path. Standard RHCOS's
-native `coreos-update-ca-trust.service` handles trust extraction: no duplicate
-installer `ExecStartPre` or custom ordering/dependency is added. The exact live
-and target images' service enablement/boot ordering have **not** been verified;
-this remains a runtime prerequisite. TLS verification is not disabled.
+PR #334 is explicitly excluded. The image contains no persistent live-journal
+archive script, wiring, test or `/var/log/dpu-live-install-journal.tar.gz`
+output. Ordinary stdout/journal and kmsg logging remain. The #352 rshim log
+reduction preserves boot-log space for completion signals; the installer still
+preserves `bfupsignal.sh`, `dpu_agent update-time`, the DPU Config wait,
+`sync`, and automatic reboot. No explicit OSInstalled-reporting path or local
+hostagent fallback was added.
 
-The chart differs from the previous selected `0.1.398+a2ea697` package only in
-`Chart.yaml` and image defaults in `values.yaml`; templates, CRDs and RBAC are
-identical. It selects the versioned image tag with `image.digest` empty to retain
-the existing repository/tag override behavior in `scripts/dpf.sh`. The recorded
-image digest is an immutable audit reference, not a default digest pin.
+For DPF newer than 26.4, raw public `CATrustBundle` PEM is base64-templated at
+`/etc/pki/ca-trust/source/anchors/dpf-ca.crt` and copied byte-for-byte to that
+owned target ignition path when nonblank. Missing/empty/malformed DPF versions
+conservatively omit the CA. This CA gate is independent of trust mode and
+transport; the BFB registry URL retains its separate Redfish/version gate.
+Native RHCOS `coreos-update-ca-trust.service` is expected to extract the trust
+without a duplicate installer `ExecStartPre` or custom systemd ordering.
+Exact service enablement/order in the target images is **not verified**; TLS
+verification is not bypassed.
 
-HCP CA-refresh validation: focused generator/ignition race suites and full
-`make lint` passed; CA tests cover both security modes and Redfish/hostagent.
-New image/chart publication and pullback evidence is recorded in the build report.
-No full `make test`, actual OS trust-service execution or hardware provisioning
-validation is claimed. Existing `.env` must be regenerated to select the new
-HCP chart URL, chart version and image tag together.
+Verification recorded for this release: focused Go race tests and `make lint`
+passed; the published image's Linux/amd64 ELF manager, non-root entrypoint,
+source/PR/exclusion labels, embedded installer/updater/units and agent resources
+matched the audited source. Restricted offline `--help` passed, and anonymous
+pull by immutable digest matched the local manager hash. Go build info records
+Go 1.26.10; BuildKit materials were UBI10 micro
+`sha256:2ad0f98cb13160c4773c945ef93f88b25831c7f27cd3780d72a7e78b210ea72b`
+and UBI10 Go toolset
+`sha256:e94c38ff4a099b755af60c73ac87198c613f369eb7f818d45c96fbc3f21047de`.
+The chart linted and rendered, including caller tag/digest overrides and both
+trust-mode profiles; templates, CRDs and RBAC were unchanged from source.
+Anonymous OCI pull matched the published chart digest and audited archive
+bytes. No full HCP test suite, hardware, OS trust-service ordering, admission/
+CEL, provisioning or dataplane E2E success is claimed.
 
-For coordinated HCP rollback, previous PR head
-`4fd296f946498a67cb78a058eb4fb076370d0a12` retains chart
-`oci://quay.io/redhat-user-workloads/dpu-kit-for-nvidia-operator-tenant/chart`,
-version `0.1.398+a2ea697`, and image
-`quay.io/itsoiref/dpf-hcp-provisioner-operator:pr334-pr348-pr350-pr352-a2ea697d-v1`
-(digest `sha256:19fa9ee7e69744a58360fc81f28f5900ec5a48b9a1400787e3fa39ece06cc41e`).
-All old artifacts remain intact. Restore all three HCP inputs together; DPF's
-system/hostdriver and ancillary selections are unchanged by this HCP refresh.
+This PR's HCP refresh changes only `ci/env.defaults` and this document; DPF,
+system, hostdriver and ancillary pins are unchanged. Inherited hosted OCP
+`4.22.19-multi`, explicit BlueField OCP `4.22.19-4k-doca3.4.2` workaround and
+stress defaults from upstream main are retained. The explicit BlueField pin
+bypasses automatic image lookup; hardware/DOCA compatibility is unverified.
+The custom HCP image is amd64-only, and the retained chart has the known BF4
+`BMC Force Restart` schema gap; keep this BF3-scoped PR draft pending hardware
+validation in both trust modes.
+
+For historical rollback, the previously selected HCP artifacts remain
+available: image `quay.io/itsoiref/dpf-hcp-provisioner-operator:pr334-pr348-pr350-pr352-pr358-a2ea697d-v1`
+(`sha256:7ddb3b7de9a936749ea25a9a5a221b59b7e8edbc29f7d7bafebd9d2fcc6d6122`)
+and chart `oci://quay.io/itsoiref/dpf-hcp-provisioner-chart` version
+`0.1.398-ca.4a977e5.1`
+(`sha256:23e8543729dd3b39c8a42b5cefe0ef573d67f7d9097e7988fb1635afb9c69118`).
+That prior release **includes #334's journal archive and older ungated CA**; it
+is preserved as a coordinated rollback reference, not the current selection.
+Do not mix its chart, image or DPF configuration with this release. Publishing
+does not deploy the chart or update cached ignition.
 
 ## Runtime configuration changes
 
