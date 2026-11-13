@@ -561,7 +561,7 @@ validate_zt_tenant_configuration() {
         return 1
     fi
     if [ "${HYPERSHIFT_INSTALL_METHOD:-}" != "mce" ]; then
-        echo "ERROR: deploy-zt-tenant-cluster requires HYPERSHIFT_INSTALL_METHOD=mce (shared MCE HyperShift + Assisted)" >&2
+        echo "ERROR: deploy-zt-tenant-cluster requires HYPERSHIFT_INSTALL_METHOD=mce (shared MCE HyperShift + Assisted); set it in .env (the generated default)" >&2
         return 1
     fi
 
@@ -851,7 +851,9 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     # Apply the documented default at runtime, not only in env.defaults: an
     # .env generated before HYPERSHIFT_INSTALL_METHOD existed leaves it empty,
     # which validate_zero_trust_mode would reject as an invalid value.
-    HYPERSHIFT_INSTALL_METHOD="${HYPERSHIFT_INSTALL_METHOD:-binary}"
+    # mce is the default for every flow (the Zero Trust hosted clusters run on
+    # MCE's HyperShift); set binary to use the HyperShift CLI/operator image.
+    HYPERSHIFT_INSTALL_METHOD="${HYPERSHIFT_INSTALL_METHOD:-mce}"
     export HYPERSHIFT_INSTALL_METHOD
 
     if [ "${DPF_DEPLOYMENT_MODE}" = "zero-trust" ]; then
