@@ -150,7 +150,7 @@ ignition files already present). The selected PR changes comprise:
 - [#350](https://github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/pull/350),
   [#351](https://github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/pull/351),
   [#348](https://github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/pull/348),
-  and draft [#358](https://github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/pull/358),
+  and [#358](https://github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/pull/358),
   stacked in that order, with #358's CA work kept in one commit.
 - [#352](https://github.com/rh-ecosystem-edge/dpf-hcp-provisioner-operator/pull/352),
   two commits on the same upstream main.
