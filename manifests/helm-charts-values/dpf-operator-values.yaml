@@ -1,3 +1,9 @@
+# The operator chart remains at the published 8c18ca7 release. This multiarch
+# image carries the hostname-only fix and selects the JSON-fixed hostdriver.
+controllerManager:
+  image:
+    repository: quay.io/itsoiref/dpf-system
+    tag: v26.11.0-main.81164ef.hostname-jsonfix.2
 imagePullSecrets:
   - name: dpf-pull-secret
 kamajiEtcdDefrag:

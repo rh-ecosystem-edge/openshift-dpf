@@ -4,6 +4,7 @@ metadata:
   name: dpfoperatorconfig
   namespace: dpf-operator-system
 spec:
+  deploymentMode: zero-trust
   <FLANNEL_CONFIG>
   dpuDetector:
     disable: true
@@ -12,7 +13,8 @@ spec:
   multus:
     disable: true
   cniInstaller:
-    disable: true
+    # Required from DPF 26.8+ (26.11): ship ovs/rdma/dhcp CNIs to overrides.dpuCNIBinPath.
+    disable: false
   networking:
     highSpeedMTU: <NODES_MTU>
   overrides:
@@ -31,9 +33,8 @@ spec:
     nodeEffectRemovalTimeout: "3600s"
     installInterface:
       installViaRedfish:
-        bfbRegistryAddress: "<BFB_REGISTRY_HOST>:<ZT_BFB_REGISTRY_PORT>"
-        bfbRegistry:
-          port: <ZT_BFB_REGISTRY_PORT>
+        # The selected 81164ef runtime uses the API VIP and allocated NodePort by default.
+        # Set registry.loadBalancerAddress only when an external LB is provisioned.
         skipDPUNodeDiscovery: true
   staticClusterManager:
     disable: false
