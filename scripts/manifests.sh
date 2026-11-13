@@ -236,6 +236,11 @@ prepare_zero_trust_objects() {
     mkdir -p "${inventory_dir}"
     find "${inventory_dir}" -maxdepth 1 -type f -name "*.yaml" -delete
 
+    if [ "${NICO_ENABLED:-false}" = "true" ]; then
+        log [INFO] "NICo integration enabled: leaving DPUDevice/DPUNode inventory to NICo"
+        return
+    fi
+
     # DPUNodes list DPUDevice names, which discovery derives from the DPU
     # serials, so dpf.sh renders them after discovery.
     update_file_multi_replace \

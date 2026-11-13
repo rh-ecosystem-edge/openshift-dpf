@@ -52,13 +52,14 @@ function apply_argus_manifests() {
 }
 
 function patch_argus_service() {
-    retry 5 30 oc patch dpudeployment dpudeployment -n dpf-operator-system --type=merge \
+    local deployment_name="${DPU_DEPLOYMENT_NAME:-${NICO_DPU_DEPLOYMENT_NAME}}"
+    retry 5 30 oc patch dpudeployment "${deployment_name}" -n dpf-operator-system --type=merge \
         -p '{"spec":{"services":{"argus":{"serviceTemplate":"argus","serviceConfiguration":"argus"}}}}'
 }
 
 function wait_for_argus_dpuservices_ready() {
     local namespace="${DPF_OPERATOR_NAMESPACE:-dpf-operator-system}"
-    local deployment_name="${DPU_DEPLOYMENT_NAME:-dpudeployment}"
+    local deployment_name="${1:-${DPU_DEPLOYMENT_NAME:-${NICO_DPU_DEPLOYMENT_NAME}}}"
     local parent_label="svc.dpu.nvidia.com/owned-by-dpudeployment=${namespace}_${deployment_name}"
     local service_label="svc.dpu.nvidia.com/dpudeployment-service=argus"
     local selector="${parent_label},${service_label}"
@@ -104,18 +105,19 @@ function wait_for_argus_dpuservices_ready() {
 }
 
 function enable_argus() {
+    local deployment_name="${DPU_DEPLOYMENT_NAME:-${NICO_DPU_DEPLOYMENT_NAME}}"
     get_kubeconfig
-    if ! oc get dpudeployment dpudeployment -n dpf-operator-system >/dev/null 2>&1; then
-        log "ERROR" "DPUDeployment dpudeployment was not found. Deploy DPU services before running make enable-argus."
+    if ! oc get dpudeployment "${deployment_name}" -n dpf-operator-system >/dev/null 2>&1; then
+        log "ERROR" "DPUDeployment ${deployment_name} was not found. Deploy DPU services before running make enable-argus."
         return 1
     fi
 
     render_argus_manifests
     apply_argus_manifests
 
-    log "INFO" "Adding Argus to DPUDeployment dpudeployment..."
+    log "INFO" "Adding Argus to DPUDeployment ${deployment_name}..."
     patch_argus_service
-    wait_for_argus_dpuservices_ready
+    wait_for_argus_dpuservices_ready "${deployment_name}"
     log "INFO" "Argus service enabled"
 }
 
