@@ -63,12 +63,12 @@ function build_hypershift_from_source() {
     log "INFO" "Built hypershift binary from source for $(uname -m)."
 }
 
-function install_hypershift() {
-    log "INFO" "Installing Hypershift binary and operator..."
-
+# Install the hypershift CLI binary into $HOME/.local/bin. Extraction on x86_64,
+# build from source elsewhere. Shared by install_hypershift and ensure_hypershift_cli.
+function install_hypershift_binary() {
     if [[ "$(uname -m)" == "x86_64" ]]; then
         if ! extract_hypershift_binary; then
-            log "ERROR" "Failed to extract hypershift binary from container image"
+            log "ERROR" "Failed to extract hypershift binary from ${HYPERSHIFT_IMAGE}"
             return 1
         fi
         log "INFO" "Extracted hypershift binary from container image."
@@ -85,6 +85,12 @@ function install_hypershift() {
     rm -f /tmp/hypershift
     export PATH="$HOME/.local/bin:$PATH"
     log "INFO" "Installed hypershift binary to $HOME/.local/bin/hypershift"
+}
+
+function install_hypershift() {
+    log "INFO" "Installing Hypershift binary and operator..."
+
+    install_hypershift_binary || return 1
 
     # Install the Hypershift operator
     KUBECONFIG=$KUBECONFIG hypershift install --hypershift-image $HYPERSHIFT_IMAGE
@@ -246,6 +252,16 @@ function install_hypershift_via_mce() {
     fi
 
     log "INFO" "Hypershift installation via MCE completed successfully!"
+}
+
+# Ensure a hypershift CLI binary is available (management-cluster operations only).
+# Uses the same extraction/build path as install_hypershift but skips operator install.
+function ensure_hypershift_cli() {
+    if command -v hypershift &>/dev/null; then
+        return 0
+    fi
+    log "INFO" "hypershift CLI not in PATH; installing locally..."
+    install_hypershift_binary
 }
 
 function install_oc() {

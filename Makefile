@@ -40,6 +40,9 @@ WORKER_SECURE_BOOT_SCRIPT := scripts/worker-secure-boot.sh
 # Full teardown orchestration (VMs, workers, Assisted Installer)
 CLEANUP_SCRIPT := scripts/cleanup.sh
 
+# Zero Trust tenant HostedCluster (physical workers + MCE Agent)
+ZT_TENANT_SCRIPT := scripts/zt-tenant-cluster.sh
+
 .PHONY: all
 all:
 	@mkdir -p logs
@@ -72,7 +75,11 @@ all-zt:
 # Host worker/BMO provisioning, OVN injection, Kata, and trusted verification
 # are deliberately excluded. With VERIFY_DEPLOYMENT=true it ends by waiting for
 # every listed DPU to be Ready and the hosted cluster operators to be stable.
-ZT_ALL_STEPS := validate-zt-mode verify-files check-cluster create-vms prepare-manifests cluster-install update-etc-hosts kubeconfig poweron-workers deploy-dpf prepare-dpu-files deploy-dpu-services
+# The tenant phase is opt-in via ZT_DEPLOY_TENANT_CLUSTER=true: the first step
+# then validates the tenant env surface so a bad ZT_TENANT_* value fails before
+# the cluster work, and the last line deploys the tenant. Both are no-ops unless
+# the flag is true; the decision lives in scripts/zt-tenant-cluster.sh.
+ZT_ALL_STEPS := validate-zt-tenant-config validate-zt-mode verify-files check-cluster create-vms prepare-manifests cluster-install update-etc-hosts kubeconfig poweron-workers deploy-dpf prepare-dpu-files deploy-dpu-services
 
 .NOTPARALLEL: _all-zt
 .PHONY: _all-zt
@@ -82,6 +89,7 @@ _all-zt: $(ZT_ALL_STEPS)
 	@echo "Zero Trust DPF, hosted-cluster, and DPU service configuration complete"
 	@echo "================================================================================"
 	@$(VERIFY_SCRIPT) verify-zt-deployment
+	@bash $(ZT_TENANT_SCRIPT) deploy-if-enabled
 
 .PHONY: validate-zt-mode
 validate-zt-mode:
@@ -272,6 +280,19 @@ scale-in-zt-dpus: validate-zt-mode
 	@$(DPF_SCRIPT) scale-in-zero-trust-dpus "$(DPU_NODE)"
 	@$(POST_INSTALL_SCRIPT) prepare-zt-services
 	@$(POST_INSTALL_SCRIPT) update-zt-hbn-config
+
+# Three-cluster Zero Trust CI: MCE + Agent NodePool tenant on same physical hosts as DPU workers.
+# Prerequisites: DPU HostedCluster + DPFHCPProvisioner Ready (e.g. make all-zt); set ZT_TENANT_* (see docs).
+# Runs at the end of `make all-zt` when ZT_DEPLOY_TENANT_CLUSTER=true.
+.PHONY: deploy-zt-tenant-cluster
+deploy-zt-tenant-cluster:
+	@bash $(ZT_TENANT_SCRIPT) deploy
+
+# Offline tenant env check; first step of all-zt (no-op unless
+# ZT_DEPLOY_TENANT_CLUSTER=true, decided in scripts/zt-tenant-cluster.sh).
+.PHONY: validate-zt-tenant-config
+validate-zt-tenant-config:
+	@bash $(ZT_TENANT_SCRIPT) preflight
 
 .PHONY: deploy-observability
 deploy-observability:
@@ -615,6 +636,8 @@ help:
 	@echo "  all               - Complete setup: verify, create cluster, VMs, install, and wait for completion (enable-kata last if KATA_ENABLED=true)"
 	@echo "  create-base-cluster - Create and install a base OpenShift cluster through worker provisioning"
 	@echo "  all-zt            - Zero Trust setup through DPU services and hosted-cluster authorization"
+	@echo "                     Set ZT_DEPLOY_TENANT_CLUSTER=true to end with the tenant HostedCluster (full flow)"
+	@echo "  deploy-zt-tenant-cluster - After all-zt: tenant HostedCluster on physical hosts (MCE Agent + BMH; see docs)"
 	@echo "  create-cluster    - Create a new cluster"
 	@echo "  create-day2-cluster - Create a day2 cluster for worker nodes with DPUs"
 	@echo "  get-day2-iso      - Get ISO URL for worker nodes with DPUs (uses day2 cluster)"
@@ -730,7 +753,7 @@ help:
 	@echo "  DISABLE_NFD       - Skip NFD deployment (default: $(DISABLE_NFD))"
 	@echo ""
 	@echo "Hypershift Configuration:"
-	@echo "  HYPERSHIFT_INSTALL_METHOD - How to install HyperShift operator: 'binary' (default) or 'mce' (via MultiCluster Engine)"
+	@echo "  HYPERSHIFT_INSTALL_METHOD - How to install HyperShift operator: 'mce' (default, via MultiCluster Engine) or 'binary' (HyperShift CLI/operator image)"
 	@echo "  MCE_OPERATOR_CHANNEL - MCE subscription channel (default: stable-2.17)"
 	@echo "  HYPERSHIFT_IMAGE  - Hypershift operator image (default: $(HYPERSHIFT_IMAGE)) [used only with binary method]"
 	@echo "  HOSTED_CLUSTER_NAME - Name of the hosted cluster (default: $(HOSTED_CLUSTER_NAME))"
@@ -765,6 +788,7 @@ help:
 	@echo "                        Zero Trust uses the HyperShift CLI, staticClusterManager, and Redfish"
 	@echo "  DPF_VERSION      - DPF operator version (default: $(DPF_VERSION))"
 	@echo "  KATA_ENABLED     - If true, make all runs enable-kata last (default: false)"
+	@echo "  ZT_DEPLOY_TENANT_CLUSTER - If true, make all-zt ends by deploying the tenant HostedCluster (default: false; needs HYPERSHIFT_INSTALL_METHOD=mce, the default)"
 	@echo "  ARGUS_ENABLED    - If true, deploy DOCA Argus with DPU services (default: false)"
 	@echo "  SKIP_DEPLOY_STORAGE - If true, skip LSO/LVM/ODF deployment; ETCD_STORAGE_CLASS must point to existing StorageClass (default: false)"
 	@echo "  ETCD_STORAGE_CLASS - StorageClass for hosted cluster etcd (default: $(ETCD_STORAGE_CLASS)); required when SKIP_DEPLOY_STORAGE=true"

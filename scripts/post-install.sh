@@ -178,49 +178,7 @@ function verify_zero_trust_dpudeployment_created() {
         -n dpf-operator-system
 }
 
-function dpfhcp_provisioner_is_ready() {
-    local phase
-    phase=$(oc get dpfhcpprovisioner.provisioning.dpu.hcp.io \
-        "${HOSTED_CLUSTER_NAME}" \
-        -n "${CLUSTERS_NAMESPACE}" \
-        -o jsonpath='{.status.phase}' 2>/dev/null || true)
-    [ "${phase}" = "Ready" ]
-}
-
-function wait_for_dpfhcp_provisioner_ready() {
-    local get_output
-    if ! get_output=$(oc get dpfhcpprovisioner.provisioning.dpu.hcp.io \
-        "${HOSTED_CLUSTER_NAME}" \
-        -n "${CLUSTERS_NAMESPACE}" -o name 2>&1); then
-        if ! grep -Eq 'NotFound|not found|doesn.t have a resource type' <<< "${get_output}"; then
-            log [ERROR] "Failed to query DPFHCPProvisioner: ${get_output}"
-            return 1
-        fi
-        if [ "${DPF_DEPLOYMENT_MODE}" = "zero-trust" ]; then
-            log [ERROR] "DPFHCPProvisioner ${CLUSTERS_NAMESPACE}/${HOSTED_CLUSTER_NAME} was not found"
-            return 1
-        fi
-        log [INFO] "DPFHCPProvisioner is not configured; skipping its readiness check"
-        return 0
-    fi
-
-    log [INFO] "Waiting for DPFHCPProvisioner to become Ready..."
-    if ! retry 180 10 dpfhcp_provisioner_is_ready; then
-        log [ERROR] "DPFHCPProvisioner ${HOSTED_CLUSTER_NAME} did not become Ready within 30 minutes"
-        oc get dpfhcpprovisioner.provisioning.dpu.hcp.io \
-            "${HOSTED_CLUSTER_NAME}" \
-            -n "${CLUSTERS_NAMESPACE}" \
-            -o yaml || true
-        oc get dpucluster.provisioning.dpu.nvidia.com \
-            "${HOSTED_CLUSTER_NAME}" \
-            -n dpf-operator-system \
-            -o yaml || true
-        return 1
-    fi
-
-    oc get dpfhcpprovisioner.provisioning.dpu.hcp.io \
-        "${HOSTED_CLUSTER_NAME}" -n "${CLUSTERS_NAMESPACE}"
-}
+# wait_for_dpfhcp_provisioner_ready() lives in utils.sh, shared with the tenant flow.
 
 function apply_zero_trust_provisioning_manifests() {
     local flavor_manifest="${GENERATED_POST_INSTALL_DIR}/dpuflavor.yaml"
