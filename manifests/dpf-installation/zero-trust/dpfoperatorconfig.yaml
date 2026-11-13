@@ -33,9 +33,8 @@ spec:
     nodeEffectRemovalTimeout: "3600s"
     installInterface:
       installViaRedfish:
-        bfbRegistryAddress: "<BFB_REGISTRY_HOST>:<ZT_BFB_REGISTRY_PORT>"
-        bfbRegistry:
-          port: <ZT_BFB_REGISTRY_PORT>
+        # The selected 81164ef runtime uses the API VIP and allocated NodePort by default.
+        # Set registry.loadBalancerAddress only when an external LB is provisioned.
         skipDPUNodeDiscovery: true
   staticClusterManager:
     disable: false

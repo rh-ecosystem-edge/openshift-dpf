@@ -194,8 +194,31 @@ Anonymous OCI pull matched the published chart digest and audited archive
 bytes. No full HCP test suite, hardware, OS trust-service ordering, admission/
 CEL, provisioning or dataplane E2E success is claimed.
 
-This PR's HCP refresh changes only `ci/env.defaults` and this document; DPF,
-system, hostdriver and ancillary pins are unchanged. Inherited hosted OCP
+This PR's HCP artifact refresh changes `ci/env.defaults` and this document.
+Zero-trust deprecation cleanup also updates `ci/env.template`, `scripts/env.sh`,
+`scripts/manifests.sh`, and the zero-trust DPFOperatorConfig and DPUDeployment
+manifests. It removes the deprecated Redfish registry address/port overrides and their
+fixed-port plumbing. The selected DPF controller image
+`v26.11.0-main.81164ef.hostname-jsonfix.2` accepts the DNS `HOST_CLUSTER_API`
+used as `kubernetesAPIServerVIP`, derives the HTTPS registry address from that
+VIP, and uses the BFB registry Service's allocated NodePort. The chart remains
+pinned to 8c18ca7; the explicit `controllerManager.image` override selects the
+hostname-capable runtime. Set
+`spec.provisioningController.registry.loadBalancerAddress` only when a real
+external load balancer is provisioned. The DPUDeployment now selects DPU nodes
+through `dpuNodeSelector`; its selector label is present on the zero-trust
+DPUNode template.
+
+One warning is outside this repo's manifest scope: NVIDIA/doca-platform
+`public-main` discovery still submits deprecated `DPUDevice.spec.opn` when it
+creates a discovered device (`internal/provisioning/controllers/dpu/discovery/crawler.go`).
+The field is deprecated in favor of `status.opn`, which the DPUDevice controller
+also populates. A separate upstream source change is needed to stop submitting
+`spec.opn` for new discoveries. The CRD marks `spec.opn` immutable, so existing
+objects with it need a separately designed migration; this PR does not touch a
+cluster.
+
+DPF, system, hostdriver and ancillary pins are unchanged. Inherited hosted OCP
 `4.22.19-multi`, explicit BlueField OCP `4.22.19-4k-doca3.4.2` workaround and
 stress defaults from upstream main are retained. The explicit BlueField pin
 bypasses automatic image lookup; hardware/DOCA compatibility is unverified.
