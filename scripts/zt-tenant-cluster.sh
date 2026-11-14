@@ -12,6 +12,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/utils.sh"
 # shellcheck source=scripts/tools.sh
 source "${SCRIPT_DIR}/tools.sh"
+# shellcheck source=scripts/metallb.sh
+source "${SCRIPT_DIR}/metallb.sh"
 
 # -----------------------------------------------------------------------------
 # Validation
@@ -260,7 +262,16 @@ create_tenant_hostedcluster_skip_nodepool() {
 
     _restore_mgmt_kubeconfig
     if oc get hostedcluster -n "${ns}" "${ZT_TENANT_CLUSTER_NAME}" &>/dev/null; then
-        local platform_ok recon_ok
+        local platform_ok recon_ok strategy
+        # Exposure is fixed at creation: spec.services is immutable on the Agent
+        # platform, so a NodePort cluster cannot be promoted to MetalLB in place.
+        if _tenant_metallb_enabled; then
+            strategy="$(_tenant_hc_apiserver_strategy)"
+            if [ "${strategy}" != "LoadBalancer" ]; then
+                _tenant_apiserver_strategy_error "${strategy}"
+                return 1
+            fi
+        fi
         platform_ok="$(_tenant_hc_condition "${ns}" "${ZT_TENANT_CLUSTER_NAME}" "PlatformCredentialsFound")"
         recon_ok="$(_tenant_hc_condition "${ns}" "${ZT_TENANT_CLUSTER_NAME}" "ReconciliationSucceeded")"
         if [ "${platform_ok}" = "True" ] && [ "${recon_ok}" = "True" ]; then
@@ -280,10 +291,18 @@ create_tenant_hostedcluster_skip_nodepool() {
         return 1
     fi
 
-    local ssh_key
+    local ssh_key publishing_strategy="NodePort"
     ssh_key="$(_tenant_ssh_key_path)" || return 1
 
-    log [INFO] "Creating tenant HostedCluster ${ZT_TENANT_CLUSTER_NAME} (Agent platform, NodePool deferred)..."
+    # MetalLB exposure: the CLI's LoadBalancer strategy is the bare-metal
+    # production shape (APIServer LoadBalancer, OAuth/Konnectivity/Ignition
+    # Route); NodePort is the HyperShift default and is passed explicitly so the
+    # chosen exposure is visible in the command.
+    if _tenant_metallb_enabled; then
+        publishing_strategy="LoadBalancer"
+    fi
+
+    log [INFO] "Creating tenant HostedCluster ${ZT_TENANT_CLUSTER_NAME} (Agent platform, ${publishing_strategy} exposure, NodePool deferred)..."
     ensure_tenant_namespace "${agent_ns}" || return 1
     ensure_tenant_capi_provider_role "${agent_ns}" || return 1
     hypershift create cluster agent \
@@ -299,7 +318,8 @@ create_tenant_hostedcluster_skip_nodepool() {
         --service-cidr "${ZT_TENANT_SERVICE_NETWORK_CIDR}" \
         --agent-namespace "${agent_ns}" \
         --node-pool-replicas -1 \
-        --arch "${ZT_TENANT_NODEPOOL_ARCH}"
+        --arch "${ZT_TENANT_NODEPOOL_ARCH}" \
+        --service-publishing-strategy "${publishing_strategy}"
 
     _restore_mgmt_kubeconfig
     log [INFO] "Waiting for tenant agent namespace ${agent_ns}..."
@@ -518,18 +538,301 @@ wait_tenant_workers_ready() {
 }
 
 # -----------------------------------------------------------------------------
-# Main
+# Exposure: MetalLB VIPs + DNS records (or HyperShift's NodePort default)
 # -----------------------------------------------------------------------------
 
-deploy_zt_tenant_cluster() {
+# Production-style exposure is opt-in and all-or-nothing: ZT_TENANT_API_IP (a
+# management-cluster MetalLB VIP for the tenant kube-apiserver) and
+# ZT_TENANT_INGRESS_IP (a MetalLB VIP inside the tenant cluster for *.apps).
+# Leaving both empty keeps HyperShift's NodePort default, where the API is a
+# node IP + NodePort and there is no Ingress VIP.
+_tenant_metallb_enabled() {
+    [ -n "${ZT_TENANT_API_IP:-}" ] && [ -n "${ZT_TENANT_INGRESS_IP:-}" ]
+}
+
+# Point KUBECONFIG at the management cluster and pin it in MGMT_KUBECONFIG, so
+# the tenant flows can switch context per manifest and always get back.
+_init_tenant_mgmt_context() {
     get_kubeconfig
     MGMT_KUBECONFIG="$(canonical_path "${KUBECONFIG}")"
     export MGMT_KUBECONFIG
     export KUBECONFIG="${MGMT_KUBECONFIG}"
     mkdir -p "${ZT_TENANT_GENERATED_DIR}"
+}
+
+# Render manifests/zt-tenant/<template> into ZT_TENANT_GENERATED_DIR/<out> and
+# apply it. Retried: a CRD or webhook can lag the CSV that installed it.
+_apply_zt_manifest() {
+    local template="$1" out="$2"
+    shift 2
+    process_template "${MANIFESTS_DIR}/zt-tenant/${template}" \
+        "${ZT_TENANT_GENERATED_DIR}/${out}" "$@" || return 1
+    retry 5 10 --no-dump-on-failure apply_manifest "${ZT_TENANT_GENERATED_DIR}/${out}" true
+}
+
+_tenant_hc_apiserver_strategy() {
+    oc get hostedcluster -n "${CLUSTERS_NAMESPACE}" "${ZT_TENANT_CLUSTER_NAME}" \
+        -o jsonpath='{.spec.services[?(@.service=="APIServer")].servicePublishingStrategy.type}' 2>/dev/null || true
+}
+
+_tenant_apiserver_strategy_error() {
+    local strategy="$1"
+    log [ERROR] "Tenant HostedCluster ${ZT_TENANT_CLUSTER_NAME} publishes APIServer as '${strategy:-NodePort}', not LoadBalancer, but ZT_TENANT_API_IP/ZT_TENANT_INGRESS_IP request MetalLB exposure."
+    log [ERROR] "HostedCluster spec.services is immutable on the Agent platform, so exposure cannot be changed in place. Recreate the tenant cluster:"
+    log [ERROR] "  oc delete hostedcluster -n ${CLUSTERS_NAMESPACE} ${ZT_TENANT_CLUSTER_NAME}"
+    log [ERROR] "  make deploy-zt-tenant-cluster"
+    log [ERROR] "The tenant workers are reinstalled by the new Assisted run."
+}
+
+# Management side: MetalLB operator plus the pool that owns the tenant API VIP.
+# HyperShift creates the kube-apiserver Service as type LoadBalancer; with no
+# matching auto-assign pool it stays <pending> until ensure_tenant_api_lb points
+# it at this pool.
+prepare_tenant_metallb_mgmt() {
+    _tenant_metallb_enabled || return 0
+
+    log [INFO] "Preparing management-cluster MetalLB pool for tenant API VIP ${ZT_TENANT_API_IP}..."
+    ensure_metallb_operator || return 1
+    # The DPU pool belongs to dpf-hcp-provisioner-operator; this one is only for
+    # the tenant API VIP. The MetalLB CR lives in openshift-operators.
+    _apply_zt_manifest metallb-pool-template.yaml metallb-pool-mgmt.yaml \
+        "<METALLB_NAMESPACE>" "openshift-operators" \
+        "<METALLB_POOL_NAME>" "zt-tenant-api" \
+        "<METALLB_IP>" "${ZT_TENANT_API_IP}"
+}
+
+# The pool has autoAssign=false, so the HyperShift-created Service needs the pool
+# annotation before MetalLB hands out the VIP.
+ensure_tenant_api_lb() {
+    _tenant_metallb_enabled || return 0
+
+    local ns="${CLUSTERS_NAMESPACE}-${ZT_TENANT_CLUSTER_NAME}"
+
+    wait_for_resource "${ns}" service kube-apiserver 60 10 || {
+        log [ERROR] "Tenant kube-apiserver Service ${ns}/kube-apiserver not found; is the HostedCluster reconciling?"
+        return 1
+    }
+
+    oc annotate service -n "${ns}" kube-apiserver \
+        "metallb.universe.tf/address-pool=zt-tenant-api" --overwrite >/dev/null || {
+        log [ERROR] "Failed to annotate ${ns}/kube-apiserver with MetalLB pool zt-tenant-api"
+        return 1
+    }
+
+    wait_for_lb_ip "${ns}" kube-apiserver "${ZT_TENANT_API_IP}" || return 1
+    log [INFO] "Tenant API is published at https://${ZT_TENANT_API_IP}:6443"
+}
+
+# The metallb-ingress Service forwards VIP:80/443 to the router pods, which must
+# own those ports on the worker: HyperShift publishes the tenant ingress with
+# HostNetwork. Patch it only when something else is configured.
+ensure_tenant_ingress_hostnetwork() {
+    local type
+    type=$(oc get ingresscontroller default -n openshift-ingress-operator \
+        -o jsonpath='{.spec.endpointPublishingStrategy.type}' 2>/dev/null || true)
+    if [ "${type}" = "HostNetwork" ]; then
+        log [INFO] "Tenant ingress already publishes with HostNetwork"
+        return 0
+    fi
+    log [INFO] "Setting tenant ingress endpointPublishingStrategy to HostNetwork (was '${type:-unset}')..."
+    # Patches spec, so the write is authoritative: no wait needed afterwards.
+    oc patch ingresscontroller default -n openshift-ingress-operator --type=merge -p \
+        '{"spec":{"endpointPublishingStrategy":{"type":"HostNetwork","hostNetwork":{"protocol":"TCP","httpPort":80,"httpsPort":443,"statsPort":1936}}}}'
+}
+
+# Guest side: MetalLB inside the tenant cluster (its own OLM), then the
+# metallb-ingress LoadBalancer Service in openshift-ingress. Runs against the
+# tenant kubeconfig; the caller provides the subshell that exports it.
+configure_tenant_ingress_lb() {
+    _tenant_metallb_enabled || return 0
+
+    local kube="${ZT_TENANT_KUBECONFIG}"
+    if [ ! -f "${kube}" ]; then
+        log [ERROR] "Tenant kubeconfig ${kube} not found; cannot configure the tenant ingress VIP"
+        return 1
+    fi
+
+    log [INFO] "Installing MetalLB in the tenant cluster for ingress VIP ${ZT_TENANT_INGRESS_IP}..."
+    (
+        export KUBECONFIG="${kube}"
+
+        # Install the operator only when it is not already enabled in the tenant
+        # cluster: a re-run (or a tenant prepared by hand) skips the OLM waits.
+        if metallb_enabled "metallb-system" metallb; then
+            log [INFO] "MetalLB is already enabled in the tenant cluster (metallb-system/metallb). Skipping the operator install."
+        else
+            _apply_zt_manifest metallb-operator-template.yaml metallb-operator.yaml \
+                "<METALLB_NAMESPACE>" "metallb-system" || exit 1
+            wait_for_csv_succeeded "metallb-system" "metallb-operator" || exit 1
+
+            # The MetalLB CR needs the CRDs the CSV just registered; applying it
+            # in the same file as the Subscription fails ("no matches for kind").
+            _apply_zt_manifest metallb-cr-template.yaml metallb-cr.yaml \
+                "<METALLB_NAMESPACE>" "metallb-system" || exit 1
+            oc wait metallb/metallb -n metallb-system --for=condition=Available --timeout=600s || exit 1
+        fi
+
+        ensure_tenant_ingress_hostnetwork || exit 1
+
+        _apply_zt_manifest metallb-pool-template.yaml metallb-pool-tenant.yaml \
+            "<METALLB_NAMESPACE>" "metallb-system" \
+            "<METALLB_POOL_NAME>" "metallb" \
+            "<METALLB_IP>" "${ZT_TENANT_INGRESS_IP}" || exit 1
+
+        _apply_zt_manifest metallb-ingress-service-template.yaml metallb-ingress-service.yaml \
+            "<METALLB_POOL_NAME>" "metallb" || exit 1
+
+        wait_for_lb_ip "openshift-ingress" metallb-ingress "${ZT_TENANT_INGRESS_IP}" || exit 1
+    ) || {
+        log [ERROR] "Failed to publish the tenant ingress at ${ZT_TENANT_INGRESS_IP}"
+        return 1
+    }
+
+    log [INFO] "Tenant ingress is published at https://*.apps.${ZT_TENANT_CLUSTER_NAME}.${ZT_TENANT_BASE_DOMAIN} (${ZT_TENANT_INGRESS_IP})"
+}
+
+# Address that serves the management cluster's ingress routes: INGRESS_VIP on
+# multi-node clusters, the single node's internal IP on SNO.
+_management_ingress_ip() {
+    if [ -n "${INGRESS_VIP:-}" ]; then
+        echo "${INGRESS_VIP}"
+        return 0
+    fi
+    oc get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null || true
+}
+
+_tenant_api_server_url() {
+    [ -f "${ZT_TENANT_KUBECONFIG}" ] || return 0
+    sed -n 's/^[[:space:]]*server:[[:space:]]*//p' "${ZT_TENANT_KUBECONFIG}" 2>/dev/null | head -n 1
+}
+
+# DNS records the tenant needs, written under ZT_TENANT_GENERATED_DIR (this repo
+# never publishes DNS; see docs/user-guide/configuration.md for the records and
+# how to create them):
+#   api.<cluster>.<base-domain>          API server (management MetalLB VIP)
+#   *.apps.<cluster>.<base-domain>       tenant ingress (guest MetalLB VIP)
+#   Route-published control-plane hosts  management ingress VIP
+write_tenant_dns_records() {
+    local domain api_host out hosts_out route_host api_url mgmt_ip
+    local -a route_hosts=()
+
+    domain="${ZT_TENANT_CLUSTER_NAME}.${ZT_TENANT_BASE_DOMAIN}"
+    api_host="api.${domain}"
+    out="${ZT_TENANT_GENERATED_DIR}/dns-records.txt"
+    hosts_out="${ZT_TENANT_GENERATED_DIR}/etc-hosts.txt"
+    mkdir -p "${ZT_TENANT_GENERATED_DIR}"
+
+    if _tenant_metallb_enabled; then
+        # Hosted control plane services (OAuth, Konnectivity, Ignition) are
+        # published as Routes on the management cluster, and their host names are
+        # only known after creation.
+        mgmt_ip="$(_management_ingress_ip)"
+        while IFS= read -r route_host; do
+            [ -n "${route_host}" ] && route_hosts+=("${route_host}")
+        done < <(oc get route -n "$(zt_tenant_agent_namespace)" \
+            -o jsonpath='{range .items[*]}{.spec.host}{"\n"}{end}' 2>/dev/null)
+    else
+        api_url="$(_tenant_api_server_url)"
+    fi
+
+    {
+        echo "# Tenant HostedCluster ${ZT_TENANT_CLUSTER_NAME} DNS records"
+        echo "# Generated by scripts/zt-tenant-cluster.sh; publish them in the zone that serves ${ZT_TENANT_BASE_DOMAIN}."
+        echo
+        if _tenant_metallb_enabled; then
+            echo "# API server - management-cluster MetalLB VIP (HyperShift LoadBalancer publishing)"
+            echo "${api_host}. IN A ${ZT_TENANT_API_IP}"
+            echo
+            echo "# Tenant ingress - MetalLB VIP of the metallb-ingress Service in the tenant cluster"
+            echo "*.apps.${domain}. IN A ${ZT_TENANT_INGRESS_IP}"
+            if [ ${#route_hosts[@]} -gt 0 ]; then
+                echo
+                echo "# Hosted control plane Routes, served by the MANAGEMENT cluster ingress"
+                for route_host in "${route_hosts[@]}"; do
+                    echo "${route_host}. IN A ${mgmt_ip:-<management-ingress-ip>}"
+                done
+            fi
+        else
+            echo "# HyperShift NodePort publishing: no API VIP and no *.apps Ingress VIP."
+            echo "# API endpoint from the tenant kubeconfig:"
+            echo "#   ${ZT_TENANT_KUBECONFIG} -> ${api_url}"
+            echo "# For the web console, point each *.apps.${domain} name at a tenant worker:"
+            oc --kubeconfig "${ZT_TENANT_KUBECONFIG}" get nodes \
+                -o jsonpath='{range .items[*]}{.status.addresses[?(@.type=="InternalIP")].address}{"\n"}{end}' 2>/dev/null |
+                sed 's/^/#   /' || true
+        fi
+    } > "${out}"
+
+    # /etc/hosts cannot express a wildcard; list the names behind it so a single
+    # host can reach the console, OAuth and downloads without publishing DNS.
+    {
+        echo "# Test-only /etc/hosts entries for tenant ${ZT_TENANT_CLUSTER_NAME};"
+        echo "# publish the wildcard record in DNS for every other client."
+        if _tenant_metallb_enabled; then
+            echo "${ZT_TENANT_API_IP} ${api_host}"
+            for route_host in console-openshift-console oauth-openshift downloads-openshift-console canary-openshift-ingress-canary; do
+                echo "${ZT_TENANT_INGRESS_IP} ${route_host}.apps.${domain}"
+            done
+            for route_host in "${route_hosts[@]}"; do
+                echo "${mgmt_ip} ${route_host}"
+            done
+        fi
+    } > "${hosts_out}"
+
+    log [INFO] "Tenant DNS records written to ${out} (test /etc/hosts entries: ${hosts_out})"
+    if _tenant_metallb_enabled; then
+        log [INFO] "  ${api_host} -> ${ZT_TENANT_API_IP} (API, management MetalLB)"
+        log [INFO] "  *.apps.${domain} -> ${ZT_TENANT_INGRESS_IP} (tenant MetalLB)"
+    else
+        log [INFO] "  ${api_host} is not published: the tenant uses HyperShift's NodePort default (endpoint ${api_url})"
+    fi
+}
+
+# Day-2 entry point: apply the exposure to an existing tenant HostedCluster and
+# write its DNS records. No-op (with a hint) when the VIPs are not configured.
+configure_zt_tenant_loadbalancer() {
+    _init_tenant_mgmt_context
+
+    validate_zt_tenant_configuration || return 1
+
+    if ! _tenant_metallb_enabled; then
+        log [INFO] "ZT_TENANT_API_IP/ZT_TENANT_INGRESS_IP are empty; the tenant keeps HyperShift's NodePort exposure. Nothing to configure."
+        return 0
+    fi
+
+    if ! oc get hostedcluster -n "${CLUSTERS_NAMESPACE}" "${ZT_TENANT_CLUSTER_NAME}" &>/dev/null; then
+        log [ERROR] "HostedCluster ${ZT_TENANT_CLUSTER_NAME} not found in ${CLUSTERS_NAMESPACE}; run make deploy-zt-tenant-cluster first"
+        return 1
+    fi
+
+    prepare_tenant_metallb_mgmt || return 1
+
+    local strategy
+    strategy="$(_tenant_hc_apiserver_strategy)"
+    if [ "${strategy}" = "LoadBalancer" ]; then
+        ensure_tenant_api_lb || return 1
+    else
+        _tenant_apiserver_strategy_error "${strategy}"
+        log [WARN] "Continuing with the tenant ingress VIP and DNS records; the API stays at its NodePort endpoint."
+    fi
+
+    configure_tenant_ingress_lb || return 1
+    write_tenant_dns_records
+}
+
+# -----------------------------------------------------------------------------
+# Main
+# -----------------------------------------------------------------------------
+
+deploy_zt_tenant_cluster() {
+    _init_tenant_mgmt_context
 
     validate_zt_tenant_configuration || return 1
     wait_for_dpfhcp_provisioner_ready || return 1
+
+    # MetalLB first: the tenant kube-apiserver Service stays <pending> until the
+    # operator and the tenant API pool exist.
+    prepare_tenant_metallb_mgmt || return 1
 
     ensure_mce_assisted || return 1
     ensure_agent_service_config || return 1
@@ -537,6 +840,7 @@ deploy_zt_tenant_cluster() {
 
     create_tenant_hostedcluster_skip_nodepool || return 1
     wait_tenant_hosted_cluster_platform_ready || return 1
+    ensure_tenant_api_lb || return 1
 
     local agent_ns
     agent_ns="$(zt_tenant_agent_namespace)"
@@ -553,6 +857,9 @@ deploy_zt_tenant_cluster() {
 
     write_tenant_kubeconfig || return 1
     wait_tenant_workers_ready || return 1
+
+    configure_tenant_ingress_lb || return 1
+    write_tenant_dns_records
 
     log [INFO] "Tenant HostedCluster ${ZT_TENANT_CLUSTER_NAME} is ready; kubeconfig: ${ZT_TENANT_KUBECONFIG}"
 }
@@ -585,8 +892,14 @@ main() {
                 log [INFO] "ZT_DEPLOY_TENANT_CLUSTER is not true; skipping tenant HostedCluster deployment"
             fi
             ;;
+        configure-loadbalancer)
+            # Day-2: apply the MetalLB exposure (guest ingress + API when the
+            # HostedCluster was created with LoadBalancer publishing) and write
+            # the DNS records for an existing tenant cluster.
+            configure_zt_tenant_loadbalancer
+            ;;
         *)
-            log [INFO] "Usage: $0 [deploy|validate|preflight|deploy-if-enabled]"
+            log [INFO] "Usage: $0 [deploy|validate|preflight|deploy-if-enabled|configure-loadbalancer]"
             exit 1
             ;;
     esac

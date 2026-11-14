@@ -305,6 +305,25 @@ function wait_for_pods() {
     exit 1
 }
 
+# Wait for a LoadBalancer Service to be assigned a specific external IP (MetalLB
+# picks the address asynchronously, so callers cannot assume it is immediate).
+function wait_for_lb_ip() {
+    local namespace=$1
+    local service=$2
+    local expected_ip=$3
+    local attempts=${4:-60}
+    local delay=${5:-10}
+
+    log "INFO" "Waiting for LoadBalancer ${namespace}/${service} to get ${expected_ip}..."
+    if ! retry "${attempts}" "${delay}" --no-dump-on-failure bash -c \
+        "oc get service '${service}' -n '${namespace}' -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null | grep -qxF '${expected_ip}'"; then
+        log "ERROR" "LoadBalancer ${namespace}/${service} was not assigned ${expected_ip}"
+        oc get service -n "${namespace}" "${service}" -o wide || true
+        return 1
+    fi
+    log "INFO" "LoadBalancer ${namespace}/${service} is reachable at ${expected_ip}"
+}
+
 # -----------------------------------------------------------------------------
 # Resource checking functions
 # -----------------------------------------------------------------------------

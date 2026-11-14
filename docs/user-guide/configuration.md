@@ -223,6 +223,59 @@ Lab checklist:
 
 To run both phases in one command, set `ZT_DEPLOY_TENANT_CLUSTER=true` (in `.env` or on the command line) before `make all-zt`; it validates the tenant configuration first and the tenant phase comes after `verify-zt-deployment`. Every phase is idempotent, so a failed run can be resumed by repeating the same command.
 
+#### Tenant exposure: NodePort (default) or production-style MetalLB
+
+The tenant HostedCluster is created with one of two exposure shapes:
+
+| | `ZT_TENANT_API_IP` / `ZT_TENANT_INGRESS_IP` empty (default) | both set |
+|---|---|---|
+| HyperShift publishing | `--service-publishing-strategy NodePort` | `--service-publishing-strategy LoadBalancer` (APIServer=LoadBalancer, OAuth/Konnectivity/Ignition=Route) |
+| API endpoint | NodePort on a tenant worker, whatever host the kubeconfig records | `https://${ZT_TENANT_API_IP}:6443` |
+| Console / `*.apps` | NodePort on a tenant worker | `https://${ZT_TENANT_INGRESS_IP}:443` via the tenant's own MetalLB |
+| DNS | must be built by hand from the worker IPs | generated as zone records (see below) |
+
+**NodePort** is HyperShift's default and needs no extra addresses. It is enough for CI, but the endpoint is a worker's IP plus a high port, so the console certificate does not match and every client needs the port. Nothing else in the tenant flow changes.
+
+**Production-style** is the shape a bare-metal OpenShift cluster has: a stable API VIP and a stable ingress VIP. Set both variables to **free IPv4 addresses in the management network** (the numbering the DPU HostedCluster uses for `HYPERSHIFT_API_IP`), outside the DHCP range and not in use by anything else. MetalLB advertises both in L2, so `ZT_TENANT_API_IP` must sit in the L2 segment of the **management** nodes (they run the hosted control plane) and `ZT_TENANT_INGRESS_IP` in the L2 segment of the **tenant workers** — in this lab both are the same network:
+
+```bash
+ZT_TENANT_API_IP=10.6.135.60           # tenant API server VIP: https://10.6.135.60:6443
+ZT_TENANT_INGRESS_IP=10.6.135.61       # tenant *.apps VIP: https://<name>.apps.tenant.<base-domain>
+```
+
+Requirements enforced by `validate-zt-tenant-configuration` (before any cluster call): both set or both empty, valid IPv4, distinct from each other, and none of them may equal `API_VIP`, `INGRESS_VIP` or `HYPERSHIFT_API_IP`. They must also be free on the wire — the repo cannot detect a conflict.
+
+When both are set, the deployment creates:
+
+- **On the management cluster** — a MetalLB `IPAddressPool` + `L2Advertisement` named `zt-tenant-api` in `openshift-operators` with `autoAssign: false`, and the annotation `metallb.universe.tf/address-pool=zt-tenant-api` on the HyperShift-created `kube-apiserver` Service in `${CLUSTERS_NAMESPACE}-${ZT_TENANT_CLUSTER_NAME}`. `autoAssign: false` keeps other LoadBalancer Services on the management cluster from taking the VIP. The management MetalLB operator itself is the same one `make deploy-dpf` installs (`scripts/metallb.sh`).
+- **Inside the tenant cluster** — the MetalLB Operator from `redhat-operators` (`metallb-system` namespace, `stable` channel; a disconnected tenant needs that catalog mirrored into the guest cluster), a `MetalLB` instance, an `IPAddressPool` + `L2Advertisement` named `metallb` holding `ZT_TENANT_INGRESS_IP` (`autoAssign: false`), an IngressController `default` patch to `endpointPublishingStrategy: HostNetwork` (HTTP 80, HTTPS 443, stats 1936) — the requirement for a MetalLB-fronted ingress on bare metal — and a `LoadBalancer` Service `metallb-ingress` in `openshift-ingress` selecting the default ingress controller with that pool annotation.
+
+**`HostedCluster.spec.services` is immutable** on the Agent platform (it is mutable only for IBM Cloud), so an existing tenant cannot be switched between the two shapes in place. `make deploy-zt-tenant-cluster` detects the mismatch and explains the only fix: delete the HostedCluster and recreate it. That reinstalls the tenant workers, so pick the shape before the first tenant deployment.
+
+**Day-2:** `make configure-zt-tenant-loadbalancer` applies everything above to an already-created tenant and rewrites its DNS files. It is idempotent and a no-op when both variables are empty. If the tenant was created in NodePort mode it reports the mismatch and still configures the guest ingress and DNS (the API stays on NodePort until the HostedCluster is recreated).
+
+**Generated DNS.** The repo generates the records but does not publish them — there is no DNS-provider integration. After the tenant is up, `manifests/generated/zt-tenant/dns-records.txt` holds zone-style lines to add to the zone that serves `ZT_TENANT_BASE_DOMAIN`:
+
+```text
+api.tenant.<base-domain>.      IN A <ZT_TENANT_API_IP>     # management-cluster MetalLB
+*.apps.tenant.<base-domain>.   IN A <ZT_TENANT_INGRESS_IP> # tenant MetalLB ingress
+<oauth|konnectivity|ignition Route host> IN A <management ingress IP>
+```
+
+The Route hosts are the hosted control plane's OAuth/Konnectivity/Ignition endpoints, which HyperShift publishes as Routes on the **management** cluster when the API uses `LoadBalancer`, and are only known after creation. In NodePort mode the file records the kubeconfig endpoint and the tenant worker IPs instead, with no records to publish.
+
+`manifests/generated/zt-tenant/etc-hosts.txt` has the same mapping as `/etc/hosts` lines, including the concrete names behind the wildcard (`console-openshift-console`, `oauth-openshift`, `downloads-openshift-console`, `canary-openshift-ingress-canary`) — for a single test host that cannot get the wildcard record.
+
+Verify:
+
+```bash
+oc get ipaddresspool,l2advertisement -n openshift-operators zt-tenant-api
+oc get service -n clusters-tenant kube-apiserver \
+  -o jsonpath='{.metadata.annotations.metallb\.universe\.tf/address-pool}{"\n"}{.status.loadBalancer.ingress[0].ip}{"\n"}'
+oc --kubeconfig tenant.kubeconfig get service -n openshift-ingress metallb-ingress
+curl -k https://<ZT_TENANT_API_IP>:6443/version
+```
+
 ### Custom Registry
 
 ```bash
