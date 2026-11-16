@@ -41,6 +41,12 @@ debugging later, enable it manually on that DPU BMC after provisioning.
 
 Complete these manual steps on every DPU BMC before running `make all-zt`:
 
+`make all-zt` powers on every physical worker in `WORKER_COUNT` before it
+continues, so each configured worker—not only workers with a DPU—must have
+`WORKER_<N>_BMC_IP`, `WORKER_<N>_BMC_USER`, and `WORKER_<N>_BMC_PASSWORD` set.
+This remains required in NICo mode because the automation still provisions the
+x86 workers; NICo only takes ownership of DPU inventory and DPU workloads.
+
 1. Configure the same `root` password on every DPU BMC. Set
    `ZT_DPU_BMC_ROOT_PASSWORD` to this password when generating `.env`.
 2. Verify that the BMC Redfish endpoint is reachable. This command prompts for
@@ -50,13 +56,13 @@ Complete these manual steps on every DPU BMC before running `make all-zt`:
    curl -k -u root https://<DPU_BMC_IP>/redfish/v1/Systems/Bluefield
    ```
 
-4. Set `ZT_DPU_BMC_IP_RANGE_START` and `ZT_DPU_BMC_IP_RANGE_END`. A
+3. Set `ZT_DPU_BMC_IP_RANGE_START` and `ZT_DPU_BMC_IP_RANGE_END`. A
    `DPUDiscovery` scans this inclusive range and creates a `DPUDevice` for
    every DPU BMC it finds. Scans use 25 workers. By default, the next scan starts
    three minutes after the previous scan completes; override the interval with
    `ZT_DPU_DISCOVERY_SCAN_INTERVAL`. Only one range is supported. The DPU addresses
    may have gaps within it; every address in the range is scanned.
-5. List the DPU BMC IPs of every host in `WORKER_<N>_DPU_BMC_IPS`,
+4. List the DPU BMC IPs of every host in `WORKER_<N>_DPU_BMC_IPS`,
    comma-separated without spaces, for example
    `WORKER_1_DPU_BMC_IPS=10.6.136.33` or
    `WORKER_2_DPU_BMC_IPS=10.6.136.34,10.6.136.35` for a host with two DPUs.
