@@ -1,0 +1,11 @@
+# MetalLB instance in the tenant HostedCluster. Applied only after the
+# metallb-operator CSV is Succeeded: until then kind: MetalLB has no CRD and
+# `oc apply` fails to map it.
+# The tenant cluster has no control-plane nodes (the control plane is hosted on
+# the management cluster), so the speaker must run on the tenant workers: no
+# control-plane nodeSelector or toleration here.
+apiVersion: metallb.io/v1beta1
+kind: MetalLB
+metadata:
+  name: metallb
+  namespace: <METALLB_NAMESPACE>

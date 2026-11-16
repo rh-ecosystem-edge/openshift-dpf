@@ -1,0 +1,26 @@
+# MetalLB pool for a single tenant HostedCluster VIP.
+# Used twice: on the management cluster for the tenant kube-apiserver VIP (the
+# dpf-hcp-provisioner-operator owns the DPU pool, this one is ours) and inside
+# the tenant cluster for the *.apps ingress VIP.
+---
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: <METALLB_POOL_NAME>
+  namespace: <METALLB_NAMESPACE>
+spec:
+  # Keep auto-assign off: only the Service annotated with
+  # metallb.universe.tf/address-pool may take this address, so an unrelated
+  # LoadBalancer Service can never steal the tenant VIP.
+  autoAssign: false
+  addresses:
+  - <METALLB_IP>/32
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: <METALLB_POOL_NAME>
+  namespace: <METALLB_NAMESPACE>
+spec:
+  ipAddressPools:
+  - <METALLB_POOL_NAME>

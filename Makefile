@@ -294,6 +294,14 @@ deploy-zt-tenant-cluster:
 validate-zt-tenant-config:
 	@bash $(ZT_TENANT_SCRIPT) preflight
 
+# Day-2: apply the MetalLB exposure of an existing tenant HostedCluster (tenant
+# ingress VIP, API VIP when the HostedCluster was created with LoadBalancer
+# publishing) and write its DNS records. No-op when ZT_TENANT_API_IP and
+# ZT_TENANT_INGRESS_IP are empty.
+.PHONY: configure-zt-tenant-loadbalancer
+configure-zt-tenant-loadbalancer:
+	@bash $(ZT_TENANT_SCRIPT) configure-loadbalancer
+
 .PHONY: deploy-observability
 deploy-observability:
 	@$(POST_INSTALL_SCRIPT) observability
@@ -638,6 +646,7 @@ help:
 	@echo "  all-zt            - Zero Trust setup through DPU services and hosted-cluster authorization"
 	@echo "                     Set ZT_DEPLOY_TENANT_CLUSTER=true to end with the tenant HostedCluster (full flow)"
 	@echo "  deploy-zt-tenant-cluster - After all-zt: tenant HostedCluster on physical hosts (MCE Agent + BMH; see docs)"
+	@echo "  configure-zt-tenant-loadbalancer - Day-2: publish an existing tenant on MetalLB VIPs and write its DNS records"
 	@echo "  create-cluster    - Create a new cluster"
 	@echo "  create-day2-cluster - Create a day2 cluster for worker nodes with DPUs"
 	@echo "  get-day2-iso      - Get ISO URL for worker nodes with DPUs (uses day2 cluster)"
@@ -789,6 +798,8 @@ help:
 	@echo "  DPF_VERSION      - DPF operator version (default: $(DPF_VERSION))"
 	@echo "  KATA_ENABLED     - If true, make all runs enable-kata last (default: false)"
 	@echo "  ZT_DEPLOY_TENANT_CLUSTER - If true, make all-zt ends by deploying the tenant HostedCluster (default: false; needs HYPERSHIFT_INSTALL_METHOD=mce, the default)"
+	@echo "  ZT_TENANT_API_IP / ZT_TENANT_INGRESS_IP - MetalLB VIPs for the tenant API server and its *.apps ingress"
+	@echo "                        Set both (production-style exposure, LoadBalancer API + tenant MetalLB ingress) or neither (NodePort)"
 	@echo "  ARGUS_ENABLED    - If true, deploy DOCA Argus with DPU services (default: false)"
 	@echo "  SKIP_DEPLOY_STORAGE - If true, skip LSO/LVM/ODF deployment; ETCD_STORAGE_CLASS must point to existing StorageClass (default: false)"
 	@echo "  ETCD_STORAGE_CLASS - StorageClass for hosted cluster etcd (default: $(ETCD_STORAGE_CLASS)); required when SKIP_DEPLOY_STORAGE=true"

@@ -1,0 +1,38 @@
+# MetalLB operator inside the tenant HostedCluster, so the guest ingress can be
+# reached through a VIP that is independent of the worker node addresses.
+# Install only: the MetalLB instance lives in metallb-cr-template.yaml and is
+# applied after OLM registers the CRDs, otherwise `oc apply` cannot map
+# kind: MetalLB.
+# The tenant cluster is its own OLM cluster: this uses the default
+# openshift-marketplace "redhat-operators" catalog, which every OCP cluster
+# ships. A disconnected tenant needs that catalog mirrored into the guest
+# cluster (the management cluster's catalog sources are not inherited).
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: <METALLB_NAMESPACE>
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: metallb-operator
+  namespace: <METALLB_NAMESPACE>
+spec:
+  # All namespaces on purpose: the metallb-operator CSV supports only the
+  # AllNamespaces install mode (SingleNamespace/MultiNamespace are unsupported),
+  # and the speaker/controller must see the LoadBalancer Service in
+  # openshift-ingress, not just this namespace.
+  upgradeStrategy: Default
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: metallb-operator
+  namespace: <METALLB_NAMESPACE>
+spec:
+  channel: "stable"
+  name: metallb-operator
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Automatic

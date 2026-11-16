@@ -10,6 +10,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/utils.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/cluster.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/tools.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/metallb.sh"
 
 ETCD_STORAGE_CLASS=${ETCD_STORAGE_CLASS:-"ocs-storagecluster-ceph-rbd"}
 
@@ -56,42 +57,10 @@ function deploy_metallb() {
         log [INFO] "HYPERSHIFT_API_IP not set. Skipping MetalLB deployment."
         return 0
     fi
-    
-    
-    log [INFO] "Deploying MetalLB operator for Hypershift API LoadBalancer..."
-    
-    get_kubeconfig
-    
-    # Check if MetalLB subscription already exists
-    if oc get subscription -n openshift-operators metallb-operator &>/dev/null; then
-        log [INFO] "MetalLB subscription already exists. Skipping subscription deployment."
-    else
-        log [INFO] "Deploying MetalLB subscription..."
-        mkdir -p "$GENERATED_DIR"
-        
-        # Process subscription template
-        process_template \
-            "${MANIFESTS_DIR}/metallb/metallb-subscription.yaml" \
-            "${GENERATED_DIR}/metallb-subscription.yaml" \
-            "<CATALOG_SOURCE_NAME>" "${CATALOG_SOURCE_NAME}"
-        
-        apply_manifest "${GENERATED_DIR}/metallb-subscription.yaml" true  
-    fi
-    
-    log [INFO] "Waiting for MetalLB operator to be ready..."
-    wait_for_pods "openshift-operators" "control-plane=controller-manager" 60 5
-    
-    log [INFO] "Creating MetalLB instance..."
 
-    # Process MetalLB CR template (only the MetalLB instance, not IPAddressPool/L2Advertisement)
-    # Note: IPAddressPool and L2Advertisement are now managed by dpf-hcp-provisioner-operator
-    process_template \
-        "${MANIFESTS_DIR}/metallb/metallb-objects.yaml" \
-        "${GENERATED_DIR}/metallb-objects.yaml"
-    
-    # Apply MetalLB CR
-    retry 5 10 apply_manifest "${GENERATED_DIR}/metallb-objects.yaml" true
-            
+    log [INFO] "Deploying MetalLB operator for Hypershift API LoadBalancer..."
+    ensure_metallb_operator || return 1
+
     log [INFO] "MetalLB operator deployment completed successfully!"
     log [INFO] "Note: IPAddressPool and L2Advertisement will be managed by dpf-hcp-provisioner-operator"
 }

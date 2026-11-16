@@ -599,6 +599,34 @@ validate_zt_tenant_configuration() {
         fi
     done
 
+    # Exposure is all-or-nothing: both MetalLB VIPs (production-style: API and
+    # *.apps published on reserved addresses) or neither (HyperShift's NodePort
+    # default, where the API is a node IP + NodePort and *.apps has no Ingress
+    # VIP). Each VIP must be free and outside the management cluster's own VIPs.
+    if [ -n "${ZT_TENANT_API_IP:-}" ] || [ -n "${ZT_TENANT_INGRESS_IP:-}" ]; then
+        if [ -z "${ZT_TENANT_API_IP:-}" ] || [ -z "${ZT_TENANT_INGRESS_IP:-}" ]; then
+            echo "ERROR: set both ZT_TENANT_API_IP and ZT_TENANT_INGRESS_IP (MetalLB exposure), or neither to keep the NodePort default" >&2
+            return 1
+        fi
+        for variable in ZT_TENANT_API_IP ZT_TENANT_INGRESS_IP; do
+            if ! _ipv4_to_integer "${!variable}" >/dev/null; then
+                echo "ERROR: ${variable} '${!variable}' must be a valid IPv4 address" >&2
+                return 1
+            fi
+        done
+        if [ "${ZT_TENANT_API_IP}" = "${ZT_TENANT_INGRESS_IP}" ]; then
+            echo "ERROR: ZT_TENANT_API_IP and ZT_TENANT_INGRESS_IP must differ (management-cluster API VIP vs tenant ingress VIP)" >&2
+            return 1
+        fi
+        for variable in API_VIP INGRESS_VIP HYPERSHIFT_API_IP; do
+            if [ -n "${!variable:-}" ] &&
+                { [ "${!variable}" = "${ZT_TENANT_API_IP}" ] || [ "${!variable}" = "${ZT_TENANT_INGRESS_IP}" ]; }; then
+                echo "ERROR: tenant VIPs (ZT_TENANT_API_IP=${ZT_TENANT_API_IP}, ZT_TENANT_INGRESS_IP=${ZT_TENANT_INGRESS_IP}) collide with ${variable}=${!variable}" >&2
+                return 1
+            fi
+        done
+    fi
+
     # Only the two architectures with public RHCOS live ISO artifacts are
     # supported; there is no multi-arch discovery image.
     case "${ZT_TENANT_RHCOS_CPU_ARCHITECTURE}" in
@@ -894,6 +922,10 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     ZT_TENANT_NODEPOOL_NAME=${ZT_TENANT_NODEPOOL_NAME:-tenant-workers}
     ZT_TENANT_INFRAENV_NAME=${ZT_TENANT_INFRAENV_NAME:-zt-tenant-infraenv}
     ZT_TENANT_AGENT_LABEL_KEY=${ZT_TENANT_AGENT_LABEL_KEY:-openshift-dpf.io/zt-tenant-cluster}
+    # Exposure: empty keeps HyperShift's NodePort default; both set publish the
+    # tenant like the DPU HostedCluster (MetalLB VIPs + generated DNS records).
+    ZT_TENANT_API_IP=${ZT_TENANT_API_IP:-}
+    ZT_TENANT_INGRESS_IP=${ZT_TENANT_INGRESS_IP:-}
 
     _require_distinct_kubeconfigs "${KUBECONFIG}" "Management KUBECONFIG" \
         "${HOSTED_KUBECONFIG}" "hosted-cluster kubeconfig" || exit 1
@@ -913,6 +945,7 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     export ZT_TENANT_GENERATED_DIR ZT_TENANT_OPENSHIFT_VERSION_MINOR ZT_TENANT_RHCOS_CPU_ARCHITECTURE
     export ZT_TENANT_RHCOS_ISO_URL ZT_TENANT_RHCOS_ROOTFS_URL ZT_TENANT_RHCOS_VERSION
     export ZT_TENANT_RHCOS_OSIMAGE_ARCH ZT_TENANT_NODEPOOL_ARCH
+    export ZT_TENANT_API_IP ZT_TENANT_INGRESS_IP
 
     # OLM Catalog Source — when OLM_WORKAROUND=true, use the previous OCP
     # minor version's catalog (e.g. 4.20→4.19, 4.22→4.21).
