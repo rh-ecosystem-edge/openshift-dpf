@@ -167,21 +167,19 @@ _do_generate_env() {
         envsubst < "$template_file" > "$output_file"
         chmod 600 "$output_file"
 
-        if [ "${DPF_DEPLOYMENT_MODE:-}" = "zero-trust" ]; then
-            # Workers 1 and 2 are rendered by env.template; append higher-numbered hosts.
-            local host variable
-            while IFS= read -r host; do
-                for variable in \
-                    "WORKER_${host}_DPU_BMC_IPS" \
-                    "WORKER_${host}_BMC_IP" \
-                    "WORKER_${host}_BMC_USER" \
-                    "WORKER_${host}_BMC_PASSWORD"; do
-                    if ! grep -q "^${variable}=" "$output_file"; then
-                        printf '%s=%s\n' "${variable}" "${!variable:-}" >> "$output_file"
-                    fi
-                done
-            done < <(list_zero_trust_dpu_hosts)
-        fi
+        # Workers 1 and 2 are rendered by env.template; append higher-numbered hosts.
+        local host variable
+        while IFS= read -r host; do
+            for variable in \
+                "WORKER_${host}_DPU_BMC_IPS" \
+                "WORKER_${host}_BMC_IP" \
+                "WORKER_${host}_BMC_USER" \
+                "WORKER_${host}_BMC_PASSWORD"; do
+                if ! grep -q "^${variable}=" "$output_file"; then
+                    printf '%s=%s\n' "${variable}" "${!variable:-}" >> "$output_file"
+                fi
+            done
+        done < <(list_zero_trust_dpu_hosts)
     )
 }
 
