@@ -862,6 +862,15 @@ function deploy_maintenance_operator() {
     log [INFO] "Maintenance Operator deployment complete!"
 }
 
+function deploy_maintenance_operator_for_profile() {
+    if [ "${DPF_DEPLOYMENT_MODE}" = "zero-trust" ]; then
+        log "INFO" "Skipping Maintenance Operator deployment for Zero Trust with nodeEffect.noEffect"
+        return 0
+    fi
+
+    deploy_maintenance_operator
+}
+
 function kube_apiserver_clusteroperator_condition_is() {
     local condition="$1"
     local expected="$2"
@@ -934,7 +943,7 @@ function apply_dpf() {
     log "INFO" "Cluster is accessible, proceeding with DPF deployment..."
 
     deploy_argocd
-    deploy_maintenance_operator
+    deploy_maintenance_operator_for_profile
 
     if [ "${DPF_DEPLOYMENT_MODE}" != "zero-trust" ]; then
         log "INFO" "Enabling IP forwarding for OVN Kubernetes..."
