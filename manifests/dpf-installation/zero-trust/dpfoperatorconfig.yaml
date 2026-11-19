@@ -4,6 +4,7 @@ metadata:
   name: dpfoperatorconfig
   namespace: dpf-operator-system
 spec:
+  deploymentMode: zero-trust
   <FLANNEL_CONFIG>
   dpuDetector:
     disable: true
@@ -12,7 +13,7 @@ spec:
   multus:
     disable: true
   cniInstaller:
-    disable: true
+    disable: false
   networking:
     highSpeedMTU: <NODES_MTU>
   overrides:
@@ -31,9 +32,7 @@ spec:
     nodeEffectRemovalTimeout: "3600s"
     installInterface:
       installViaRedfish:
-        bfbRegistryAddress: "<BFB_REGISTRY_HOST>:<ZT_BFB_REGISTRY_PORT>"
-        bfbRegistry:
-          port: <ZT_BFB_REGISTRY_PORT>
+        # Set registry.loadBalancerAddress only when an external LB is provisioned.
         skipDPUNodeDiscovery: true
   staticClusterManager:
     disable: false
