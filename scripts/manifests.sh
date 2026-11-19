@@ -210,37 +210,16 @@ function deploy_core_operator_sources() {
 }
 
 # Function to prepare DPF manifests
-resolve_zero_trust_bfb_registry_host() {
-    local -n resolved_host=$1
-
-    if [ "${VM_COUNT}" -gt 1 ]; then
-        resolved_host="${HYPERSHIFT_API_IP}"
-        return 0
-    fi
-
-    if ! resolved_host=$(resolve_sno_management_ip); then
-        log "ERROR" "Unable to resolve the SNO management address for the Zero Trust BFB registry"
-        return 1
-    fi
-
-    log "INFO" "Zero Trust SNO: using ${resolved_host} for the BFB registry"
-}
-
 prepare_zero_trust_objects() {
     local flannel_config="$1"
-    local bfb_registry_host
     local inventory_dir="${GENERATED_DIR}/zero-trust-inventory"
-
-    resolve_zero_trust_bfb_registry_host bfb_registry_host || return 1
 
     update_file_multi_replace \
         "$MANIFESTS_DIR/dpf-installation/zero-trust/dpfoperatorconfig.yaml" \
         "$GENERATED_DIR/dpfoperatorconfig.yaml" \
         "<HOST_CLUSTER_API>" "$HOST_CLUSTER_API" \
         "<FLANNEL_CONFIG>" "$flannel_config" \
-        "<NODES_MTU>" "$NODES_MTU" \
-        "<BFB_REGISTRY_HOST>" "$bfb_registry_host" \
-        "<ZT_BFB_REGISTRY_PORT>" "$ZT_BFB_REGISTRY_PORT"
+        "<NODES_MTU>" "$NODES_MTU"
 
     update_file_multi_replace \
         "$MANIFESTS_DIR/dpf-installation/zero-trust/bmc-shared-password.yaml" \
@@ -295,13 +274,14 @@ prepare_dpf_manifests() {
     # Clean up any existing Helm values files that might have been left from previous runs
     find "$GENERATED_DIR" -maxdepth 1 -type f -name "*-values.yaml" -delete 2>/dev/null || true
     
-    # deploy_nfd owns the complete NFD lifecycle, so its CR must not also be
-    # copied into the generic DPF manifest set and applied by apply_remaining.
+    # deploy_nfd owns the NFD lifecycle, so its CR must not be applied again by
+    # apply_remaining; dpf.sh reads the bootstrap-auth patch directly via oc patch.
     local excluded_files=(
         "*-values.yaml"
         "dpfoperatorconfig.yaml"
         "nfd-cr-template.yaml"
         "dpf-nfd.yaml"
+        "kube-apiserver-bootstrap-auth.patch.yaml"
     )
 
     # Copy all manifests except explicitly managed files using utility function

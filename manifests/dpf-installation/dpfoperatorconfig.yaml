@@ -4,6 +4,7 @@ metadata:
   name: dpfoperatorconfig
   namespace: dpf-operator-system
 spec:
+  deploymentMode: host-trusted
   imagePullSecrets:
     - dpf-pull-secret
   # Kamaji is permanently disabled - only Hypershift is supported
@@ -13,9 +14,9 @@ spec:
   multus:
     disable: true
   cniInstaller:
-    # CNI installer isn't relevant for the OpenShift use case.
-    # In 25.10 it does not support the RHCOS BFB.
-    disable: true
+    # Installs ovs/rdma/dhcp into overrides.dpuCNIBinPath; without it Multus
+    # fails HBN/SFC pods with "failed to find plugin ovs".
+    disable: false
   overrides:
     kubernetesAPIServerVIP: api.<CLUSTER_NAME>.<BASE_DOMAIN>
     kubernetesAPIServerPort: 6443
