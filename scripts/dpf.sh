@@ -855,6 +855,39 @@ function deploy_maintenance_operator() {
     log [INFO] "Maintenance Operator deployment complete!"
 }
 
+function deploy_maintenance_operator_for_profile() {
+    if [ "${DPF_DEPLOYMENT_MODE}" != "zero-trust" ]; then
+        deploy_maintenance_operator
+        return
+    fi
+
+    local manifest="${ZERO_TRUST_POST_INSTALL_DIR}/dpudeployment.yaml"
+    local node_effect
+    if ! node_effect=$(python3 -c '
+import sys
+
+import yaml
+
+with open(sys.argv[1], encoding="utf-8") as manifest:
+    node_effect = yaml.safe_load(manifest)["spec"]["dpus"].get("nodeEffect") or {}
+
+if node_effect.get("drain") is True:
+    print("drain")
+elif node_effect.get("noEffect") is True:
+    print("noEffect")
+' "${manifest}"); then
+        log [ERROR] "Could not read nodeEffect from ${manifest}; check the manifest and Python PyYAML installation"
+        return 1
+    fi
+
+    if [ "${node_effect}" = "noEffect" ]; then
+        log [INFO] "Skipping Maintenance Operator deployment for Zero Trust with nodeEffect.noEffect"
+        return 0
+    fi
+
+    deploy_maintenance_operator
+}
+
 function kube_apiserver_clusteroperator_condition_is() {
     local condition="$1"
     local expected="$2"
@@ -928,7 +961,7 @@ function apply_dpf() {
     log "INFO" "Cluster is accessible, proceeding with DPF deployment..."
 
     deploy_argocd
-    deploy_maintenance_operator
+    deploy_maintenance_operator_for_profile
 
     if [ "${DPF_DEPLOYMENT_MODE}" != "zero-trust" ]; then
         log "INFO" "Enabling IP forwarding for OVN Kubernetes..."
