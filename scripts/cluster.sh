@@ -973,6 +973,27 @@ function install_day2_hosts() {
 }
 
 # -----------------------------------------------------------------------------
+# Select day-1 implementations once, also for scripts that source this file.
+# -----------------------------------------------------------------------------
+prepare_cluster_flow() {
+    declare -F is_day1_assisted >/dev/null || return 1
+    is_day1_assisted || return 0
+
+    _assisted_cluster() { python3 "$(dirname "${BASH_SOURCE[0]}")/assisted_install.py" "$@"; }
+    check_cluster_installed() { _assisted_cluster installed; }
+    check_create_cluster() { _assisted_cluster create; }
+    delete_cluster() { _assisted_cluster delete-cluster; }
+    start_cluster_installation() { _assisted_cluster install; }
+    get_kubeconfig() { _assisted_cluster kubeconfig; }
+    get_iso() { _assisted_cluster download-iso; }
+    create_day2_cluster() {
+        log "ERROR" "day1-assisted is not an expansion workflow; use a separately configured supported expansion flow"
+        return 1
+    }
+}
+prepare_cluster_flow
+
+# -----------------------------------------------------------------------------
 # Command dispatcher
 # -----------------------------------------------------------------------------
 function main() {

@@ -19,6 +19,8 @@ openshift_pull.json
 
 # Generated files
 manifests/generated/
+# Interrupted NNO discovery boot ownership and pinned installer identities.
+.assisted-day1/
 kubeconfig*
 
 # Temporary files
