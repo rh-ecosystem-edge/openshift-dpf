@@ -30,7 +30,7 @@ var _ = Describe("DPUService Operations", Label("upstream", "dpuservice"), func(
 				Skip("No DPU nodes available")
 			}
 			if dpfInput.CIDRDPUServiceIPAM == nil {
-				Skip("No ipv4Network DPUServiceIPAM is available as an upstream CIDRPool test template")
+				Skip("No network-mode DPUServiceIPAM is available as an upstream CIDRPool test template")
 			}
 			if len(dpfe2e.DPUClusterClient) == 0 || len(dpfInput.DPUClusters) == 0 || dpfe2e.HostClusterRESTClient == nil {
 				Skip("DPU cluster metrics prerequisites are not configured for upstream DPUService tests")
