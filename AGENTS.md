@@ -20,16 +20,28 @@ Generate with `make generate-env` (fails if `.env` exists; use `FORCE=true` to o
 
 When adding a new variable: add the default to `ci/env.defaults`, add a `${VAR}` line to `ci/env.template`, and if it has no sensible default add a guard to `ci/env.required`.
 
+### Environment variable validation
+
+**Validate once, up front — never per function.** Configuration and environment checks belong in `scripts/validate-env.sh` and run once at the start of a deployment workflow through `make validate-environment`, so a bad `.env` fails before any cluster, VM, or DPU work begins. Do not validate inside operational functions or in scripts that source `env.sh`: a per-function check runs late, only on the path that happens to reach it, and must be duplicated at every consumer.
+
+- Put runtime configuration and environment-variable validation in `scripts/validate-env.sh`. Do not add these checks to `env.sh` or duplicate them across operational functions.
+- Add a reusable `validate_*` function to `scripts/validate-env.sh`, then call it from `validate_environment()` for the common preflight or from a focused validation command for workflow-specific settings.
+- Run common preflight once at the workflow entry point with `make validate-environment`; do not run it when sourcing `env.sh` or from each consumer of a variable.
+- Gate only workflow entry targets that consume the validated settings (`all`, `all-zt`, `create-base-cluster`). Never put preflight behind teardown, cleanup, or diagnostic targets (`clean-all`, `clean`, `*-cleanup`, `*-status`, `dump-system-status`, `help`): they are often run because the configuration or the cluster is already broken, so they must not require a valid `.env`.
+- Steps inside a workflow must not re-validate. Give the step an internal `_`-prefixed target for the workflow (for example `_poweron-workers`) and put the focused check on the standalone target (`poweron-workers: validate-worker-power-on`).
+- Keep `env.sh` responsible for loading, normalizing, and deriving configuration. Keep required-variable checks used during `.env` generation in `ci/env.required`.
+
 ### Script structure
 
 All scripts live in `scripts/` and follow a common pattern:
-- Source `env.sh` (loads `.env`, validates MTU, verifies `aicli` connectivity)
+- Source `env.sh` (loads `.env` and derives runtime configuration; it does not run configuration validation)
 - Source `utils.sh` (logging, retry, wait helpers, manifest application, libvirt wrappers)
 - Define functions, then dispatch via a `case` block at the bottom when executed directly
 - The Makefile calls `scripts/<name>.sh <subcommand>`
 
 Key scripts and their responsibilities:
 - `env.sh` — env loading, `.env` generation, computed/conditional variables (OLM workaround catalog, OVN-K image resolution, storage class selection)
+- `validate-env.sh` — runtime configuration validation, including the one-time preflight and focused mode/worker checks
 - `utils.sh` — shared utilities: `log()`, `retry()`, `wait_for_resource()`, `wait_for_pods()`, `apply_manifest()`, `process_template()`, libvirt helpers (`lvirsh`, `lvirt_install`, `libvirt_host_cmd`)
 - `cluster.sh` — Assisted Installer cluster lifecycle (create, install, wait, kubeconfig, ISO handling, day-2 cluster for workers)
 - `manifests.sh` — manifest preparation and OVN manifest generation; template processing with variable substitution
@@ -79,6 +91,7 @@ make help                 # List all targets with descriptions
 ## Conventions
 
 - All scripts use `set -e` and `set -o pipefail`.
+- Fail early on bad configuration: validate it once in `scripts/validate-env.sh` through `make validate-environment` before any cluster/VM/DPU work, never inside per-function or per-step code. Teardown, cleanup, and diagnostic targets are exempt so they still run on a broken config (see [Environment variable validation](#environment-variable-validation)).
 - Use `log "LEVEL" "message"` (from `utils.sh`) for output — levels: INFO, WARN, ERROR, DEBUG (DEBUG only shown when `DEBUG=true`).
 - Use `retry <attempts> <delay> <command>` for operations that may need retries.
 - Use `apply_manifest <file>` which skips if the resource already exists (pass `true` as second arg to force apply).

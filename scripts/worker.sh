@@ -278,8 +278,6 @@ poweron_workers() {
         return
     fi
 
-    validate_worker_power_on_delay || return 1
-
     log "INFO" "Waiting ${WORKER_POWER_ON_DELAY}s for worker hosts/DPUs to settle before provisioning..."
     sleep "${WORKER_POWER_ON_DELAY}"
 }
@@ -445,7 +443,6 @@ restore_host_trusted_dpus() (
             return 1
         fi
     done
-    validate_worker_power_on_delay || return 1
 
     local curl_config
     curl_config=$(_dpu_bmc_curl_config) || return 1
