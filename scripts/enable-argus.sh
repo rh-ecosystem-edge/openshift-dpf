@@ -11,6 +11,7 @@ GENERATED_POST_INSTALL_DIR="${GENERATED_POST_INSTALL_DIR:-"${GENERATED_DIR}/post
 if ! declare -F get_kubeconfig >/dev/null; then
     source "$(dirname "${BASH_SOURCE[0]}")/cluster.sh"
 fi
+source "$(dirname "${BASH_SOURCE[0]}")/validate-env.sh"
 
 function render_argus_manifests() {
     local src="${MANIFESTS_DIR}/argus"
@@ -123,6 +124,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     case "${1:-enable}" in
         enable)
             require_argus_enabled
+            validate_argus_config
             enable_argus
             ;;
         *)
