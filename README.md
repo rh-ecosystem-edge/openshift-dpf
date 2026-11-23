@@ -198,10 +198,10 @@ make generate-env FORCE=true
 grep -E '^VM_(COUNT|STATIC_IP|EXT_IPS|EXT_PL|GW|DNS)=' .env
 ```
 
-The DPU BMCs must still reach the BFB registry. By default, manifest
-preparation resolves `HOST_CLUSTER_API` to the SNO management-node address
-after `make update-etc-hosts`. Multi-node deployments use
-`HYPERSHIFT_API_IP` for the registry address.
+The DPU BMCs and the DPUs reach the BFB registry through the same name: the
+Zero Trust `DPFOperatorConfig` sets `kubernetesAPIServerVIP` to
+`HOST_CLUSTER_API`, and DPF serves the registry over HTTPS on that name and the
+NodePort of its `bfb-registry` Service.
 
 ### Network Paths for the Zero Trust Automation
 
@@ -217,9 +217,12 @@ Trust deployment.
   discovery and the BFB install.
 - Management cluster pods, on any node, reach each host BMC over IPMI
   (UDP 623): the reboot Job resets or power-cycles the host.
-- Each DPU BMC reaches the BFB registry over HTTP at `HYPERSHIFT_API_IP` (SNO:
-  the management node address), port `ZT_BFB_REGISTRY_PORT` (default 8086), to
-  download the BFB.
+- Each DPU BMC reaches the BFB registry over HTTPS at `HOST_CLUSTER_API`
+  (`api.<CLUSTER_NAME>.<BASE_DOMAIN>`), on the NodePort of the `bfb-registry`
+  Service, to download the BFB. Kubernetes assigns that port from the
+  cluster's NodePort range.
+- Each DPU reaches the same registry address over HTTPS after the OS install,
+  to download `dpu-agent`.
 - The DPUs reach the container image registries over HTTPS.
 
 ## 🏃 Quick Start
