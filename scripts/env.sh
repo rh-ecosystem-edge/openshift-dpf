@@ -567,7 +567,7 @@ validate_zt_tenant_configuration() {
         return 1
     fi
     if [ "${HYPERSHIFT_INSTALL_METHOD:-}" != "mce" ]; then
-        echo "ERROR: deploy-zt-tenant-cluster requires HYPERSHIFT_INSTALL_METHOD=mce (shared MCE HyperShift + Assisted)" >&2
+        echo "ERROR: deploy-zt-tenant-cluster requires HYPERSHIFT_INSTALL_METHOD=mce (shared MCE HyperShift + Assisted); set it in .env (the generated default)" >&2
         return 1
     fi
 
@@ -864,7 +864,9 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     # Apply the documented default at runtime, not only in env.defaults: an
     # .env generated before HYPERSHIFT_INSTALL_METHOD existed leaves it empty,
     # which validate_zero_trust_mode would reject as an invalid value.
-    HYPERSHIFT_INSTALL_METHOD="${HYPERSHIFT_INSTALL_METHOD:-binary}"
+    # mce is the default for every flow (the Zero Trust hosted clusters run on
+    # MCE's HyperShift); set binary to use the HyperShift CLI/operator image.
+    HYPERSHIFT_INSTALL_METHOD="${HYPERSHIFT_INSTALL_METHOD:-mce}"
     export HYPERSHIFT_INSTALL_METHOD
 
     if [ "${DPF_DEPLOYMENT_MODE}" = "zero-trust" ]; then
@@ -896,6 +898,7 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     ZT_TENANT_GENERATED_DIR="${GENERATED_DIR}/zt-tenant"
     # Runtime defaults mirror ci/env.defaults, so a .env generated before a
     # ZT_TENANT_* variable existed still validates and deploys.
+    ZT_TENANT_BASE_DOMAIN=${ZT_TENANT_BASE_DOMAIN:-${BASE_DOMAIN}}
     ZT_TENANT_CLUSTER_NETWORK_CIDR=${ZT_TENANT_CLUSTER_NETWORK_CIDR:-10.128.0.0/14}
     ZT_TENANT_SERVICE_NETWORK_CIDR=${ZT_TENANT_SERVICE_NETWORK_CIDR:-172.30.0.0/16}
     ZT_TENANT_OPENSHIFT_VERSION_MINOR=${ZT_TENANT_OPENSHIFT_VERSION_MINOR:-${OPENSHIFT_VERSION%%-*}}
