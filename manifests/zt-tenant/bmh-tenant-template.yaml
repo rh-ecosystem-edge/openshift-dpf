@@ -1,0 +1,18 @@
+apiVersion: metal3.io/v1alpha1
+kind: BareMetalHost
+metadata:
+  name: <WORKER_NAME>
+  namespace: <ZT_TENANT_AGENT_NAMESPACE>
+  labels:
+    infraenvs.agent-install.openshift.io: <INFRAENV_NAME>
+spec:
+  online: true
+  automatedCleaningMode: disabled
+  inspectionMode: <BMH_INSPECTION_MODE>
+  bootMACAddress: <BOOT_MAC>
+  rootDeviceHints:
+    deviceName: <ROOT_DEVICE>
+  bmc:
+    address: redfish-virtualmedia+https://<BMC_IP>
+    credentialsName: <WORKER_NAME>-bmc-secret
+    disableCertificateVerification: true

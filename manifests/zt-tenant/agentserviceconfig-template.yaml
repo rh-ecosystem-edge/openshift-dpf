@@ -1,0 +1,31 @@
+apiVersion: agent-install.openshift.io/v1beta1
+kind: AgentServiceConfig
+metadata:
+  name: agent
+  namespace: multicluster-engine
+spec:
+  # The hub may have no default StorageClass, so pin the class explicitly on
+  # both PVCs (same class the hosted control plane etcd uses).
+  databaseStorage:
+    accessModes:
+      - ReadWriteOnce
+    storageClassName: "<ETCD_STORAGE_CLASS>"
+    resources:
+      requests:
+        storage: 10Gi
+  filesystemStorage:
+    accessModes:
+      - ReadWriteOnce
+    storageClassName: "<ETCD_STORAGE_CLASS>"
+    resources:
+      requests:
+        storage: 20Gi
+  # imageStorage is omitted: assisted-image-service then uses an emptyDir
+  # (generated ISOs are recreated if the pod restarts). Set it only if the
+  # discovery ISOs must survive image-service restarts.
+  osImages:
+    - openshiftVersion: "<ZT_TENANT_OPENSHIFT_VERSION_MINOR>"
+      version: "<ZT_TENANT_RHCOS_VERSION>"
+      url: "<ZT_TENANT_RHCOS_ISO_URL>"
+      rootFSUrl: "<ZT_TENANT_RHCOS_ROOTFS_URL>"
+      cpuArchitecture: "<ZT_TENANT_RHCOS_OSIMAGE_ARCH>"

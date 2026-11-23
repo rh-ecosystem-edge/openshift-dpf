@@ -1,0 +1,11 @@
+apiVersion: agent-install.openshift.io/v1beta1
+kind: InfraEnv
+metadata:
+  name: <INFRAENV_NAME>
+  namespace: <ZT_TENANT_AGENT_NAMESPACE>
+  labels:
+    hypershift.openshift.io/zt-tenant: "true"
+spec:
+  cpuArchitecture: <ZT_TENANT_RHCOS_OSIMAGE_ARCH>
+  pullSecretRef:
+    name: <ZT_TENANT_PULL_SECRET_NAME>
