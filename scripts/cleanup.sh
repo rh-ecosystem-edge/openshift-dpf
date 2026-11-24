@@ -16,6 +16,11 @@ source "${SCRIPT_DIR}/env.sh"
 clean_all() {
     local vm_status=0
 
+    if is_day1_assisted; then
+        # Ownership needs the live installer records; clean before deleting them.
+        "${SCRIPT_DIR}/assisted-cluster.sh" eject-media --teardown
+    fi
+
     log "INFO" "Destroying libvirt VMs (worker + control-plane; release VIPs, stop BMO)..."
     "${SCRIPT_DIR}/vm.sh" delete || vm_status=$?
 

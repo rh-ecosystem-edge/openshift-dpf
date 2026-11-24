@@ -110,6 +110,24 @@ VTEP_CIDR=10.6.150.0/27              # OVN-Kubernetes VTEPs on the high-speed fa
 
 ### Worker Node Configuration
 
+`WORKER_PROVISIONING_MODE` defaults to `day2-bmo`, including for legacy `.env`
+files. DPF startup stays `make all`. The optional `day1-assisted` mode requires
+a new `nno` cluster, `VM_COUNT=3`, `VM_WORKER_COUNT=0`, regular physical workers,
+and DHCP worker boot networking. Select it before `make generate-env` and run
+`make create-base-cluster`. See [initial-install requirements and lifecycle](nno-base-cluster.md#optional-initial-installation-with-physical-workers).
+
+In that mode, `WORKER_BOOT_METHOD` defaults to `redfish-virtualmedia`, the first
+supported boot transport. It uses standard Redfish resources across vendors;
+only Dell iDRAC has been tested on hardware so far. It is ignored by the default
+BMO flow. Set any required `WORKER_n_REDFISH_SYSTEM_PATH` and
+`WORKER_n_REDFISH_VIRTUAL_MEDIA_PATH` in the inputs used to generate `.env`,
+then start with plain `make create-base-cluster`.
+
+`REDFISH_INSECURE` defaults to `false`; `REDFISH_CA_BUNDLE` can
+specify a readable CA bundle. The two options cannot be combined. Environment
+generation uses the existing two worker blocks in `ci/env.template`. Supply
+credentials privately, and use the existing generation and loading workflow.
+
 ```bash
 # Number of workers to provision
 WORKER_COUNT=0                        # 0 = no workers, 1+ = provision workers

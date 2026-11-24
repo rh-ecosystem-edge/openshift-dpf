@@ -86,7 +86,11 @@ function prepare_cluster_manifests() {
         log [INFO] "Skipping manifest installation as cluster is already installed"
     else
         log [INFO] "Installing manifests to cluster via AICLI..."
-        aicli create manifests --dir "$GENERATED_DIR" "$CLUSTER_NAME"
+        local cluster_ref="$CLUSTER_NAME"
+        if is_day1_assisted; then
+            cluster_ref=$(python3 "$(dirname "${BASH_SOURCE[0]}")/assisted_install.py" cluster-id)
+        fi
+        aicli create manifests --dir "$GENERATED_DIR" "$cluster_ref"
     fi
 
     log [INFO] "Cluster manifests preparation complete."
