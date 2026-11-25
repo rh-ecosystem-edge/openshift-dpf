@@ -438,7 +438,7 @@ validate_zero_trust_mode() {
 
     for variable in \
         BFB_URL \
-        ZT_DPU_REBOOT_IMAGE; do
+        ZT_BFB_REGISTRY_PORT; do
         if [ -z "${!variable:-}" ]; then
             echo "ERROR: Zero Trust installation requires ${variable}" >&2
             return 1
