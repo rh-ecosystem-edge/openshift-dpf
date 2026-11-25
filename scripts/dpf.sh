@@ -662,19 +662,34 @@ function warn_unlisted_zero_trust_dpudevices() {
 function apply_zero_trust_dpunode_reboot_resources() {
     local inventory_dir="${GENERATED_DIR}/zero-trust-inventory"
     local reboot_script_manifest="${inventory_dir}/dpunode-reboot-script.yaml"
-    local host node_name
+    local release_image="quay.io/openshift-release-dev/ocp-release:${OPENSHIFT_VERSION%-multi}-x86_64"
+    local ironic_image
+    local host node_name dpu_bmc_ips
     local bmc_ip_variable bmc_user_variable bmc_password_variable
     local host_bmc_address_map=""
+    local dpu_bmc_address_map=""
     local host_bmc_credentials=""
+
+    if ! ironic_image=$(oc adm release info --registry-config="${OPENSHIFT_PULL_SECRET}" \
+        --image-for=ironic "${release_image}") || [ -z "${ironic_image}" ]; then
+        log [ERROR] "Could not resolve the ironic image from ${release_image}"
+        return 1
+    fi
 
     mkdir -p "${inventory_dir}"
     while IFS= read -r host; do
         node_name=$(zero_trust_dpu_node_name "${host}")
+        dpu_bmc_ips=$(list_zero_trust_host_dpu_bmc_ips "${host}" | paste -sd, -)
+        if [ -z "${dpu_bmc_ips}" ]; then
+            log [ERROR] "No DPU BMC IPs configured for WORKER_${host}"
+            return 1
+        fi
         bmc_ip_variable="WORKER_${host}_BMC_IP"
         bmc_user_variable="WORKER_${host}_BMC_USER"
         bmc_password_variable="WORKER_${host}_BMC_PASSWORD"
 
         host_bmc_address_map+="    ${node_name}=${!bmc_ip_variable}"$'\n'
+        dpu_bmc_address_map+="    ${node_name}=${dpu_bmc_ips}"$'\n'
         host_bmc_credentials+="  ${node_name}.username: $(printf '%s' "${!bmc_user_variable}" | base64 -w 0)"$'\n'
         host_bmc_credentials+="  ${node_name}.password: $(printf '%s' "${!bmc_password_variable}" | base64 -w 0)"$'\n'
     done < <(list_zero_trust_dpu_hosts)
@@ -683,8 +698,9 @@ function apply_zero_trust_dpunode_reboot_resources() {
         "${MANIFESTS_DIR}/dpf-installation/zero-trust/dpunode-reboot-script.yaml" \
         "${reboot_script_manifest}" \
         "<DPU_HOST_BMC_ADDRESS_MAP>" "${host_bmc_address_map%$'\n'}" \
+        "<DPU_BMC_ADDRESS_MAP>" "${dpu_bmc_address_map%$'\n'}" \
         "<HOST_BMC_CREDENTIALS_SECRET>" "${host_bmc_credentials%$'\n'}" \
-        "<ZT_DPU_REBOOT_IMAGE>" "${ZT_DPU_REBOOT_IMAGE}" || return 1
+        "<IRONIC_IMAGE>" "${ironic_image}" || return 1
     log [INFO] "Applying the Zero Trust DPUNode IPMI reboot script"
     apply_manifest "${reboot_script_manifest}" true
 }

@@ -6,17 +6,22 @@ metadata:
 data:
   host-bmc-addresses: |
 <DPU_HOST_BMC_ADDRESS_MAP>
+  dpu-bmc-addresses: |
+<DPU_BMC_ADDRESS_MAP>
   pod-template: |
     spec:
       containers:
         - name: reboot-container
-          image: <ZT_DPU_REBOOT_IMAGE>
+          image: <IRONIC_IMAGE>
           volumeMounts:
             - name: reboot-config
               mountPath: /etc/dpf-reboot
               readOnly: true
             - name: host-bmc-credentials
               mountPath: /etc/dpf-host-bmc
+              readOnly: true
+            - name: dpu-bmc-credentials
+              mountPath: /etc/dpf-dpu-bmc
               readOnly: true
           command: ["/bin/bash"]
           args:
@@ -66,9 +71,56 @@ data:
               fi
 
               bmc_user=$(<"$username_file")
+
+              if [ "$power_action" = cycle ]; then
+                dpu_bmc_ips=""
+                while IFS='=' read -r node addresses; do
+                  if [ "$node" = "$DPUNODE_NAME" ]; then
+                    dpu_bmc_ips="$addresses"
+                    break
+                  fi
+                done < /etc/dpf-reboot/dpu-bmc-addresses
+                if [ -z "$dpu_bmc_ips" ] || [ ! -s /etc/dpf-dpu-bmc/password ]; then
+                  echo "DPU BMC address or password is missing for $DPUNODE_NAME" >&2
+                  exit 1
+                fi
+
+                IPMI_PASSWORD=$(</etc/dpf-dpu-bmc/password)
+                export IPMI_PASSWORD
+                IFS=',' read -r -a dpu_bmcs <<< "$dpu_bmc_ips"
+                for dpu_bmc in "${dpu_bmcs[@]}"; do
+                  state=$(ipmitool -C 17 -I lanplus -H "$dpu_bmc" -U root -E raw 0x32 0xA3)
+                  state=${state//[[:space:]]/}
+                  case "$state" in
+                    05)
+                      echo "Gracefully shutting down DPU Arm OS through BMC $dpu_bmc"
+                      ipmitool -C 17 -I lanplus -H "$dpu_bmc" -U root -E power soft
+                      ;;
+                    06)
+                      echo "DPU Arm OS at $dpu_bmc is already in standby"
+                      continue
+                      ;;
+                    *)
+                      echo "DPU BMC $dpu_bmc has unexpected Arm OS state: $state" >&2
+                      exit 1
+                      ;;
+                  esac
+                  for attempt in {1..24}; do
+                    state=$(ipmitool -C 17 -I lanplus -H "$dpu_bmc" -U root -E raw 0x32 0xA3 || true)
+                    state=${state//[[:space:]]/}
+                    [ "$state" = 06 ] && break
+                    sleep 5
+                  done
+                  if [ "$state" != 06 ]; then
+                    echo "DPU Arm OS at $dpu_bmc did not reach standby" >&2
+                    exit 1
+                  fi
+                  echo "DPU Arm OS at $dpu_bmc reached standby"
+                done
+              fi
+
               IPMI_PASSWORD=$(<"$password_file")
               export IPMI_PASSWORD
-
               echo "Running IPMI chassis power $power_action for $DPUNODE_NAME through BMC $bmc_ip"
               ipmitool -I lanplus -H "$bmc_ip" -U "$bmc_user" -E chassis power "$power_action"
       volumes:
@@ -78,6 +130,9 @@ data:
         - name: host-bmc-credentials
           secret:
             secretName: dpunode-reboot-host-bmc-credentials
+        - name: dpu-bmc-credentials
+          secret:
+            secretName: bmc-shared-password
       restartPolicy: Never
 ---
 apiVersion: v1

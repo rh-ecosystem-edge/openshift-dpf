@@ -73,11 +73,14 @@ address is not listed for any host is reported and is not provisioned.
 
 Zero Trust DPU nodes use a `custom-reboot-script` ConfigMap based on NVIDIA's
 example. The controller creates `<dpunode-name>-script-job` when reboot handling
-is needed. The Job uses `ZT_DPU_REBOOT_IMAGE`, a small image containing Bash and
-`ipmitool`, and performs the requested reset or power cycle through the matching
-physical host BMC: `dpu-node-worker-<N>` uses the `WORKER_<N>_BMC_*` values.
-`PowerCycle` uses `chassis power cycle`; the warm-reset methods use
-`chassis power reset`; and `NoAction` exits without contacting the BMC.
+is needed. The Job uses the x86_64 OpenShift release's `ironic` image for Bash
+and `ipmitool` and requires an x86_64 execution environment. Before a host
+power cycle, it gracefully shuts down each DPU Arm OS and waits for the DPU
+BMC to report standby. It then resets or power cycles the physical host BMC:
+`dpu-node-worker-<N>` uses the `WORKER_<N>_BMC_*` values.
+`PowerCycle`, `SystemLevelReset`, and `SystemReboot` use `chassis power cycle`;
+`FirmwareReset` and `DPUWarmReboot` use `chassis power reset`; and `NoAction`
+exits without contacting the BMC.
 
 With `VERIFY_DEPLOYMENT=true`, `make all-zt` and `make scale-out-zt-dpus` end
 by waiting for every DPU listed in `WORKER_<N>_DPU_BMC_IPS` to reach phase
