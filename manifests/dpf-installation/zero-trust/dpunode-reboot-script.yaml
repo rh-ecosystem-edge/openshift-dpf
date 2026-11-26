@@ -28,15 +28,22 @@ data:
               echo "Aggregated reboot method: $DPUNODE_REBOOT_METHOD"
               echo "Per-DPU methods: $DPUNODE_REBOOT_METHODS_PER_DPU"
 
+              # Map the aggregated reboot method to an IPMI chassis power action,
+              # mirroring what the DPF operator's hostAgent does for each method:
+              # PowerCycle must remove slot power (NVConfig is only read at
+              # power-up); SystemLevelReset/SystemReboot/FirmwareReset only need
+              # a host warm reboot that keeps the DPU powered (the mlxfwreset
+              # system-level reset equivalent); DPUWarmReboot/HostlessDPUReboot
+              # need no host action at all.
               case "$DPUNODE_REBOOT_METHOD" in
-                PowerCycle|SystemLevelReset|SystemReboot)
+                PowerCycle)
                   power_action=cycle
                   ;;
-                FirmwareReset|DPUWarmReboot)
+                SystemLevelReset|SystemReboot|FirmwareReset)
                   power_action=reset
                   ;;
-                NoAction)
-                  echo "No reboot action is required for $DPUNODE_NAME"
+                DPUWarmReboot|HostlessDPUReboot|NoAction)
+                  echo "No reboot action is required for $DPUNODE_NAME (method: $DPUNODE_REBOOT_METHOD)"
                   exit 0
                   ;;
                 *)
