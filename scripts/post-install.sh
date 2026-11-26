@@ -50,10 +50,15 @@ function prepare_zero_trust_provisioning_manifests() {
         "${GENERATED_POST_INSTALL_DIR}/dpuflavor.yaml" \
         "<NUM_VFS>" "${NUM_VFS}"
 
+    resolve_bfb_versions || return 1
     update_file_multi_replace \
         "${COMMON_POST_INSTALL_DIR}/bfb.yaml" \
         "${GENERATED_POST_INSTALL_DIR}/bfb.yaml" \
-        "<BFB_URL>" "${BFB_URL}"
+        "<BFB_URL>" "${BFB_URL}" \
+        "<BFB_ATF_VERSION>" "${BFB_VERSIONS[0]}" \
+        "<BFB_BSP_VERSION>" "${BFB_VERSIONS[1]}" \
+        "<BFB_DOCA_VERSION>" "${BFB_VERSIONS[2]}" \
+        "<BFB_UEFI_VERSION>" "${BFB_VERSIONS[3]}"
 
     update_file_multi_replace \
         "${ZERO_TRUST_POST_INSTALL_DIR}/dpudeployment.yaml" \
@@ -406,14 +411,54 @@ function update_zero_trust_hbn_configuration() {
     log [INFO] "Zero Trust HBN per-DPU configuration applied successfully"
 }
 
+# DPF compares the BFB's UEFI and BSP versions with the DPU firmware in Zero Trust,
+# and its DOCA version with DPUServiceTemplate constraints. The DPU's DOCA and ATF/UEFI
+# firmware come from the BlueField OCP layer (the DOCA layer), so take the versions
+# from the layer's labels.
+# Sets BFB_VERSIONS=(atf bsp doca uefi).
+function resolve_bfb_versions() {
+    BFB_VERSIONS=(4.15.0-4-g419fbf393 4.15.0.13998 3.4.1 4.15.0-19-g37c6f5adb2)
+
+    # Without BLUEFIELD_OCP_IMAGE the provisioner looks the layer up itself; same precedence as its ignition.
+    local image=${BLUEFIELD_OCP_IMAGE:-}
+    if [ -z "${image}" ]; then
+        image=$(oc get dpfhcpprovisioner "${HOSTED_CLUSTER_NAME}" -n "${CLUSTERS_NAMESPACE}" -o json 2>/dev/null |
+            jq -r '.spec.machineOSURL // .status.blueFieldOCPLayerImage // empty' || true)
+    fi
+
+    local -a registry_flags=()
+    if [ -f "${OPENSHIFT_PULL_SECRET:-}" ]; then
+        registry_flags=(--registry-config="${OPENSHIFT_PULL_SECRET}")
+    fi
+    local labels
+    if [ -n "${image}" ] &&
+        labels=$(oc image info "${registry_flags[@]}" --filter-by-os=linux/arm64 "${image}" -o json |
+            jq -er '.config.config.Labels // {}
+                | [."NVIDIA.ATF.version", ."NVIDIA.BSP.version", ."NVIDIA.DOCA.version", ."NVIDIA.UEFI.version"]
+                | select(all(type == "string" and length > 0)) | @tsv'); then
+        IFS=$'\t' read -r -a BFB_VERSIONS <<< "${labels}"
+        log "INFO" "BFB versions from ${image} labels: atf=${BFB_VERSIONS[0]} bsp=${BFB_VERSIONS[1]} doca=${BFB_VERSIONS[2]} uefi=${BFB_VERSIONS[3]}"
+    elif [ "${DPF_DEPLOYMENT_MODE}" = "zero-trust" ]; then
+        log "ERROR" "Zero Trust needs the NVIDIA.{ATF,BSP,DOCA,UEFI}.version labels of the BlueField OCP layer (${image:-not set and not resolved by the DPFHCPProvisioner}) to set the BFB versions"
+        return 1
+    else
+        log "WARN" "Cannot read NVIDIA.*.version labels of the BlueField OCP layer (${image:-not set and not resolved by the DPFHCPProvisioner}); using default BFB versions"
+    fi
+}
+
 # Function to update BFB manifest
 function update_bfb_manifest() {
     log [INFO] "Updating BFB manifest..."
+    resolve_bfb_versions || return 1
     # Update the manifest with custom values using update_file_multi_replace
     update_file_multi_replace \
         "${COMMON_POST_INSTALL_DIR}/bfb.yaml" \
         "${GENERATED_POST_INSTALL_DIR}/bfb.yaml" \
-        "<BFB_URL>" "\"${BFB_URL}\""
+        "<BFB_URL>" "\"${BFB_URL}\"" \
+        "<BFB_ATF_VERSION>" "${BFB_VERSIONS[0]}" \
+        "<BFB_BSP_VERSION>" "${BFB_VERSIONS[1]}" \
+        "<BFB_DOCA_VERSION>" "${BFB_VERSIONS[2]}" \
+        "<BFB_UEFI_VERSION>" "${BFB_VERSIONS[3]}"
     log [INFO] "BFB manifest updated successfully"
 }
 
