@@ -21,6 +21,10 @@ const (
 	tcSvc004DPUServiceIPAMName = "pool1"
 )
 
+func dpuserviceIPAMNetworkSpec(spec dpuservicev1.DPUServiceIPAMSpec) *dpuservicev1.IPV4Network {
+	return spec.IPV4Network
+}
+
 func expectedCIDRPoolGateway(prefix string, gatewayIndex int32) (string, error) {
 	if gatewayIndex < 0 {
 		return "", fmt.Errorf("gateway index must not be negative: %d", gatewayIndex)
@@ -193,13 +197,14 @@ var _ = Describe("TC-SVC-004: Edit DPUServiceIPAM Object",
 				Namespace: cfg.DPFNamespace,
 				Name:      tcSvc004DPUServiceIPAMName,
 			}, ipam)).To(Succeed(), "pool1 DPUServiceIPAM must exist")
-			Expect(ipam.Spec.IPV4Network).NotTo(BeNil(),
-				"pool1 DPUServiceIPAM must use ipv4Network")
-			Expect(ipam.Spec.IPV4Network.Network).NotTo(BeEmpty(),
+			network := dpuserviceIPAMNetworkSpec(ipam.Spec)
+			Expect(network).NotTo(BeNil(),
+				"pool1 DPUServiceIPAM must use network-mode pool spec")
+			Expect(network.Network).NotTo(BeEmpty(),
 				"pool1 DPUServiceIPAM network must be set")
-			Expect(ipam.Spec.IPV4Network.GatewayIndex).NotTo(BeNil(),
+			Expect(network.GatewayIndex).NotTo(BeNil(),
 				"pool1 DPUServiceIPAM must configure a gateway for HBN")
-			Expect(ipam.Spec.IPV4Network.PrefixSize).To(Equal(int32(29)),
+			Expect(network.PrefixSize).To(Equal(int32(29)),
 				"TC-SVC-004 gateway-index update expects pool1 /29 allocations")
 			Expect(isReady(ipam.Status.Conditions)).To(BeTrue(),
 				"pool1 DPUServiceIPAM must be Ready before update")
@@ -210,9 +215,11 @@ var _ = Describe("TC-SVC-004: Edit DPUServiceIPAM Object",
 					Namespace: cfg.DPFNamespace,
 					Name:      tcSvc004DPUServiceIPAMName,
 				}, pool)).To(Succeed())
-				g.Expect(pool.Spec.CIDR).To(Equal(ipam.Spec.IPV4Network.Network))
+				poolNetwork := dpuserviceIPAMNetworkSpec(ipam.Spec)
+				g.Expect(poolNetwork).NotTo(BeNil())
+				g.Expect(pool.Spec.CIDR).To(Equal(poolNetwork.Network))
 				g.Expect(pool.Spec.GatewayIndex).NotTo(BeNil())
-				g.Expect(*pool.Spec.GatewayIndex).To(Equal(*ipam.Spec.IPV4Network.GatewayIndex))
+				g.Expect(*pool.Spec.GatewayIndex).To(Equal(*poolNetwork.GatewayIndex))
 				g.Expect(pool.Status.Allocations).NotTo(BeEmpty(),
 					"pool1 CIDRPool must have existing allocations")
 			}).WithTimeout(5 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
@@ -235,9 +242,9 @@ var _ = Describe("TC-SVC-004: Edit DPUServiceIPAM Object",
 			originalHBNPods = pods
 			targetDPU, err = findReadyDPUWithHBNPod(ctx, mgmtClient, cfg.DPFNamespace, pods)
 			Expect(err).NotTo(HaveOccurred())
-			originalGatewayIndex := *ipam.Spec.IPV4Network.GatewayIndex
+			originalGatewayIndex := *network.GatewayIndex
 			updatedGatewayIndex = originalGatewayIndex + 1
-			addressesPerPrefix := int32(1) << uint32(32-ipam.Spec.IPV4Network.PrefixSize)
+			addressesPerPrefix := int32(1) << uint32(32-network.PrefixSize)
 			lastUsableGatewayIndex := addressesPerPrefix - 2
 			Expect(updatedGatewayIndex).To(BeNumerically("<=", lastUsableGatewayIndex),
 				"incremented pool1 gatewayIndex must remain before the /29 broadcast address")
@@ -257,13 +264,15 @@ var _ = Describe("TC-SVC-004: Edit DPUServiceIPAM Object",
 			Expect(ipam.Spec).To(Equal(originalIPAMSpec))
 
 			expectedIPAMSpec := originalIPAMSpec.DeepCopy()
-			expectedIPAMSpec.IPV4Network.GatewayIndex = &updatedGatewayIndex
+			Expect(dpuserviceIPAMNetworkSpec(*expectedIPAMSpec)).NotTo(BeNil())
+			dpuserviceIPAMNetworkSpec(*expectedIPAMSpec).GatewayIndex = &updatedGatewayIndex
 			expectedCIDRPool := originalCIDRPool.DeepCopy()
 			expectedCIDRPool.Spec.GatewayIndex = &updatedGatewayIndex
 
 			By(fmt.Sprintf("Changing pool1 gatewayIndex to %d", updatedGatewayIndex))
 			patch := client.MergeFrom(ipam.DeepCopy())
-			ipam.Spec.IPV4Network.GatewayIndex = &updatedGatewayIndex
+			Expect(dpuserviceIPAMNetworkSpec(ipam.Spec)).NotTo(BeNil())
+			dpuserviceIPAMNetworkSpec(ipam.Spec).GatewayIndex = &updatedGatewayIndex
 			Expect(mgmtClient.Patch(ctx, ipam, patch)).To(Succeed())
 
 			By("Waiting for gatewayIndex to be reconciled to the DPUCluster CIDRPool")
